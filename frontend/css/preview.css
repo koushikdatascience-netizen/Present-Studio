@@ -1,0 +1,144 @@
+.preview-page {
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.preview-page .present-stage {
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.preview-page .present-frame {
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: min(100vh, calc(100vw * 9 / 16));
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  transition: transform .18s ease-out;
+}
+
+.preview-page #previewCanvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.preview-page .preview-ink-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.preview-page .preview-ink-canvas.is-drawing {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.preview-page .preview-zoom-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.preview-page .preview-zoom-layer.is-selecting {
+  pointer-events: auto;
+  cursor: zoom-in;
+}
+
+.preview-page #previewZoomSelection {
+  position: absolute;
+  border: 2px solid #ffd740;
+  background: rgba(255, 215, 64, .18);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .25);
+}
+
+.preview-page .preview-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.preview-page .preview-controls {
+  position: fixed;
+  z-index: 20;
+  bottom: 18px;
+  left: 18px;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 7px;
+  background: rgba(18,18,18,.78);
+  box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity .16s ease, transform .16s ease;
+}
+
+.preview-page .preview-controls.is-visible,
+.preview-page .preview-controls:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.preview-page .preview-controls button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: #fff;
+  background: transparent;
+  font: 600 22px/1 Arial, sans-serif;
+  cursor: pointer;
+}
+
+.preview-page .preview-controls button:hover,
+.preview-page .preview-controls button:focus-visible { background: rgba(255,255,255,.18); }
+.preview-page .preview-controls button.is-active { color: #111; background: #ffd740; }
+.preview-page .preview-controls button:disabled { opacity: .35; cursor: default; }
+#previewAudio { font-size: 16px; }
+#previewPen, #previewClearInk { font-size: 18px; }
+#previewZoomReset { width: 42px; font-size: 11px; }
+
+.preview-page .preview-control-field {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: rgba(255,255,255,.72);
+  font: 600 9px/1 Arial, sans-serif;
+}
+
+.preview-page .preview-control-field:focus-within { background: rgba(255,255,255,.14); }
+.preview-page .preview-control-field input[type="color"] { width: 24px; height: 24px; padding: 1px; border: 0; background: transparent; cursor: pointer; }
+.preview-page .preview-control-field select { height: 26px; max-width: 84px; border: 1px solid rgba(255,255,255,.2); border-radius: 4px; color: #fff; background: #292929; font-size: 11px; }
+.preview-page .preview-zoom-field select { width: 66px; }
+
+@media (max-width: 760px) {
+  .preview-page .preview-controls { right: 10px; bottom: 10px; left: 10px; overflow-x: auto; }
+  .preview-page .preview-control-field > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}
