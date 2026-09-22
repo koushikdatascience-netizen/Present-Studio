@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Present Studio - Preview</title>
+    <link rel="stylesheet" href="/css/styles.css?v=20260915-youtube-share-gallery">
+    <link rel="stylesheet" href="/css/preview.css?v=20260907-pen-zoom-options">
+  </head>
+  <body class="present-page preview-page">
+    <div class="present-loading" id="previewLoading">
+      <div class="loading-spinner"></div>
+      <p>Loading preview...</p>
+    </div>
+    <div class="present-error" id="previewError" hidden>
+      <div class="error-icon">!</div>
+      <h2>Unable to load preview</h2>
+      <p id="previewErrorMessage">Something went wrong while loading the presentation.</p>
+      <p>Press Esc to return to the editor.</p>
+    </div>
+    <main class="present-stage" id="previewStage" hidden>
+      <span id="previewStatus" class="preview-status" aria-live="polite"></span>
+      <div class="canvas-frame present-frame" id="previewFrame">
+        <div class="present-media-layer" id="previewMedia"></div>
+        <canvas id="previewCanvas" width="1280" height="720" aria-label="Presentation preview"></canvas>
+        <canvas class="preview-ink-canvas" id="previewInkCanvas" width="1280" height="720" aria-label="Presentation annotations"></canvas>
+        <div class="preview-zoom-layer" id="previewZoomLayer" aria-label="Drag to select an area to zoom"><span id="previewZoomSelection" hidden></span></div>
+      </div>
+      <nav class="preview-controls" id="previewControls" aria-label="Preview controls">
+        <button type="button" id="previewPrevious" aria-label="Previous slide" title="Previous slide">‹</button>
+        <button type="button" id="previewNext" aria-label="Next slide" title="Next slide">›</button>
+        <button type="button" id="previewPen" aria-label="Turn on highlighter" title="Pen / highlighter" aria-pressed="false">✎</button>
+        <label class="preview-control-field" title="Highlighter color"><span>Color</span><input type="color" id="previewPenColor" value="#ffdc2d" aria-label="Highlighter color"></label>
+        <label class="preview-control-field" title="Highlighter size"><span>Size</span><select id="previewPenSize" aria-label="Highlighter size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
+        <button type="button" id="previewClearInk" aria-label="Clear annotations" title="Clear annotations">⌫</button>
+        <button type="button" id="previewZoomOut" aria-label="Zoom out" title="Zoom out">−</button>
+        <label class="preview-control-field preview-zoom-field" title="Zoom level"><span>Zoom</span><select id="previewZoom" aria-label="Zoom level"><option value="0.5">50%</option><option value="0.75">75%</option><option value="1" selected>100%</option><option value="1.25">125%</option><option value="1.5">150%</option><option value="2">200%</option><option value="3">300%</option><option value="4">400%</option><option value="custom" hidden>Area</option></select></label>
+        <button type="button" id="previewZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" id="previewZoomSelect" aria-label="Select an area to zoom" title="Select area to zoom" aria-pressed="false">⌖</button>
+        <button type="button" id="previewZoomReset" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button>
+        <button type="button" id="previewAudio" aria-label="Mute presentation audio" title="Sound">🔊</button>
+        <button type="button" id="previewExit" aria-label="Exit preview" title="Exit preview">×</button>
+      </nav>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+    <script src="/js/fabric-patch.js?v=20260908-paragraph-align"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
+    <script src="/js/preview.js?v=20260915-youtube-media"></script>
+  </body>
+</html>
