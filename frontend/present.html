@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Present Studio - Present</title>
+    <link rel="stylesheet" href="/css/styles.css?v=20260919-theme-settings">
+  </head>
+  <body class="present-page" data-audience-theme="dark">
+    <div class="present-loading" id="presentLoading">
+      <div class="loading-spinner"></div>
+      <p>Loading presentation...</p>
+    </div>
+    <div class="present-error" id="presentError" hidden>
+      <div class="error-icon">⚠</div>
+      <h2 id="errorTitle">Unable to load presentation</h2>
+      <p id="errorMessage">Something went wrong while loading the presentation.</p>
+      <a href="/dashboard.html" class="button button-gold">Back to Dashboard</a>
+    </div>
+    <main class="present-stage" id="presentStage" hidden>
+      <div class="present-meta" id="presentMeta">
+        <a href="/dashboard.html" class="present-back">← Dashboard</a>
+        <span id="presentStatus" aria-live="polite">Loading presentation...</span>
+        <button id="audioToggle" type="button" class="fullscreen-btn" aria-label="Enable presentation audio" hidden>🔇 Enable audio</button>
+        <button id="fullscreenToggle" type="button" class="fullscreen-btn" aria-label="Toggle fullscreen">⛶</button>
+      </div>
+      <div class="present-mode-badge" id="presenterBadge">Presenter Mode</div>
+      <div class="canvas-frame present-frame" id="presentFrame"><div class="present-media-layer" id="presentMedia"></div><canvas id="presentCanvas" width="1280" height="720" aria-label="Presentation slide"></canvas><div class="audience-annotation-layer" data-audience-annotation-layer aria-hidden="true"><canvas data-audience-annotation-canvas width="1280" height="720"></canvas><div data-audience-annotation-text></div></div></div>
+      <nav class="present-controls" id="presentControls">
+        <button id="previousSlide" type="button">‹ Previous</button>
+        <span id="slideCounter">1 / 1</span>
+        <button id="autoplayToggle" type="button">Start auto play</button>
+        <button id="nextSlide" type="button">Next ›</button>
+        <button id="endLive" type="button" class="end-live-button">End live</button>
+      </nav>
+      <aside class="live-media-panel present-live-media" id="presentLiveMedia" aria-label="Interactive audience meeting">
+        <div class="live-media-heading audience-prejoin-heading">
+          <div class="audience-welcome-brand"><span class="audience-welcome-mark" aria-hidden="true">S</span><span><small>SnapKey Present Studio</small><strong>Live audience</strong></span></div>
+          <div class="audience-welcome-copy"><span class="eyebrow">You’re invited</span><h1>Welcome to the presentation</h1><p data-live-welcome-presentation>Enter your name and the presenter will let you into the live room.</p></div>
+          <div class="audience-welcome-notes" aria-label="Joining information"><span><b aria-hidden="true">✓</b> Presenter approval</span><span><b aria-hidden="true">✓</b> Mic and camera off</span></div>
+          <p class="audience-preview-audio" data-presentation-audio-status aria-live="polite">Live video and sound start automatically. If your browser limits sound, entering your name will enable it.</p>
+        </div>
+        <div class="live-media-join audience-prejoin-form"><label><span>Your display name</span><input data-live-name type="text" maxlength="80" autocomplete="name" enterkeyhint="go" placeholder="Enter your name" aria-describedby="audienceJoinHelp"></label><label data-screen-code-field hidden><span>Meeting access code</span><input data-screen-code type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="4-digit code" aria-describedby="audienceJoinHelp"></label><button data-live-join type="button">Request to join</button></div>
+        <p class="live-media-status audience-prejoin-status" id="audienceJoinHelp" data-live-status aria-live="polite">You’ll wait briefly in the lobby until the presenter admits you.</p>
+        <div class="audience-meeting-stage">
+          <button class="audience-sidebar-restore" data-live-panel-restore type="button" aria-label="Show people panel" title="Show people panel" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"></circle><path d="M3 19c.3-3.2 2.4-5 6-5s5.7 1.8 6 5"></path><circle cx="17" cy="9" r="2"></circle><path d="M16 15c2.8-.2 4.6 1.4 5 4"></path></svg><span>People</span><b data-live-restore-count>0</b></button>
+          <section class="live-presentation-feed audience-presentation-feed" data-live-presentation-viewer aria-label="Current live presentation">
+            <div class="live-presentation-feed-heading"><strong>Live presentation</strong><span data-live-presentation-label>Waiting for the current slide</span></div>
+            <div class="live-presentation-feed-frame"><canvas data-live-presentation-canvas width="1280" height="720" aria-label="Current presentation output"></canvas><div class="live-presentation-feed-media" data-live-presentation-media></div><span class="live-presentation-feed-empty" data-live-presentation-empty>Waiting for the current slide</span><div class="audience-annotation-layer" data-audience-annotation-layer aria-hidden="true"><canvas data-audience-annotation-canvas width="1280" height="720"></canvas><div data-audience-annotation-text></div></div></div>
+          </section>
+          <section class="live-screen-share" data-live-screen-share-viewer hidden><div class="live-screen-share-heading"><strong data-live-screen-share-label>Shared screen</strong><span data-live-screen-share-mode>Select a screen to focus</span></div><div class="live-screen-share-media" data-live-screen-share-media></div></section>
+        </div>
+        <aside class="audience-meeting-sidebar live-meeting-sidebar" aria-label="Participants and meeting controls">
+          <header class="audience-meeting-sidebar-header"><button type="button" class="audience-sheet-handle" data-live-sheet-handle aria-label="Drag down or tap to hide people panel" title="Drag down or tap to hide people panel"><span></span></button><div><strong>People</strong><span data-live-count>0 connected</span></div><div><button class="live-media-toggle live-header-action" id="audienceSettingsButton" type="button" aria-label="Open appearance settings" aria-haspopup="dialog" aria-controls="audienceSettingsDialog" title="Settings">⚙</button><button class="live-media-toggle live-header-action" data-live-fullscreen type="button" aria-label="Enter meeting fullscreen" title="Enter meeting fullscreen">⛶</button><button class="live-media-toggle audience-people-hide live-header-action" data-live-panel-toggle type="button" aria-expanded="true" aria-label="Hide people panel" title="Hide people panel">⌄</button></div></header>
+          <div class="live-engagement-bar" aria-label="Meeting reactions"><button type="button" data-live-hand disabled aria-pressed="false"><span aria-hidden="true">✋</span><span>Raise hand</span></button><button type="button" data-live-reaction="clap" disabled aria-label="Send applause"><span aria-hidden="true">👏</span><span>Clap</span></button><button type="button" data-live-reaction="party" disabled aria-label="Send party horn"><span aria-hidden="true">🥳</span><span>Celebrate</span></button><button type="button" data-live-reaction="heart" disabled aria-label="Send heart"><span aria-hidden="true">❤️</span><span>Love</span></button></div>
+          <nav class="live-sidebar-tabs" aria-label="Meeting sidebar" role="tablist"><button type="button" role="tab" data-live-tab="people" aria-selected="true" class="is-active">People <span data-live-people-badge>0</span></button><button type="button" role="tab" data-live-tab="chat" aria-selected="false">Chat <span data-live-chat-badge hidden>0</span></button></nav>
+          <div class="live-sidebar-panels">
+            <section class="live-sidebar-panel is-active" data-live-panel="people" aria-label="People"><div class="live-media-tiles" data-live-tiles aria-live="polite"></div></section>
+            <section class="live-sidebar-panel live-chat-panel" data-live-panel="chat" aria-label="Meeting chat" hidden><div class="live-chat-messages" data-live-chat-messages role="log" aria-live="polite"><p class="live-chat-empty" data-live-chat-empty>Messages shared in this meeting appear here.</p></div><form class="live-chat-compose" data-live-chat-form><label class="sr-only" for="audienceChatInput">Message everyone</label><input id="audienceChatInput" data-live-chat-input maxlength="500" autocomplete="off" placeholder="Message everyone"><button type="submit" disabled aria-label="Send message">Send</button></form></section>
+          </div>
+          <div class="live-media-actions audience-meeting-controls live-icon-control-dock" aria-label="Meeting controls">
+            <button class="live-control-button is-microphone" type="button" data-live-microphone disabled aria-pressed="false"><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path></svg></span><span data-live-control-label>Mic</span></button>
+            <button class="live-control-button is-camera" type="button" data-live-camera disabled aria-pressed="false"><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"></rect><path d="m16 10 5-3v10l-5-3z"></path></svg></span><span data-live-control-label>Camera</span></button>
+            <button class="live-control-button is-screen" type="button" data-live-screen-share disabled aria-pressed="false"><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4M12 13V7M9 10l3-3 3 3"></path></svg></span><span data-live-control-label>Share</span></button>
+            <button class="live-control-button is-background" type="button" data-live-background disabled aria-haspopup="dialog" aria-expanded="false"><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 15l4-4 3 3 2-2 7 7M16.5 9h.01"></path></svg></span><span data-live-control-label>Effects</span></button>
+            <button class="live-control-button is-audio" type="button" data-live-enable-audio hidden><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"></path></svg></span><span data-live-control-label>Audio</span></button>
+            <div class="live-more-menu-wrap" data-live-settings-target="#audienceSettingsButton">
+              <button class="live-control-button is-more" type="button" data-live-more-toggle aria-haspopup="menu" aria-expanded="false" aria-label="More meeting options"><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></span><span data-live-control-label>More</span></button>
+              <div class="live-more-menu" data-live-more-menu role="menu" hidden>
+                <button type="button" role="menuitem" data-live-more-action="panel">Hide panel</button>
+                <button type="button" role="menuitem" data-live-more-action="fullscreen">Fullscreen</button>
+                <button type="button" role="menuitem" data-live-more-action="settings">Appearance</button>
+              </div>
+            </div>
+            <button class="live-control-button is-leave" type="button" data-live-leave disabled><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5.5 15.5c4.3-3.6 8.7-3.6 13 0M4 14l2 5 4-2M20 14l-2 5-4-2"></path></svg></span><span data-live-control-label>Leave</span></button>
+          </div>
+          <dialog class="live-background-dialog" data-live-background-dialog aria-labelledby="audienceBackgroundTitle">
+            <div class="live-background-dialog-header"><div><small>Camera effects</small><strong id="audienceBackgroundTitle">Choose a background</strong></div><button type="button" data-live-background-close aria-label="Close background chooser">×</button></div>
+            <p>Choose a look for your camera. Your selection is remembered on this device.</p>
+            <div class="live-background-options">
+              <span class="live-background-category">Essentials</span>
+              <button type="button" data-live-background-option="none"><span class="live-background-preview is-none">None</span><b>No effect</b></button>
+              <button type="button" data-live-background-option="blur"><span class="live-background-preview is-blur">Blur</span><b>Soft blur</b></button>
+              <button type="button" data-live-background-option="blur-strong"><span class="live-background-preview is-blur-strong">Blur</span><b>Focus blur</b></button>
+              <span class="live-background-category">Spaces &amp; color</span>
+              <button type="button" data-live-background-option="minimal"><span class="live-background-preview is-minimal"></span><b>Minimal</b></button>
+              <button type="button" data-live-background-option="loft"><span class="live-background-preview is-loft"></span><b>Daylight loft</b></button>
+              <button type="button" data-live-background-option="botanical"><span class="live-background-preview is-botanical"></span><b>Botanical</b></button>
+              <button type="button" data-live-background-option="aurora"><span class="live-background-preview is-aurora"></span><b>Aurora</b></button>
+              <button type="button" data-live-background-option="gallery"><span class="live-background-preview is-gallery"></span><b>Gallery</b></button>
+              <button type="button" data-live-background-option="studio"><span class="live-background-preview is-studio"></span><b>Studio</b></button>
+              <button type="button" data-live-background-option="office"><span class="live-background-preview is-office"></span><b>Office</b></button>
+              <button type="button" data-live-background-option="warm"><span class="live-background-preview is-warm"></span><b>Warm light</b></button>
+            </div>
+            <span class="live-background-support" data-live-background-support aria-live="polite"></span>
+          </dialog>
+        </aside>
+      </aside>
+    </main>
+    <dialog class="appearance-settings-dialog" id="audienceSettingsDialog" aria-labelledby="audienceSettingsTitle">
+      <div class="appearance-settings-header"><div><span>Preferences</span><h2 id="audienceSettingsTitle">Appearance settings</h2></div><button type="button" id="audienceSettingsClose" aria-label="Close settings">×</button></div>
+      <div class="appearance-settings-body"><p>Choose how the audience meeting looks on this device.</p><div class="appearance-theme-options" role="group" aria-label="Audience theme"><button type="button" data-audience-theme-option="dark" aria-pressed="true"><span aria-hidden="true">☾</span><span><strong>Black</strong><small>Dark meeting view</small></span><b>Selected</b></button><button type="button" data-audience-theme-option="light" aria-pressed="false"><span aria-hidden="true">☀</span><span><strong>Light</strong><small>Bright meeting view</small></span><b>Use</b></button></div></div>
+    </dialog>
+    <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+    <script src="/js/fabric-patch.js?v=20260908-paragraph-align"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
+    <script src="/js/api.js?v=20260919-participant-icons"></script>
+    <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
+    <script src="/js/live-media.js?v=20260923-mobile-hardening"></script>
+    <script src="/js/present.js?v=20260919-theme-settings"></script>
+  </body>
+</html>
