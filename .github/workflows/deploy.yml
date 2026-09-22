@@ -1,9 +1,6 @@
 name: Deploy SnapKey Studio
 
 on:
-  push:
-    branches:
-      - master
   workflow_dispatch:
 
 concurrency:
@@ -33,9 +30,9 @@ jobs:
 
             echo "=== UPDATE SOURCE REPO ==="
             cd "$SOURCE_DIR"
-            git fetch origin master
-            git checkout master
-            git reset --hard origin/master
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
 
             echo "Deploying commit:"
             git log -1 --oneline
