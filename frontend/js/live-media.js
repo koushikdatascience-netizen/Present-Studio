@@ -109,6 +109,7 @@
     let raisedHands = new Map();
     let soundContext = null;
     const reactionAudio = new Map();
+    let reactionAudioWarmed = false;
     let joinSoundEnabled = localStorage.getItem("presentStudio.joinSoundEnabled") !== "false";
     let joinSoundButton = null;
     let tabSpeakerMuted = localStorage.getItem("presentStudio.tabSpeakerMuted") === "true";
@@ -284,6 +285,21 @@
       }
     }
     function participantRole(participant) { try { return JSON.parse(participant.metadata || "{}").role || "viewer"; } catch { return "viewer"; } }
+    function isPresenterParticipant(participant) {
+      return participantRole(participant) === "presenter" || String(participant?.identity || "").startsWith("presenter-");
+    }
+    function nonPresenterRemoteIdentities() {
+      if (!room) return [];
+      return [...room.remoteParticipants.values()]
+        .filter(participant => !isPresenterParticipant(participant))
+        .map(participant => String(participant.identity || ""))
+        .filter(Boolean);
+    }
+    function recomputeMeetingMuted() {
+      const targets = nonPresenterRemoteIdentities();
+      meetingMuted = targets.length > 0 && targets.every(identity => mutedParticipants.has(identity));
+      return meetingMuted;
+    }
     function publications(participant) { return participant?.trackPublications ? [...participant.trackPublications.values()] : []; }
     function isSource(publication, name) { return publication?.source === livekit.Track?.Source?.[name]; }
     function detachMountedTracks() { mountedTracks.forEach(track => track.detach?.()); mountedTracks.clear(); screenShareRenderSignature = ""; }
@@ -496,30 +512,61 @@
     }
 
     const reactionSoundUrls = {
-      clap: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Applause_i.ogg",
-      party: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Hurray.ogg",
-      heart: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Kiss_Pop.ogg"
+      clap: "/assets/sounds/reaction-clap.mp3",
+      party: "/assets/sounds/reaction-celebrate.mp3",
+      heart: "/assets/sounds/reaction-love.mp3"
     };
 
+    function reactionAudioElement(type) {
+      let audio = reactionAudio.get(type);
+      if (!audio) {
+        const source = reactionSoundUrls[type];
+        if (!source) return null;
+        audio = new Audio(source);
+        audio.preload = "auto";
+        audio.volume = type === "clap" ? .58 : type === "party" ? .68 : .5;
+        reactionAudio.set(type, audio);
+      }
+      return audio;
+    }
+
     function playReactionSound(type) {
-      const source = reactionSoundUrls[type];
-      if (!source) return;
       try {
-        let audio = reactionAudio.get(type);
-        if (!audio) {
-          audio = new Audio(source);
-          audio.preload = "auto";
-          audio.crossOrigin = "anonymous";
-          reactionAudio.set(type, audio);
-        }
+        const audio = reactionAudioElement(type);
+        if (!audio) return;
         audio.pause();
         audio.currentTime = 0;
-        audio.volume = type === "clap" ? .58 : type === "party" ? .68 : .5;
-        audio.play().catch(() => {});
-      } catch {}
+        audio.play().catch(error => console.warn(`Reaction audio failed for ${type}`, error));
+      } catch (error) {
+        console.warn(`Reaction audio failed for ${type}`, error);
+      }
+    }
+
+    function warmReactionAudio() {
+      if (reactionAudioWarmed) return;
+      reactionAudioWarmed = true;
+      Object.keys(reactionSoundUrls).forEach(type => {
+        try {
+          const audio = reactionAudioElement(type);
+          if (!audio) return;
+          audio.muted = true;
+          const playback = audio.play();
+          Promise.resolve(playback).then(() => {
+            audio.pause();
+            audio.currentTime = 0;
+            audio.muted = false;
+          }).catch(error => {
+            audio.muted = false;
+            console.warn(`Reaction audio warm-up failed for ${type}`, error);
+          });
+        } catch (error) {
+          console.warn(`Reaction audio warm-up failed for ${type}`, error);
+        }
+      });
     }
 
     function unlockReactionAudio() {
+      warmReactionAudio();
       try {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextClass) return;
@@ -751,7 +798,7 @@
         authToken: options.authToken || "",
         shareToken: options.shareToken || "",
         featuredShareIdentity: controllerShareIdentity,
-        meetingMuted: false,
+        meetingMuted,
         mutedParticipants: [...mutedParticipants]
       });
     }
@@ -759,8 +806,9 @@
     function applyControllerState(message) {
       if (!message || (message.presentationId && message.presentationId !== options.presentationId)) return;
       controllerShareIdentity = String(message.featuredShareIdentity || "");
-      meetingMuted = false;
       mutedParticipants = new Set(Array.isArray(message.mutedParticipants) ? message.mutedParticipants.map(String) : []);
+      meetingMuted = Boolean(message.meetingMuted);
+      if (room && nonPresenterRemoteIdentities().length) recomputeMeetingMuted();
       applyRemoteAudioState();
       renderParticipants();
     }
@@ -1101,14 +1149,19 @@
         mute.innerHTML = muted
           ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 11.7 5.2M12 18v3M9 21h6M3 3l18 18"></path></svg>'
           : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path></svg>';
-        mute.disabled = false;
-        const muteLabel = muted ? `Ask ${participant.name || "participant"} to unmute their microphone` : `Mute ${participant.name || "participant"}`;
+        const presenterParticipant = isPresenterParticipant(participant);
+        mute.disabled = presenterParticipant;
+        const muteLabel = presenterParticipant
+          ? "Presenters cannot be muted"
+          : muted ? `Ask ${participant.name || "participant"} to unmute their microphone` : `Mute ${participant.name || "participant"}`;
         mute.setAttribute("aria-label", muteLabel);
         mute.title = muteLabel;
         mute.setAttribute("aria-pressed", String(muted));
         mute.addEventListener("click", event => {
           event.stopPropagation();
+          if (presenterParticipant) return;
           if (muted) mutedParticipants.delete(participant.identity); else mutedParticipants.add(participant.identity);
+          recomputeMeetingMuted();
           applyRemoteAudioState();
           renderParticipants();
           publishControllerState();
@@ -1137,7 +1190,7 @@
           participantActions.append(feature);
         }
         const registryItem = participantRegistry.get(String(participant.identity));
-        if (registryItem?.clientId && !isCohostController) {
+        if (registryItem?.clientId) {
           const roleButton = document.createElement("button");
           const cohost = registryItem.role === "cohost";
           roleButton.type = "button";
@@ -1145,10 +1198,15 @@
           roleButton.innerHTML = cohost
             ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg>'
             : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 15 9l6 .9-4.5 4.4 1.1 6.2L12 17.5 6.4 20.5l1.1-6.2L3 9.9 9 9z"></path></svg>';
-          roleButton.setAttribute("aria-label", cohost ? `Make ${participant.name || "participant"} a normal audience member` : `Make ${participant.name || "participant"} co-host`);
-          roleButton.title = roleButton.getAttribute("aria-label");
+          const roleLabel = isCohostController
+            ? "Only the presentation owner can change participant roles"
+            : cohost ? `Make ${participant.name || "participant"} a normal audience member` : `Make ${participant.name || "participant"} co-host`;
+          roleButton.disabled = isCohostController;
+          roleButton.setAttribute("aria-label", roleLabel);
+          roleButton.title = roleLabel;
           roleButton.addEventListener("click", event => {
             event.stopPropagation();
+            if (isCohostController) return;
             options.socket?.emit("meeting_role_update", {
               ...moderationCredentials(),
               clientId: registryItem.clientId,
@@ -1162,10 +1220,15 @@
           remove.type = "button";
           remove.className = "live-participant-remove";
           remove.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"></circle><path d="M3.5 19c.3-3 2.2-5 5.5-5s5.2 2 5.5 5M16 9l5 5m0-5-5 5"></path></svg>';
-          remove.setAttribute("aria-label", `Move ${participant.name || "participant"} to the waiting room`);
-          remove.title = `Move ${participant.name || "participant"} to the waiting room`;
+          const removeLabel = isCohostController
+            ? "Only the presentation owner can remove participants"
+            : `Move ${participant.name || "participant"} to the waiting room`;
+          remove.disabled = isCohostController;
+          remove.setAttribute("aria-label", removeLabel);
+          remove.title = removeLabel;
           remove.addEventListener("click", event => {
             event.stopPropagation();
+            if (isCohostController) return;
             options.socket?.emit("meeting_remove_participant", { ...moderationCredentials(), clientId: registryItem.clientId });
           });
           participantActions.append(remove);
@@ -1387,7 +1450,10 @@
       cameraButton.disabled = !connected;
       screenShareButton.disabled = !connected;
       if (backgroundButton) backgroundButton.disabled = !connected;
-      if (muteAllButton) muteAllButton.disabled = !connected || isCohostController;
+      if (muteAllButton) {
+        muteAllButton.disabled = !connected;
+        muteAllButton.title = isCohostController ? "Co-hosts can mute audience participants; owner and co-host microphones are protected" : "";
+      }
       if (handButton) handButton.disabled = !connected;
       reactionButtons.forEach(button => { button.disabled = !connected; });
       if (chatInput) chatInput.disabled = !connected;
@@ -1772,7 +1838,10 @@
       }
     }
 
-    joinButton.addEventListener("click", join);
+    joinButton.addEventListener("click", event => {
+      unlockReactionAudio();
+      join(event);
+    });
     function submitJoinOnEnter(event) {
       if (event.key !== "Enter" || event.isComposing) return;
       event.preventDefault();
@@ -1794,11 +1863,8 @@
       await applySelectedCameraBackground(true);
     }));
     muteAllButton?.addEventListener("click", () => {
-      if (!room || isCohostController) return;
-      const targets = [...room.remoteParticipants.values()]
-        .filter(participant => participantRole(participant) !== "presenter")
-        .map(participant => String(participant.identity || ""))
-        .filter(Boolean);
+      if (!room) return;
+      const targets = nonPresenterRemoteIdentities();
       const allMuted = targets.length > 0 && targets.every(identity => mutedParticipants.has(identity));
       targets.forEach(identity => {
         if (allMuted) mutedParticipants.delete(identity);
@@ -1809,11 +1875,11 @@
           muted: !allMuted
         });
       });
-      meetingMuted = false;
+      recomputeMeetingMuted();
       applyRemoteAudioState();
       publishControllerState();
       renderParticipants();
-      setStatus(allMuted ? "Asked all participants to unmute" : "Muted all participants except the owner", "success");
+      setStatus(allMuted ? "Asked all audience participants to unmute" : "Muted all audience participants; presenters stay unmuted", "success");
     });
     handButton?.addEventListener("click", () => {
       if (!room) return;
