@@ -471,6 +471,9 @@ async def meeting_participant_left(sid, data):
 async def meeting_remove_participant(sid, data):
     presentation_id = data.get("presentationId")
     guest_id = str(data.get("clientId") or "").strip()[:128]
+    if data.get("cohostGuestId"):
+        await sm.sio.emit("presenter_rejected", {"message": "Only the presentation owner can remove participants"}, room=sid)
+        return
     if not presentation_id or not guest_id or not sm._presenter_allowed(data):
         await sm.sio.emit("presenter_rejected", {"message": "Presenter permission required"}, room=sid)
         return
@@ -508,6 +511,9 @@ async def meeting_role_update(sid, data):
     guest_id = str(data.get("clientId") or "").strip()[:128]
     next_role = str(data.get("role") or "").strip().lower()
     if next_role not in {"audience", "cohost"}:
+        return
+    if data.get("cohostGuestId"):
+        await sm.sio.emit("presenter_rejected", {"message": "Only the presentation owner can change participant roles"}, room=sid)
         return
     if not presentation_id or not guest_id or not sm._presenter_allowed(data):
         await sm.sio.emit("presenter_rejected", {"message": "Presenter permission required"}, room=sid)
