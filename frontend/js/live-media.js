@@ -70,6 +70,8 @@
     const chatForm = root.querySelector("[data-live-chat-form]");
     const chatInput = root.querySelector("[data-live-chat-input]");
     const chatSubmit = chatForm?.querySelector("button[type='submit']");
+    const chatAttachButton = root.querySelector("[data-live-chat-attach]");
+    const chatFileInput = root.querySelector("[data-live-chat-file]");
     const lobby = root.querySelector("[data-live-lobby]");
     const waitingList = root.querySelector("[data-live-waiting-list]");
     const waitingCount = root.querySelector("[data-live-waiting-count]");
@@ -1337,6 +1339,7 @@
       reactionButtons.forEach(button => { button.disabled = !connected; });
       if (chatInput) chatInput.disabled = !connected;
       if (chatSubmit) chatSubmit.disabled = !connected;
+      if (chatAttachButton) chatAttachButton.disabled = !connected;
       leaveButton.disabled = !connected;
       setControlLabel(microphoneButton, isController ? (microphoneEnabled ? "Mic on" : "Mic off") : (microphoneEnabled ? "Mute" : "Unmute"), microphoneEnabled ? "Microphone is on. Select to mute" : "Microphone is off. Select to unmute");
       setControlLabel(cameraButton, cameraEnabled ? "Camera off" : "Camera on", cameraEnabled ? "Turn camera off" : "Turn camera on");
@@ -1760,6 +1763,42 @@
       options.socket?.emit("meeting_reaction", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), reaction: button.dataset.liveReaction });
     }));
     sidebarTabs.forEach(button => button.addEventListener("click", () => setSidebarTab(button.dataset.liveTab)));
+    async function uploadMeetingAttachment(file) {
+      if (!room || !file) return;
+      if (file.size > 100 * 1024 * 1024) {
+        setStatus("Chat files must be 100 MB or smaller", "error");
+        return;
+      }
+      const form = new FormData();
+      form.append("presentation_id", options.presentationId);
+      form.append("client_id", meetingClientId);
+      form.append("share_token", options.shareToken || "");
+      form.append("file", file, file.name || "attachment");
+      chatAttachButton && (chatAttachButton.disabled = true);
+      setStatus(`Uploading ${file.name || "attachment"}…`);
+      try {
+        const headers = {};
+        if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
+        const response = await fetch("/api/media/meeting-upload", { method: "POST", headers, body: form });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.detail || "File upload failed");
+        options.socket?.emit("meeting_chat", {
+          presentationId: options.presentationId,
+          identity: currentIdentity(),
+          name: currentName(),
+          text: "",
+          attachment: payload.attachment
+        });
+        setSidebarTab("chat");
+        setStatus("File shared", "success");
+      } catch (error) {
+        setStatus(error.message || "File upload failed", "error");
+      } finally {
+        if (chatFileInput) chatFileInput.value = "";
+        if (chatAttachButton) chatAttachButton.disabled = !room;
+      }
+    }
+
     chatForm?.addEventListener("submit", event => {
       event.preventDefault();
       const text = chatInput.value.trim();
@@ -1767,6 +1806,31 @@
       options.socket?.emit("meeting_chat", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), text });
       chatInput.value = "";
       chatInput.focus();
+    });
+    chatAttachButton?.addEventListener("click", () => chatFileInput?.click());
+    chatFileInput?.addEventListener("change", () => {
+      const file = chatFileInput.files?.[0];
+      if (file) uploadMeetingAttachment(file);
+    });
+    chatInput?.addEventListener("paste", event => {
+      const file = [...(event.clipboardData?.files || [])].find(item => item.type?.startsWith("image/"));
+      if (!file) return;
+      event.preventDefault();
+      uploadMeetingAttachment(file);
+    });
+    chatMessages?.addEventListener("dragover", event => {
+      if (!room || !event.dataTransfer?.types?.includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      chatMessages.classList.add("is-file-dragover");
+    });
+    chatMessages?.addEventListener("dragleave", () => chatMessages.classList.remove("is-file-dragover"));
+    chatMessages?.addEventListener("drop", event => {
+      chatMessages.classList.remove("is-file-dragover");
+      const file = event.dataTransfer?.files?.[0];
+      if (!room || !file) return;
+      event.preventDefault();
+      uploadMeetingAttachment(file);
     });
     enableAudioButton.addEventListener("click", () => enableAudio(true));
     leaveButton.addEventListener("click", leave);
