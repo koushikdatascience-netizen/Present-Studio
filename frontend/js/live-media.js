@@ -1137,7 +1137,7 @@
           participantActions.append(feature);
         }
         const registryItem = participantRegistry.get(String(participant.identity));
-        if (registryItem?.clientId && participantRole(participant) !== "presenter" && !isCohostController) {
+        if (registryItem?.clientId && !isCohostController) {
           const roleButton = document.createElement("button");
           const cohost = registryItem.role === "cohost";
           roleButton.type = "button";
@@ -1549,11 +1549,11 @@
     }
 
     function announceParticipantIdentity({ refreshAdmission = false } = {}) {
-      if (isController || !room?.localParticipant?.identity) return;
-      if (refreshAdmission) emitAdmissionRequest();
+      if ((isController && !isCohostController) || !room?.localParticipant?.identity) return;
+      if (refreshAdmission && !isCohostController) emitAdmissionRequest();
       options.socket?.emit("meeting_participant_joined", {
         presentationId: options.presentationId,
-        clientId: meetingClientId,
+        clientId: isCohostController ? options.cohostGuestId : meetingClientId,
         identity: room.localParticipant.identity,
         name: currentName()
       });

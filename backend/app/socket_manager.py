@@ -347,6 +347,9 @@ async def meeting_participant_audio(sid, data):
     target_identity = raw_target.strip()[:128] if isinstance(raw_target, str) else ""
     if not presentation_id or not target_identity:
         return
+    # Presenter identities must stay outside audience mute operations.
+    if data.get("muted") is True and target_identity.startswith("presenter-"):
+        return
     with SessionLocal() as db:
         presentation = db.get(Presentation, presentation_id)
         if not presentation or not can_present_with_credentials(db, presentation, auth_token=auth_token, share_token=share_token):
