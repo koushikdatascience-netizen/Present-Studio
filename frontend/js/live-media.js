@@ -293,7 +293,12 @@
     function currentIdentity() { return String(room?.localParticipant?.identity || ""); }
     function currentName() { return String(room?.localParticipant?.name || nameInput.value.trim() || (isController ? "Presenter" : "Guest")).slice(0, 80); }
     function moderationCredentials() {
-      return { presentationId: options.presentationId, authToken: options.authToken || "", shareToken: options.shareToken || "" };
+      return {
+        presentationId: options.presentationId,
+        authToken: options.authToken || "",
+        shareToken: options.shareToken || "",
+        cohostGuestId: options.cohostGuestId || ""
+      };
     }
 
     function registerController() {
@@ -393,8 +398,53 @@
       }
     }
 
+    function appendLinkedText(container, value) {
+      const text = String(value || "").slice(0, 500);
+      const matcher = /https?:\/\/[^\s<]+/gi;
+      let cursor = 0;
+      for (const match of text.matchAll(matcher)) {
+        if (match.index > cursor) container.append(document.createTextNode(text.slice(cursor, match.index)));
+        const raw = match[0];
+        const trailing = raw.match(/[),.!?:;]+$/)?.[0] || "";
+        const href = trailing ? raw.slice(0, -trailing.length) : raw;
+        const link = document.createElement("a");
+        link.href = href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = href;
+        link.className = "live-chat-link";
+        container.append(link);
+        if (trailing) container.append(document.createTextNode(trailing));
+        cursor = match.index + raw.length;
+      }
+      if (cursor < text.length) container.append(document.createTextNode(text.slice(cursor)));
+    }
+
+    function renderChatAttachment(message, item) {
+      const attachment = message?.attachment;
+      if (!attachment?.url) return;
+      const wrap = document.createElement("div");
+      wrap.className = "live-chat-attachment";
+      const mime = String(attachment.mimeType || "");
+      if (mime.startsWith("image/")) {
+        const image = document.createElement("img");
+        image.src = attachment.url;
+        image.alt = attachment.name || "Shared image";
+        image.loading = "lazy";
+        wrap.append(image);
+      }
+      const link = document.createElement("a");
+      link.href = attachment.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.download = attachment.name || "";
+      link.textContent = attachment.name || "Open attachment";
+      wrap.append(link);
+      item.append(wrap);
+    }
+
     function appendChatMessage(message) {
-      if (!chatMessages || !message?.text) return;
+      if (!chatMessages || (!message?.text && !message?.attachment?.url)) return;
       chatEmpty?.remove();
       const item = document.createElement("article");
       item.className = "live-chat-message";
@@ -408,9 +458,13 @@
       time.dateTime = sentAt.toISOString();
       time.textContent = sentAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       heading.append(author, time);
-      const body = document.createElement("p");
-      body.textContent = String(message.text).slice(0, 500);
-      item.append(heading, body);
+      item.append(heading);
+      if (message.text) {
+        const body = document.createElement("p");
+        appendLinkedText(body, message.text);
+        item.append(body);
+      }
+      renderChatAttachment(message, item);
       chatMessages.append(item);
       while (chatMessages.children.length > 101) chatMessages.children[0].remove();
       chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -459,6 +513,22 @@
           gain.gain.exponentialRampToValueAtTime(.13, now + .02);
           gain.gain.exponentialRampToValueAtTime(.0001, now + .45);
           oscillator.start(now); oscillator.stop(now + .46);
+        } else if (type === "heart") {
+          const playTone = (frequency, offset, duration) => {
+            const oscillator = soundContext.createOscillator();
+            const toneGain = soundContext.createGain();
+            oscillator.type = "sine";
+            oscillator.frequency.setValueAtTime(frequency, now + offset);
+            toneGain.gain.setValueAtTime(.0001, now + offset);
+            toneGain.gain.exponentialRampToValueAtTime(.09, now + offset + .015);
+            toneGain.gain.exponentialRampToValueAtTime(.0001, now + offset + duration);
+            oscillator.connect(toneGain);
+            toneGain.connect(soundContext.destination);
+            oscillator.start(now + offset);
+            oscillator.stop(now + offset + duration + .02);
+          };
+          playTone(523.25, 0, .18);
+          playTone(659.25, .16, .22);
         }
       } catch {}
     }
@@ -1772,6 +1842,30 @@
       renderParticipants();
     });
     options.socket?.on("meeting_lobby_state", renderLobby);
+    options.socket?.on("meeting_role_changed", message => {
+      if (message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
+      if (message.role === "cohost" && message.controllerUrl && !isController) {
+        try { sessionStorage.setItem(`presentStudio.cohostReturn.${options.presentationId}`, location.href); } catch {}
+        setStatus("You have been promoted to co-host. Opening presenter controls…", "success");
+        window.setTimeout(() => location.replace(message.controllerUrl), 450);
+        return;
+      }
+      if (message.role === "audience" && isController && options.cohostGuestId === message.clientId) {
+        const returnKey = `presentStudio.cohostReturn.${options.presentationId}`;
+        let returnUrl = "";
+        try { returnUrl = sessionStorage.getItem(returnKey) || ""; sessionStorage.removeItem(returnKey); } catch {}
+        setStatus("Co-host access ended. Returning to the audience view…");
+        window.setTimeout(() => location.replace(returnUrl || `/present.html?id=${encodeURIComponent(options.presentationId)}`), 450);
+      }
+    });
+    options.socket?.on("meeting_controller_revoked", message => {
+      if (!isController || !options.cohostGuestId || message?.presentationId !== options.presentationId || message.clientId !== options.cohostGuestId) return;
+      const returnKey = `presentStudio.cohostReturn.${options.presentationId}`;
+      let returnUrl = "";
+      try { returnUrl = sessionStorage.getItem(returnKey) || ""; sessionStorage.removeItem(returnKey); } catch {}
+      setStatus(message.reason === "demoted" ? "You are now an audience participant." : "Your co-host access has ended.");
+      window.setTimeout(() => location.replace(returnUrl || `/present.html?id=${encodeURIComponent(options.presentationId)}`), 450);
+    });
     options.socket?.on("connect", () => announceParticipantIdentity({ refreshAdmission: true }));
     options.socket?.on("meeting_admission_decision", message => {
       if (isController || message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
