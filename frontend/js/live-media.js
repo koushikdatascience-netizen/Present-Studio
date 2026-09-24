@@ -1858,7 +1858,10 @@
     microphoneButton.addEventListener("click", toggleMicrophone);
     cameraButton.addEventListener("click", toggleCamera);
     screenShareButton.addEventListener("click", toggleScreenShare);
-    backgroundButton?.addEventListener("click", openBackgroundDialog);
+    backgroundButton?.addEventListener("click", () => {
+      setMoreMenuOpen(false);
+      openBackgroundDialog();
+    });
     backgroundCloseButton?.addEventListener("click", closeBackgroundDialog);
     backgroundDialog?.addEventListener("close", () => backgroundButton?.setAttribute("aria-expanded", "false"));
     backgroundDialog?.addEventListener("click", event => { if (event.target === backgroundDialog) closeBackgroundDialog(); });
@@ -1891,13 +1894,18 @@
       if (!room) return;
       handRaised = !handRaised;
       handButton.setAttribute("aria-pressed", String(handRaised));
-      handButton.lastElementChild.textContent = handRaised ? "Lower hand" : "Raise hand";
+      const handLabel = handButton.querySelector("span:last-child");
+      if (handLabel) handLabel.textContent = handRaised ? "Lower" : "Hand";
+      handButton.setAttribute("aria-label", handRaised ? "Lower hand" : "Raise hand");
+      handButton.title = handButton.getAttribute("aria-label");
       options.socket?.emit("meeting_hand", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), raised: handRaised });
+      setMoreMenuOpen(false);
     });
     reactionButtons.forEach(button => button.addEventListener("click", () => {
       if (!room) return;
       unlockReactionAudio();
       options.socket?.emit("meeting_reaction", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), reaction: button.dataset.liveReaction });
+      setMoreMenuOpen(false);
     }));
     sidebarTabs.forEach(button => button.addEventListener("click", () => setSidebarTab(button.dataset.liveTab)));
     async function uploadMeetingAttachment(file) {
