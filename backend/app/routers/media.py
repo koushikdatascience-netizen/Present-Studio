@@ -7,7 +7,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..models import LiveSession, MediaAsset, MeetingParticipantGrant, Presentation, User
 from ..schemas import MediaAssetOut
-from ..security import can_edit_presentation, current_user, new_id, optional_current_user
+from ..security import can_edit_presentation, can_present_with_credentials, current_user, new_id, optional_current_user
 
 
 router = APIRouter(prefix="/api/media", tags=["media"])
@@ -96,6 +96,7 @@ async def upload_meeting_file(
     request: Request,
     presentation_id: str = Form(...),
     client_id: str = Form(...),
+    share_token: str = Form(""),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -106,6 +107,8 @@ async def upload_meeting_file(
 
     user = optional_current_user(request, db)
     allowed = bool(user and can_edit_presentation(db, presentation, user))
+    if not allowed and share_token:
+        allowed = can_present_with_credentials(db, presentation, share_token=share_token)
     if not allowed:
         live = db.query(LiveSession).filter(
             LiveSession.presentation_id == presentation_id,
