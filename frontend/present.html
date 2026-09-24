@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio - Present</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20260919-theme-settings">
+    <link rel="stylesheet" href="/css/styles.css?v=20260925-more-reactions">
   </head>
   <body class="present-page" data-audience-theme="dark">
     <div class="present-loading" id="presentLoading">
@@ -52,7 +52,6 @@
         </div>
         <aside class="audience-meeting-sidebar live-meeting-sidebar" aria-label="Participants and meeting controls">
           <header class="audience-meeting-sidebar-header"><button type="button" class="audience-sheet-handle" data-live-sheet-handle aria-label="Drag down or tap to hide people panel" title="Drag down or tap to hide people panel"><span></span></button><div><strong>People</strong><span data-live-count>0 connected</span></div><div><button class="live-media-toggle live-header-action" id="audienceSettingsButton" type="button" aria-label="Open appearance settings" aria-haspopup="dialog" aria-controls="audienceSettingsDialog" title="Settings">⚙</button><button class="live-media-toggle live-header-action" data-live-fullscreen type="button" aria-label="Enter meeting fullscreen" title="Enter meeting fullscreen">⛶</button><button class="live-media-toggle audience-people-hide live-header-action" data-live-panel-toggle type="button" aria-expanded="true" aria-label="Hide people panel" title="Hide people panel">⌄</button></div></header>
-          <div class="live-engagement-bar" aria-label="Meeting reactions"><button type="button" data-live-hand disabled aria-pressed="false"><span aria-hidden="true">✋</span><span>Raise hand</span></button><button type="button" data-live-reaction="clap" disabled aria-label="Send applause"><span aria-hidden="true">👏</span><span>Clap</span></button><button type="button" data-live-reaction="party" disabled aria-label="Send party horn"><span aria-hidden="true">🥳</span><span>Celebrate</span></button><button type="button" data-live-reaction="heart" disabled aria-label="Send heart"><span aria-hidden="true">❤️</span><span>Love</span></button></div>
           <nav class="live-sidebar-tabs" aria-label="Meeting sidebar" role="tablist"><button type="button" role="tab" data-live-tab="people" aria-selected="true" class="is-active">People <span data-live-people-badge>0</span></button><button type="button" role="tab" data-live-tab="chat" aria-selected="false">Chat <span data-live-chat-badge hidden>0</span></button></nav>
           <div class="live-sidebar-panels">
             <section class="live-sidebar-panel is-active" data-live-panel="people" aria-label="People"><div class="live-media-tiles" data-live-tiles aria-live="polite"></div></section>
@@ -62,11 +61,17 @@
             <button class="live-control-button is-microphone" type="button" data-live-microphone disabled aria-pressed="false"><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path></svg></span><span data-live-control-label>Mic</span></button>
             <button class="live-control-button is-camera" type="button" data-live-camera disabled aria-pressed="false"><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"></rect><path d="m16 10 5-3v10l-5-3z"></path></svg></span><span data-live-control-label>Camera</span></button>
             <button class="live-control-button is-screen" type="button" data-live-screen-share disabled aria-pressed="false"><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4M12 13V7M9 10l3-3 3 3"></path></svg></span><span data-live-control-label>Share</span></button>
-            <button class="live-control-button is-background" type="button" data-live-background disabled aria-haspopup="dialog" aria-expanded="false"><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM4 15l4-4 3 3 2-2 7 7M16.5 9h.01"></path></svg></span><span data-live-control-label>Effects</span></button>
             <button class="live-control-button is-audio" type="button" data-live-enable-audio hidden><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"></path></svg></span><span data-live-control-label>Audio</span></button>
             <div class="live-more-menu-wrap" data-live-settings-target="#audienceSettingsButton">
               <button class="live-control-button is-more" type="button" data-live-more-toggle aria-haspopup="menu" aria-expanded="false" aria-label="More meeting options"><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg></span><span data-live-control-label>More</span></button>
               <div class="live-more-menu" data-live-more-menu role="menu" hidden>
+              <div class="live-more-reactions" role="group" aria-label="Meeting reactions">
+                <button type="button" data-live-hand disabled aria-pressed="false" aria-label="Raise hand" title="Raise hand"><span aria-hidden="true">✋</span><span>Hand</span></button>
+                <button type="button" data-live-reaction="clap" disabled aria-label="Send applause" title="Clap"><span aria-hidden="true">👏</span><span>Clap</span></button>
+                <button type="button" data-live-reaction="party" disabled aria-label="Send celebration" title="Celebrate"><span aria-hidden="true">🥳</span><span>Celebrate</span></button>
+                <button type="button" data-live-reaction="heart" disabled aria-label="Send heart" title="Love"><span aria-hidden="true">❤️</span><span>Love</span></button>
+              </div>
+              <button type="button" role="menuitem" data-live-background disabled aria-haspopup="dialog" aria-expanded="false"><span aria-hidden="true">✨</span><span>Effects</span></button>
                 <button type="button" role="menuitem" data-live-more-action="panel">Hide panel</button>
                 <button type="button" role="menuitem" data-live-more-action="fullscreen">Fullscreen</button>
                 <button type="button" role="menuitem" data-live-more-action="settings">Appearance</button>
