@@ -7,6 +7,7 @@ from app.database import Base, SessionLocal, engine
 from app.main import repair_live_session_schema
 from app.models import LiveSession, MeetingParticipantGrant, Presentation, ShareLink, User
 from app.security import hash_password, resolve_share_permission
+from app.routers.presentations import stable_livekit_participant_identity
 
 
 Base.metadata.create_all(bind=engine)
@@ -465,3 +466,26 @@ def test_participant_audio_uses_consent_based_unmute_request():
         }
     finally:
         _cleanup(ids)
+
+
+
+def test_livekit_identity_is_stable_for_same_browser_client():
+    first = stable_livekit_participant_identity("pres-1", "viewer", "guest-device-1")
+    second = stable_livekit_participant_identity("pres-1", "viewer", "guest-device-1")
+    assert first == second
+    assert first.startswith("viewer-")
+
+
+def test_livekit_identity_changes_across_device_or_role():
+    viewer_one = stable_livekit_participant_identity("pres-1", "viewer", "guest-device-1")
+    viewer_two = stable_livekit_participant_identity("pres-1", "viewer", "guest-device-2")
+    presenter = stable_livekit_participant_identity("pres-1", "presenter", "guest-device-1")
+    assert viewer_one != viewer_two
+    assert viewer_one != presenter
+
+
+def test_livekit_identity_falls_back_when_client_id_missing():
+    first = stable_livekit_participant_identity("pres-1", "viewer", "")
+    second = stable_livekit_participant_identity("pres-1", "viewer", "")
+    assert first.startswith("participant_")
+    assert first != second

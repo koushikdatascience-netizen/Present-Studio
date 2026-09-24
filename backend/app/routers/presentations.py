@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 import json
 from urllib.parse import urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -181,6 +182,22 @@ def unique_slide_id(slide_id: str, used_ids: set[str]) -> str:
         if candidate not in used_ids:
             used_ids.add(candidate)
             return candidate
+
+
+def stable_livekit_participant_identity(
+    presentation_id: str,
+    permission: str,
+    client_id: str | None,
+) -> str:
+    """Create a stable, room-scoped identity for one browser/device."""
+    clean_client_id = (client_id or "").strip()
+    if not clean_client_id:
+        return new_id("participant")
+    digest = sha256(
+        f"{presentation_id}\0{permission}\0{clean_client_id}".encode("utf-8")
+    ).hexdigest()[:32]
+    role = "presenter" if permission == "presenter" else "viewer"
+    return f"{role}-{digest}"
 
 
 def create_livekit_join_token(room_name: str, identity: str, name: str, permission: str) -> str:
@@ -501,7 +518,11 @@ def create_live_media_token(
         raise HTTPException(status_code=403, detail="Waiting for presenter approval")
 
     participant_name = " ".join((payload.displayName or default_name).strip().split())[:80] or default_name
-    participant_identity = new_id("participant")
+    participant_identity = stable_livekit_participant_identity(
+        presentation_id,
+        permission,
+        payload.clientId,
+    )
     token = create_livekit_join_token(presentation_id, participant_identity, participant_name, permission)
     return LiveMediaTokenOut(
         url=settings.livekit_url,

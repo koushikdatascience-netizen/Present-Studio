@@ -377,7 +377,20 @@ def _clean_meeting_identity(data):
 async def meeting_chat(sid, data):
     presentation_id = data.get("presentationId")
     text = data.get("text")
-    if not presentation_id or not _sid_is_admitted(presentation_id, sid) or not isinstance(text, str) or not text.strip():
+    attachment = data.get("attachment")
+    clean_text = text.strip()[:500] if isinstance(text, str) and text.strip() else ""
+    clean_attachment = None
+    if isinstance(attachment, dict):
+        url = str(attachment.get("url") or "").strip()
+        name = str(attachment.get("name") or "attachment").strip()[:180]
+        mime_type = str(attachment.get("mimeType") or "application/octet-stream").strip()[:120]
+        try:
+            size = max(0, min(int(attachment.get("size") or 0), 100 * 1024 * 1024))
+        except (TypeError, ValueError):
+            size = 0
+        if url.startswith("https://res.cloudinary.com/") and size <= 100 * 1024 * 1024:
+            clean_attachment = {"url": url, "name": name or "attachment", "mimeType": mime_type, "size": size}
+    if not presentation_id or not _sid_is_admitted(presentation_id, sid) or (not clean_text and not clean_attachment):
         return
     with SessionLocal() as db:
         if not db.get(Presentation, presentation_id):
@@ -389,7 +402,8 @@ async def meeting_chat(sid, data):
             "presentationId": presentation_id,
             "identity": identity,
             "name": name,
-            "text": text.strip()[:500],
+            "text": clean_text,
+            "attachment": clean_attachment,
             "sentAt": int(utc_now().timestamp() * 1000),
         },
         room=presentation_id,

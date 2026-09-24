@@ -45,6 +45,10 @@
     const screenShareMedia = root.querySelector("[data-live-screen-share-media]");
     const screenShareLabel = root.querySelector("[data-live-screen-share-label]");
     const screenShareMode = root.querySelector("[data-live-screen-share-mode]");
+    const featuredCameraViewer = root.querySelector("[data-live-featured-camera-viewer]");
+    const featuredCameraMedia = root.querySelector("[data-live-featured-camera-media]");
+    const featuredCameraLabel = root.querySelector("[data-live-featured-camera-label]");
+    const featuredCameraClose = root.querySelector("[data-live-featured-camera-close]");
     const presentationViewer = root.querySelector("[data-live-presentation-viewer]");
     const presentationCanvas = root.querySelector("[data-live-presentation-canvas]");
     const presentationMedia = root.querySelector("[data-live-presentation-media]");
@@ -70,6 +74,8 @@
     const chatForm = root.querySelector("[data-live-chat-form]");
     const chatInput = root.querySelector("[data-live-chat-input]");
     const chatSubmit = chatForm?.querySelector("button[type='submit']");
+    const chatAttachButton = root.querySelector("[data-live-chat-attach]");
+    const chatFileInput = root.querySelector("[data-live-chat-file]");
     const lobby = root.querySelector("[data-live-lobby]");
     const waitingList = root.querySelector("[data-live-waiting-list]");
     const waitingCount = root.querySelector("[data-live-waiting-count]");
@@ -92,6 +98,7 @@
     let participantRenderTimer = 0;
     let selectedShareIdentity = "";
     let controllerShareIdentity = "";
+    let selectedCameraIdentity = "";
     let meetingMuted = false;
     let mutedParticipants = new Set();
     let audioPlaybackBlocked = false;
@@ -116,7 +123,44 @@
     let backgroundApplyQueue = Promise.resolve();
     let selectedBackground = localStorage.getItem("presentStudio.cameraBackground") || "none";
     if (!backgroundOptions.some(button => button.dataset.liveBackgroundOption === selectedBackground)) selectedBackground = "none";
-    const meetingClientId = window.crypto?.randomUUID?.() || `meeting-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    let desiredMicrophoneEnabled = false;
+    let microphoneRecoveryInFlight = false;
+    let wakeLockSentinel = null;
+    let wakeLockWanted = false;
+    let backgroundedAt = 0;
+    let tabLeaseOwned = false;
+    let tabLeaseHeartbeat = 0;
+    let takeoverArmed = false;
+
+    const meetingTabId = window.crypto?.randomUUID?.() || `tab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const meetingLeaseRole = isController ? "controller" : "audience";
+    const meetingLeaseKey = `presentStudio.meetingLease.${options.presentationId}.${meetingLeaseRole}`;
+    const meetingLeaseTtlMs = 8000;
+    const meetingTabChannel = typeof BroadcastChannel === "function"
+      ? new BroadcastChannel(`presentStudio.meeting.${options.presentationId}.${meetingLeaseRole}`)
+      : null;
+    const isIOSLike = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+    function stableMeetingClientId() {
+      const key = isController ? "presentStudio.meetingControllerId" : "presentStudio.meetingGuestId";
+      const prefix = isController ? "controller" : "guest";
+      try {
+        let value = localStorage.getItem(key);
+        if (!value) {
+          const raw = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          value = `${prefix}-${raw}`.slice(0, 128);
+          localStorage.setItem(key, value);
+        }
+        return String(value).slice(0, 128);
+      } catch {
+        const raw = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        return `${prefix}-${raw}`.slice(0, 128);
+      }
+    }
+
+    const meetingClientId = stableMeetingClientId();
 
     const reactionMeta = {
       clap: { emoji: "👏", label: "applauded" },
@@ -133,6 +177,110 @@
         audienceFeedback.dataset.kind = kind;
       }
     };
+
+    function readMeetingLease() {
+      try {
+        const raw = localStorage.getItem(meetingLeaseKey);
+        return raw ? JSON.parse(raw) : null;
+      } catch { return null; }
+    }
+
+    function writeMeetingLease() {
+      if (!tabLeaseOwned) return;
+      try {
+        localStorage.setItem(meetingLeaseKey, JSON.stringify({ tabId: meetingTabId, updatedAt: Date.now() }));
+      } catch {}
+    }
+
+    function startMeetingLeaseHeartbeat() {
+      window.clearInterval(tabLeaseHeartbeat);
+      writeMeetingLease();
+      tabLeaseHeartbeat = window.setInterval(writeMeetingLease, 2500);
+    }
+
+    function releaseMeetingTab() {
+      tabLeaseOwned = false;
+      takeoverArmed = false;
+      window.clearInterval(tabLeaseHeartbeat);
+      tabLeaseHeartbeat = 0;
+      try {
+        const lease = readMeetingLease();
+        if (lease?.tabId === meetingTabId) localStorage.removeItem(meetingLeaseKey);
+      } catch {}
+    }
+
+    function claimMeetingTab() {
+      if (tabLeaseOwned) return true;
+      const lease = readMeetingLease();
+      const occupied = Boolean(
+        lease?.tabId &&
+        lease.tabId !== meetingTabId &&
+        Number(lease.updatedAt || 0) > Date.now() - meetingLeaseTtlMs
+      );
+      if (occupied && !takeoverArmed) {
+        takeoverArmed = true;
+        window.setTimeout(() => { takeoverArmed = false; }, 6000);
+        setStatus("This meeting is already active in another tab. Select Join again to move it to this tab.", "error");
+        return false;
+      }
+      if (occupied) {
+        try { meetingTabChannel?.postMessage({ type: "takeover", tabId: meetingTabId, at: Date.now() }); } catch {}
+      }
+      tabLeaseOwned = true;
+      takeoverArmed = false;
+      startMeetingLeaseHeartbeat();
+      return true;
+    }
+
+    async function handleMeetingTakenOver() {
+      if (!tabLeaseOwned) return;
+      tabLeaseOwned = false;
+      window.clearInterval(tabLeaseHeartbeat);
+      tabLeaseHeartbeat = 0;
+      try { await leave({ requeue: true, releaseTab: false }); } catch {}
+      if (!isController) admissionState = "idle";
+      setStatus("This meeting moved to another tab. Select Join to move it back here.", "error");
+      syncButtons(false);
+    }
+
+    meetingTabChannel?.addEventListener("message", event => {
+      if (event.data?.type === "takeover" && event.data?.tabId !== meetingTabId) {
+        handleMeetingTakenOver().catch(() => {});
+      }
+    });
+
+    window.addEventListener("storage", event => {
+      if (event.key !== meetingLeaseKey || !tabLeaseOwned || !event.newValue) return;
+      try {
+        const next = JSON.parse(event.newValue);
+        if (next?.tabId && next.tabId !== meetingTabId) handleMeetingTakenOver().catch(() => {});
+      } catch {}
+    });
+
+    async function requestMeetingWakeLock() {
+      if (!wakeLockWanted || !room || document.visibilityState !== "visible" || wakeLockSentinel || !navigator.wakeLock?.request) return;
+      try {
+        wakeLockSentinel = await navigator.wakeLock.request("screen");
+        root.dataset.wakeLock = "active";
+        wakeLockSentinel.addEventListener("release", () => {
+          wakeLockSentinel = null;
+          root.dataset.wakeLock = "released";
+        }, { once: true });
+      } catch {
+        wakeLockSentinel = null;
+        root.dataset.wakeLock = "unavailable";
+      }
+    }
+
+    async function releaseMeetingWakeLock() {
+      wakeLockWanted = false;
+      const sentinel = wakeLockSentinel;
+      wakeLockSentinel = null;
+      root.dataset.wakeLock = "off";
+      if (sentinel) {
+        try { await sentinel.release(); } catch {}
+      }
+    }
     function participantRole(participant) { try { return JSON.parse(participant.metadata || "{}").role || "viewer"; } catch { return "viewer"; } }
     function publications(participant) { return participant?.trackPublications ? [...participant.trackPublications.values()] : []; }
     function isSource(publication, name) { return publication?.source === livekit.Track?.Source?.[name]; }
@@ -152,7 +300,12 @@
     function currentIdentity() { return String(room?.localParticipant?.identity || ""); }
     function currentName() { return String(room?.localParticipant?.name || nameInput.value.trim() || (isController ? "Presenter" : "Guest")).slice(0, 80); }
     function moderationCredentials() {
-      return { presentationId: options.presentationId, authToken: options.authToken || "", shareToken: options.shareToken || "" };
+      return {
+        presentationId: options.presentationId,
+        authToken: options.authToken || "",
+        shareToken: options.shareToken || "",
+        cohostGuestId: options.cohostGuestId || ""
+      };
     }
 
     function registerController() {
@@ -252,8 +405,53 @@
       }
     }
 
+    function appendLinkedText(container, value) {
+      const text = String(value || "").slice(0, 500);
+      const matcher = /https?:\/\/[^\s<]+/gi;
+      let cursor = 0;
+      for (const match of text.matchAll(matcher)) {
+        if (match.index > cursor) container.append(document.createTextNode(text.slice(cursor, match.index)));
+        const raw = match[0];
+        const trailing = raw.match(/[),.!?:;]+$/)?.[0] || "";
+        const href = trailing ? raw.slice(0, -trailing.length) : raw;
+        const link = document.createElement("a");
+        link.href = href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = href;
+        link.className = "live-chat-link";
+        container.append(link);
+        if (trailing) container.append(document.createTextNode(trailing));
+        cursor = match.index + raw.length;
+      }
+      if (cursor < text.length) container.append(document.createTextNode(text.slice(cursor)));
+    }
+
+    function renderChatAttachment(message, item) {
+      const attachment = message?.attachment;
+      if (!attachment?.url) return;
+      const wrap = document.createElement("div");
+      wrap.className = "live-chat-attachment";
+      const mime = String(attachment.mimeType || "");
+      if (mime.startsWith("image/")) {
+        const image = document.createElement("img");
+        image.src = attachment.url;
+        image.alt = attachment.name || "Shared image";
+        image.loading = "lazy";
+        wrap.append(image);
+      }
+      const link = document.createElement("a");
+      link.href = attachment.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.download = attachment.name || "";
+      link.textContent = attachment.name || "Open attachment";
+      wrap.append(link);
+      item.append(wrap);
+    }
+
     function appendChatMessage(message) {
-      if (!chatMessages || !message?.text) return;
+      if (!chatMessages || (!message?.text && !message?.attachment?.url)) return;
       chatEmpty?.remove();
       const item = document.createElement("article");
       item.className = "live-chat-message";
@@ -267,9 +465,13 @@
       time.dateTime = sentAt.toISOString();
       time.textContent = sentAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       heading.append(author, time);
-      const body = document.createElement("p");
-      body.textContent = String(message.text).slice(0, 500);
-      item.append(heading, body);
+      item.append(heading);
+      if (message.text) {
+        const body = document.createElement("p");
+        appendLinkedText(body, message.text);
+        item.append(body);
+      }
+      renderChatAttachment(message, item);
       chatMessages.append(item);
       while (chatMessages.children.length > 101) chatMessages.children[0].remove();
       chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -318,6 +520,22 @@
           gain.gain.exponentialRampToValueAtTime(.13, now + .02);
           gain.gain.exponentialRampToValueAtTime(.0001, now + .45);
           oscillator.start(now); oscillator.stop(now + .46);
+        } else if (type === "heart") {
+          const playTone = (frequency, offset, duration) => {
+            const oscillator = soundContext.createOscillator();
+            const toneGain = soundContext.createGain();
+            oscillator.type = "sine";
+            oscillator.frequency.setValueAtTime(frequency, now + offset);
+            toneGain.gain.setValueAtTime(.0001, now + offset);
+            toneGain.gain.exponentialRampToValueAtTime(.09, now + offset + .015);
+            toneGain.gain.exponentialRampToValueAtTime(.0001, now + offset + duration);
+            oscillator.connect(toneGain);
+            toneGain.connect(soundContext.destination);
+            oscillator.start(now + offset);
+            oscillator.stop(now + offset + duration + .02);
+          };
+          playTone(523.25, 0, .18);
+          playTone(659.25, .16, .22);
         }
       } catch {}
     }
@@ -508,6 +726,7 @@
         return;
       }
       try {
+        desiredMicrophoneEnabled = false;
         await room.localParticipant.setMicrophoneEnabled(false);
         syncLocalPublishedState(); syncButtons(true); renderParticipants();
         showModerationNotice("Presenter asked you to mute. Your microphone is now off.");
@@ -662,6 +881,62 @@
       screenShareEnabled = Boolean(room?.localParticipant?.isScreenShareEnabled);
     }
 
+    function localMicrophonePublication() {
+      return publications(room?.localParticipant).find(publication => isSource(publication, "Microphone")) || null;
+    }
+
+    function localMicrophoneHealth() {
+      const publication = localMicrophonePublication();
+      const track = publication?.track || null;
+      const mediaTrack = track?.mediaStreamTrack || null;
+      return {
+        publication, track, mediaTrack,
+        healthy: Boolean(
+          desiredMicrophoneEnabled &&
+          room?.localParticipant?.isMicrophoneEnabled &&
+          publication &&
+          !publication.isMuted &&
+          mediaTrack &&
+          mediaTrack.readyState === "live" &&
+          mediaTrack.enabled !== false
+        )
+      };
+    }
+
+    async function recoverMicrophoneAfterBackground({ forceRestart = false } = {}) {
+      if (!room || !desiredMicrophoneEnabled || microphoneRecoveryInFlight || document.visibilityState !== "visible") return false;
+      const initial = localMicrophoneHealth();
+      if (initial.healthy && !forceRestart) return true;
+      microphoneRecoveryInFlight = true;
+      try {
+        if (initial.track?.restartTrack && (forceRestart || !initial.healthy)) {
+          try { await initial.track.restartTrack(); } catch {}
+        }
+        let current = localMicrophoneHealth();
+        if (!current.healthy) {
+          await room.localParticipant.setMicrophoneEnabled(false).catch(() => {});
+          await room.localParticipant.setMicrophoneEnabled(true);
+          current = localMicrophoneHealth();
+        }
+        syncLocalPublishedState();
+        syncButtons(true);
+        renderParticipants();
+        if (current.healthy) {
+          setStatus("Microphone restored after device interruption", "success");
+          return true;
+        }
+        setStatus("Microphone needs attention. Select the microphone button to restore it.", "error");
+        return false;
+      } catch (error) {
+        syncLocalPublishedState();
+        syncButtons(true);
+        setStatus(error?.message || "Microphone could not be restored after the device interruption.", "error");
+        return false;
+      } finally {
+        microphoneRecoveryInFlight = false;
+      }
+    }
+
     const backgroundPresets = {
       studio: "/assets/meeting-backgrounds/studio.svg",
       office: "/assets/meeting-backgrounds/office.svg",
@@ -746,6 +1021,37 @@
 
     syncBackgroundOptions();
 
+    function renderFeaturedCamera() {
+      if (!featuredCameraViewer || !featuredCameraMedia) return;
+      if (!selectedCameraIdentity || !room) {
+        detachNodeTracks(featuredCameraMedia);
+        featuredCameraMedia.replaceChildren();
+        featuredCameraViewer.hidden = true;
+        return;
+      }
+      const candidates = [room.localParticipant, ...room.remoteParticipants.values()];
+      const participant = candidates.find(item => String(item.identity || "") === selectedCameraIdentity);
+      const publication = participant && publications(participant).find(item => isSource(item, "Camera") && item.track && !item.isMuted);
+      if (!participant || !publication?.track) {
+        detachNodeTracks(featuredCameraMedia);
+        featuredCameraMedia.replaceChildren();
+        featuredCameraViewer.hidden = true;
+        return;
+      }
+      const current = featuredCameraMedia.querySelector("video");
+      const signature = String(participant.identity) + ":" + (publication.track.sid || publication.track.mediaStreamTrack?.id || "camera");
+      if (featuredCameraMedia.dataset.signature !== signature || !current) {
+        detachNodeTracks(featuredCameraMedia);
+        featuredCameraMedia.replaceChildren();
+        const video = publication.track.attach();
+        Object.assign(video, { autoplay: true, playsInline: true, muted: participant === room.localParticipant });
+        rememberAttachedTrack(publication.track, video);
+        featuredCameraMedia.append(video);
+        featuredCameraMedia.dataset.signature = signature;
+      }
+      if (featuredCameraLabel) featuredCameraLabel.textContent = (participant.name || "Guest") + " camera";
+      featuredCameraViewer.hidden = false;
+    }
     function addParticipantTile(participant, isLocal = false) {
       const tile = document.createElement("article");
       tile.className = "live-media-tile";
@@ -834,6 +1140,23 @@
           setStatus(muted ? `Asked ${participant.name || "participant"} to unmute` : `Muted ${participant.name || "participant"}`, "success");
         });
         participantActions.append(mute);
+        if (videoPublication?.track && !videoPublication.isMuted) {
+          const feature = document.createElement("button");
+          feature.type = "button";
+          feature.className = "live-participant-feature";
+          feature.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10v10H4zM14 10l6-3v10l-6-3z"></path></svg>';
+          const featuring = selectedCameraIdentity === String(participant.identity);
+          feature.setAttribute("aria-pressed", String(featuring));
+          feature.setAttribute("aria-label", featuring ? "Stop featuring " + (participant.name || "participant") + " camera" : "Feature " + (participant.name || "participant") + " camera");
+          feature.title = feature.getAttribute("aria-label");
+          feature.addEventListener("click", event => {
+            event.stopPropagation();
+            selectedCameraIdentity = featuring ? "" : String(participant.identity);
+            renderFeaturedCamera();
+            renderParticipants();
+          });
+          participantActions.append(feature);
+        }
         const registryItem = participantRegistry.get(String(participant.identity));
         if (registryItem?.clientId && participantRole(participant) !== "presenter") {
           const remove = document.createElement("button");
@@ -1037,6 +1360,7 @@
       count.textContent = `${total} connected`;
       if (peopleBadge) peopleBadge.textContent = String(total);
       if (restoreCount) restoreCount.textContent = String(total);
+      renderFeaturedCamera();
       options.onParticipantTilesRendered?.();
     }
 
@@ -1069,6 +1393,7 @@
       reactionButtons.forEach(button => { button.disabled = !connected; });
       if (chatInput) chatInput.disabled = !connected;
       if (chatSubmit) chatSubmit.disabled = !connected;
+      if (chatAttachButton) chatAttachButton.disabled = !connected;
       leaveButton.disabled = !connected;
       setControlLabel(microphoneButton, isController ? (microphoneEnabled ? "Mic on" : "Mic off") : (microphoneEnabled ? "Mute" : "Unmute"), microphoneEnabled ? "Microphone is on. Select to mute" : "Microphone is off. Select to unmute");
       setControlLabel(cameraButton, cameraEnabled ? "Camera off" : "Camera on", cameraEnabled ? "Turn camera off" : "Turn camera on");
@@ -1151,7 +1476,17 @@
           playParticipantJoinSound(participant);
         });
       }
-      room.on(events.LocalTrackPublished, () => { syncLocalPublishedState(); syncButtons(true); scheduleParticipantRender(); });
+      room.on(events.LocalTrackPublished, publication => {
+        syncLocalPublishedState();
+        if (isSource(publication, "Microphone") && desiredMicrophoneEnabled) {
+          const mediaTrack = publication?.track?.mediaStreamTrack;
+          mediaTrack?.addEventListener?.("ended", () => {
+            if (desiredMicrophoneEnabled && document.visibilityState === "visible") recoverMicrophoneAfterBackground().catch(() => {});
+          }, { once: true });
+        }
+        syncButtons(true);
+        scheduleParticipantRender();
+      });
       room.on(events.LocalTrackUnpublished, publication => {
         const stoppedScreenShare = isSource(publication, "ScreenShare") || isSource(publication, "ScreenShareAudio");
         if (isSource(publication, "Camera")) { backgroundProcessor = null; backgroundProcessorTrack = null; }
@@ -1160,12 +1495,31 @@
       });
       room.on(events.ActiveSpeakersChanged, highlightSpeakers);
       if (events.AudioPlaybackStatusChanged) room.on(events.AudioPlaybackStatusChanged, syncAudioRecovery);
+      if (events.MediaDevicesError) {
+        room.on(events.MediaDevicesError, error => {
+          const micError = room?.localParticipant?.lastMicrophoneError;
+          if (desiredMicrophoneEnabled && (micError || /microphone|audio|device/i.test(error?.message || ""))) {
+            setStatus(micError?.message || error?.message || "Microphone device is unavailable.", "error");
+          }
+        });
+      }
       room.on(events.Reconnecting, () => setStatus("Reconnecting…"));
-      room.on(events.Reconnected, () => { announceParticipantIdentity({ refreshAdmission: true }); syncLocalPublishedState(); syncButtons(true); renderParticipants(); syncAudioRecovery(); setStatus("Connected", "success"); });
+      room.on(events.Reconnected, () => {
+        announceParticipantIdentity({ refreshAdmission: true });
+        syncLocalPublishedState();
+        syncButtons(true);
+        renderParticipants();
+        syncAudioRecovery();
+        requestMeetingWakeLock().catch(() => {});
+        recoverMicrophoneAfterBackground().catch(() => {});
+        setStatus("Connected", "success");
+      });
       room.on(events.Disconnected, () => {
         stopPendingScreenShare();
         joinNotificationArmed = false;
         microphoneEnabled = false; cameraEnabled = false; screenShareEnabled = false; audioPlaybackBlocked = false; detachMountedTracks(); room = null;
+        wakeLockWanted = false;
+        releaseMeetingWakeLock().catch(() => {});
         backgroundProcessor = null; backgroundProcessorTrack = null;
         tiles.replaceChildren(); screenShareMedia.replaceChildren(); screenShareViewer.hidden = true; enableAudioButton.hidden = true;
         root.classList.remove("has-screen-share"); count.textContent = "0 connected"; setStatus("Left the live room"); syncButtons(false);
@@ -1182,6 +1536,7 @@
       try { await options.onValidateAdmission?.(); }
       catch (error) { setStatus(error.message || "Check your meeting access code and try again.", "error"); return; }
       finally { admissionValidating = false; if (admissionState !== "waiting") joinButton.disabled = false; }
+      if (!claimMeetingTab()) return;
       admissionState = "waiting";
       setStatus("Waiting for the presenter to admit you…");
       syncButtons(false);
@@ -1208,7 +1563,8 @@
     async function join(approved = false) {
       if (!admissionBypass && approved !== true) { requestAdmission(); return; }
       if (joining || room) return;
-      if (!livekit?.Room) { setStatus("Audio/video library could not be loaded", "error"); return; }
+      if (!tabLeaseOwned && !claimMeetingTab()) return;
+      if (!livekit?.Room) { releaseMeetingTab(); setStatus("Audio/video library could not be loaded", "error"); return; }
       if (!api?.getLiveMediaToken) { setStatus("This page is out of date. Refresh it and try again.", "error"); return; }
       // Run presentation audio playback directly inside the user gesture. This
       // also unlocks the document's audio playback before the async room join.
@@ -1232,6 +1588,8 @@
         const connectedAudioReady = await enableAudio(false);
         const audioReady = connectedAudioReady || (gestureUnlocked && !audioPlaybackBlocked && room.canPlayAudio !== false);
         admissionState = "approved";
+        wakeLockWanted = true;
+        requestMeetingWakeLock().catch(() => {});
         announceParticipantIdentity({ refreshAdmission: true });
         setStatus(audioReady ? `Connected as ${credentials.participantName}` : `Connected as ${credentials.participantName} · audio needs permission`, audioReady ? "success" : "error");
         syncButtons(true); renderParticipants();
@@ -1239,6 +1597,9 @@
         if (!isController) setAudienceSidebarHidden(false);
       } catch (error) {
         room?.disconnect(); room = null;
+        wakeLockWanted = false;
+        releaseMeetingWakeLock().catch(() => {});
+        releaseMeetingTab();
         if (!isController) admissionState = "idle";
         setStatus(error.message || "Could not join audio/video", "error"); syncButtons(false);
       } finally {
@@ -1250,8 +1611,15 @@
       if (!room) return;
       microphoneButton.classList.remove("is-unmute-requested");
       microphoneButton.disabled = true;
-      try { await room.localParticipant.setMicrophoneEnabled(!microphoneEnabled); syncLocalPublishedState(); syncButtons(true); renderParticipants(); }
-      catch (error) { syncLocalPublishedState(); setStatus(error.message || "Microphone permission was not granted", "error"); syncButtons(true); }
+      const nextMicrophoneState = !microphoneEnabled;
+      try {
+        await room.localParticipant.setMicrophoneEnabled(nextMicrophoneState);
+        desiredMicrophoneEnabled = nextMicrophoneState;
+        syncLocalPublishedState(); syncButtons(true); renderParticipants();
+      } catch (error) {
+        if (nextMicrophoneState) desiredMicrophoneEnabled = false;
+        syncLocalPublishedState(); setStatus(error.message || "Microphone permission was not granted", "error"); syncButtons(true);
+      }
     }
 
     async function toggleCamera() {
@@ -1347,9 +1715,15 @@
       screenShareApproved = false;
     }
 
-    async function leave({ requeue = false } = {}) {
+    async function leave({ requeue = false, releaseTab = null } = {}) {
+      const shouldReleaseTab = releaseTab === null ? !requeue : Boolean(releaseTab);
       const activeRoom = room;
-      if (!activeRoom) return;
+      if (!activeRoom) {
+        desiredMicrophoneEnabled = false;
+        if (shouldReleaseTab) releaseMeetingTab();
+        await releaseMeetingWakeLock();
+        return;
+      }
       stopPendingScreenShare();
       if (!isController && !requeue) options.socket?.emit("meeting_participant_left", { presentationId: options.presentationId, clientId: meetingClientId });
       if (handRaised) options.socket?.emit("meeting_hand", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), raised: false });
@@ -1358,6 +1732,10 @@
         activeRoom.localParticipant.setCameraEnabled(false),
         activeRoom.localParticipant.setScreenShareEnabled(false)
       ]);
+      desiredMicrophoneEnabled = false;
+      wakeLockWanted = false;
+      await releaseMeetingWakeLock();
+      if (shouldReleaseTab) releaseMeetingTab();
       detachMountedTracks();
       activeRoom.disconnect();
     }
@@ -1365,17 +1743,34 @@
     async function recoverMeetingAfterBackground() {
       if (!room || document.visibilityState !== "visible") return;
 
+      const awayMs = backgroundedAt ? Date.now() - backgroundedAt : 0;
+      wakeLockWanted = true;
+      requestMeetingWakeLock().catch(() => {});
+
       try {
         await room.startAudio();
-        audioPlaybackBlocked = false;
+        const audioResults = await Promise.allSettled(
+          [...root.querySelectorAll("audio[data-live-audio-participant]")].map(audio => audio.play())
+        );
+        audioPlaybackBlocked = audioResults.some(result => result.status === "rejected") || room?.canPlayAudio === false;
       } catch {
         audioPlaybackBlocked = room?.canPlayAudio === false;
       }
 
+      await recoverMicrophoneAfterBackground({
+        forceRestart: Boolean(isIOSLike && awayMs > 1200 && desiredMicrophoneEnabled)
+      });
       syncLocalPublishedState();
       syncButtons(true);
       renderParticipants();
       syncAudioRecovery();
+
+      if (backgroundedAt) {
+        backgroundedAt = 0;
+        if (awayMs > 1500 && !audioPlaybackBlocked && (!desiredMicrophoneEnabled || localMicrophoneHealth().healthy)) {
+          setStatus("Meeting restored after device interruption", "success");
+        }
+      }
     }
 
     joinButton.addEventListener("click", join);
@@ -1422,6 +1817,42 @@
       options.socket?.emit("meeting_reaction", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), reaction: button.dataset.liveReaction });
     }));
     sidebarTabs.forEach(button => button.addEventListener("click", () => setSidebarTab(button.dataset.liveTab)));
+    async function uploadMeetingAttachment(file) {
+      if (!room || !file) return;
+      if (file.size > 100 * 1024 * 1024) {
+        setStatus("Chat files must be 100 MB or smaller", "error");
+        return;
+      }
+      const form = new FormData();
+      form.append("presentation_id", options.presentationId);
+      form.append("client_id", meetingClientId);
+      form.append("share_token", options.shareToken || "");
+      form.append("file", file, file.name || "attachment");
+      chatAttachButton && (chatAttachButton.disabled = true);
+      setStatus(`Uploading ${file.name || "attachment"}…`);
+      try {
+        const headers = {};
+        if (options.authToken) headers.Authorization = `Bearer ${options.authToken}`;
+        const response = await fetch("/api/media/meeting-upload", { method: "POST", headers, body: form });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.detail || "File upload failed");
+        options.socket?.emit("meeting_chat", {
+          presentationId: options.presentationId,
+          identity: currentIdentity(),
+          name: currentName(),
+          text: "",
+          attachment: payload.attachment
+        });
+        setSidebarTab("chat");
+        setStatus("File shared", "success");
+      } catch (error) {
+        setStatus(error.message || "File upload failed", "error");
+      } finally {
+        if (chatFileInput) chatFileInput.value = "";
+        if (chatAttachButton) chatAttachButton.disabled = !room;
+      }
+    }
+
     chatForm?.addEventListener("submit", event => {
       event.preventDefault();
       const text = chatInput.value.trim();
@@ -1429,6 +1860,31 @@
       options.socket?.emit("meeting_chat", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), text });
       chatInput.value = "";
       chatInput.focus();
+    });
+    chatAttachButton?.addEventListener("click", () => chatFileInput?.click());
+    chatFileInput?.addEventListener("change", () => {
+      const file = chatFileInput.files?.[0];
+      if (file) uploadMeetingAttachment(file);
+    });
+    chatInput?.addEventListener("paste", event => {
+      const file = [...(event.clipboardData?.files || [])].find(item => item.type?.startsWith("image/"));
+      if (!file) return;
+      event.preventDefault();
+      uploadMeetingAttachment(file);
+    });
+    chatMessages?.addEventListener("dragover", event => {
+      if (!room || !event.dataTransfer?.types?.includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      chatMessages.classList.add("is-file-dragover");
+    });
+    chatMessages?.addEventListener("dragleave", () => chatMessages.classList.remove("is-file-dragover"));
+    chatMessages?.addEventListener("drop", event => {
+      chatMessages.classList.remove("is-file-dragover");
+      const file = event.dataTransfer?.files?.[0];
+      if (!room || !file) return;
+      event.preventDefault();
+      uploadMeetingAttachment(file);
     });
     enableAudioButton.addEventListener("click", () => enableAudio(true));
     leaveButton.addEventListener("click", leave);
@@ -1453,6 +1909,11 @@
       fullscreenButton.textContent = active ? "×" : "⛶";
       fullscreenButton.setAttribute("aria-label", active ? "Exit presentation fullscreen" : "Enter presentation fullscreen");
       fullscreenButton.title = active ? "Exit fullscreen" : "Enter fullscreen";
+    });
+    featuredCameraClose?.addEventListener("click", () => {
+      selectedCameraIdentity = "";
+      renderFeaturedCamera();
+      renderParticipants();
     });
     panelToggle?.addEventListener("click", () => setAudienceSidebarHidden(true, true));
     panelRestore?.addEventListener("click", () => setAudienceSidebarHidden(false, true));
@@ -1504,6 +1965,30 @@
       renderParticipants();
     });
     options.socket?.on("meeting_lobby_state", renderLobby);
+    options.socket?.on("meeting_role_changed", message => {
+      if (message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
+      if (message.role === "cohost" && message.controllerUrl && !isController) {
+        try { sessionStorage.setItem(`presentStudio.cohostReturn.${options.presentationId}`, location.href); } catch {}
+        setStatus("You have been promoted to co-host. Opening presenter controls…", "success");
+        window.setTimeout(() => location.replace(message.controllerUrl), 450);
+        return;
+      }
+      if (message.role === "audience" && isController && options.cohostGuestId === message.clientId) {
+        const returnKey = `presentStudio.cohostReturn.${options.presentationId}`;
+        let returnUrl = "";
+        try { returnUrl = sessionStorage.getItem(returnKey) || ""; sessionStorage.removeItem(returnKey); } catch {}
+        setStatus("Co-host access ended. Returning to the audience view…");
+        window.setTimeout(() => location.replace(returnUrl || `/present.html?id=${encodeURIComponent(options.presentationId)}`), 450);
+      }
+    });
+    options.socket?.on("meeting_controller_revoked", message => {
+      if (!isController || !options.cohostGuestId || message?.presentationId !== options.presentationId || message.clientId !== options.cohostGuestId) return;
+      const returnKey = `presentStudio.cohostReturn.${options.presentationId}`;
+      let returnUrl = "";
+      try { returnUrl = sessionStorage.getItem(returnKey) || ""; sessionStorage.removeItem(returnKey); } catch {}
+      setStatus(message.reason === "demoted" ? "You are now an audience participant." : "Your co-host access has ended.");
+      window.setTimeout(() => location.replace(returnUrl || `/present.html?id=${encodeURIComponent(options.presentationId)}`), 450);
+    });
     options.socket?.on("connect", () => announceParticipantIdentity({ refreshAdmission: true }));
     options.socket?.on("meeting_admission_decision", message => {
       if (isController || message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
@@ -1513,6 +1998,7 @@
         join(true);
       } else {
         admissionState = "idle";
+        releaseMeetingTab();
         setStatus("The presenter did not admit this request. You can ask again.", "error");
         syncButtons(false);
       }
@@ -1553,13 +2039,25 @@
     if (options.socket?.connected) registerController();
 
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") {
-        recoverMeetingAfterBackground().catch(() => {});
+      if (document.visibilityState === "hidden") {
+        backgroundedAt = Date.now();
+        return;
       }
+      recoverMeetingAfterBackground().catch(() => {});
     });
 
     window.addEventListener("pageshow", () => {
       recoverMeetingAfterBackground().catch(() => {});
+    });
+    window.addEventListener("focus", () => {
+      recoverMeetingAfterBackground().catch(() => {});
+    });
+    window.addEventListener("online", () => {
+      recoverMeetingAfterBackground().catch(() => {});
+    });
+    window.addEventListener("beforeunload", () => {
+      releaseMeetingTab();
+      try { meetingTabChannel?.close(); } catch {}
     });
 
     if (isController) ensureJoinSoundControl();
@@ -1567,8 +2065,7 @@
     syncButtons(false);
     setSidebarTab("people");
     function getLocalMicrophoneMediaTrack() {
-      const publication = publications(room?.localParticipant).find(item => isSource(item, "Microphone") && item.track);
-      return publication?.track?.mediaStreamTrack || null;
+      return localMicrophonePublication()?.track?.mediaStreamTrack || null;
     }
 
     return { join, leave, getLocalMicrophoneMediaTrack };
