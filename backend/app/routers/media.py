@@ -1,13 +1,13 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 import cloudinary
 import cloudinary.uploader
 from ..config import get_settings
 from ..database import get_db
-from ..models import MediaAsset, User
+from ..models import LiveSession, MediaAsset, MeetingParticipantGrant, Presentation, User
 from ..schemas import MediaAssetOut
-from ..security import current_user, new_id
+from ..security import can_edit_presentation, current_user, new_id, optional_current_user
 
 
 router = APIRouter(prefix="/api/media", tags=["media"])
@@ -88,4 +88,70 @@ async def upload_media(
             url=asset.url,
             size=asset.size,
         )
+    }
+
+
+@router.post("/meeting-upload")
+async def upload_meeting_file(
+    request: Request,
+    presentation_id: str = Form(...),
+    client_id: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Upload a meeting-chat attachment for an admitted participant or presenter."""
+    presentation = db.get(Presentation, presentation_id)
+    if not presentation:
+        raise HTTPException(status_code=404, detail="Presentation not found")
+
+    user = optional_current_user(request, db)
+    allowed = bool(user and can_edit_presentation(db, presentation, user))
+    if not allowed:
+        live = db.query(LiveSession).filter(
+            LiveSession.presentation_id == presentation_id,
+            LiveSession.is_live.is_(True),
+        ).first()
+        if live and live.meeting_instance_id and client_id:
+            grant = db.query(MeetingParticipantGrant).filter(
+                MeetingParticipantGrant.presentation_id == presentation_id,
+                MeetingParticipantGrant.meeting_instance_id == live.meeting_instance_id,
+                MeetingParticipantGrant.guest_id == client_id[:128],
+                MeetingParticipantGrant.status == "approved",
+                MeetingParticipantGrant.role.in_(("audience", "cohost")),
+            ).first()
+            allowed = grant is not None
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Join the meeting before uploading files")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Choose a file to upload")
+    if len(content) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Maximum upload size is 100 MB")
+
+    configure_cloudinary()
+    settings = get_settings()
+    content_type = file.content_type or "application/octet-stream"
+    if content_type.startswith("image/"):
+        resource_type = "image"
+    elif content_type.startswith(("video/", "audio/")):
+        resource_type = "video"
+    else:
+        resource_type = "raw"
+
+    result = cloudinary.uploader.upload(
+        content,
+        folder=f"{settings.cloudinary_folder}/meeting-chat/{presentation_id}",
+        resource_type=resource_type,
+        filename=file.filename or "attachment",
+        use_filename=True,
+        unique_filename=True,
+    )
+    return {
+        "attachment": {
+            "name": (file.filename or "attachment")[:180],
+            "mimeType": content_type[:120],
+            "size": len(content),
+            "url": result["secure_url"],
+        }
     }
