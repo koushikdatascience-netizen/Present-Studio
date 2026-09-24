@@ -3681,6 +3681,47 @@ button.present-back {
   color: #ffd54a !important;
   outline: none;
 }
+
+.live-more-reactions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  padding: 2px 2px 7px;
+  margin-bottom: 2px;
+}
+.live-more-menu .live-more-reactions button {
+  min-width: 0;
+  min-height: 52px !important;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  padding: 5px 2px !important;
+  text-align: center;
+}
+.live-more-reactions button > span:first-child {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+.live-more-reactions button > span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: .5rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-more-menu [data-live-background] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live-more-menu [data-live-background] > span:first-child {
+  font-size: 1rem;
+}
+.live-controller-page[data-controller-theme="light"] .live-more-reactions,
+.present-page[data-audience-theme="light"] .live-more-reactions {
+  border-bottom-color: rgba(36,43,52,.12);
+}
 .interactive-workspace .interactive-control-dock,
 .live-controller-page[data-controller-mode="interactive"] .interactive-workspace > .interactive-control-dock.live-icon-control-dock,
 .audience-live-view .present-live-media.is-connected > .audience-meeting-controls.live-icon-control-dock {
