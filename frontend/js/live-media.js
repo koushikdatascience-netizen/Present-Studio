@@ -86,6 +86,7 @@
     const approveSharesButton = root.querySelector("[data-live-approve-shares]");
     const presentationSource = options.presentationSource || {};
     const isController = options.controller === true;
+    const isCohostController = isController && Boolean(options.cohostGuestId);
     const admissionBypass = isController || options.admissionBypass === true;
     let room = null;
     let microphoneEnabled = false;
@@ -107,6 +108,7 @@
     let unreadMessages = 0;
     let raisedHands = new Map();
     let soundContext = null;
+    const reactionAudio = new Map();
     let joinSoundEnabled = localStorage.getItem("presentStudio.joinSoundEnabled") !== "false";
     let joinSoundButton = null;
     let tabSpeakerMuted = localStorage.getItem("presentStudio.tabSpeakerMuted") === "true";
@@ -295,7 +297,7 @@
         try { element._liveTrack?.detach?.(element); } catch {}
       });
     }
-    function participantAudioMuted(identity) { return meetingMuted || mutedParticipants.has(identity); }
+    function participantAudioMuted(identity) { return mutedParticipants.has(identity); }
 
     function currentIdentity() { return String(room?.localParticipant?.identity || ""); }
     function currentName() { return String(room?.localParticipant?.name || nameInput.value.trim() || (isController ? "Presenter" : "Guest")).slice(0, 80); }
@@ -493,50 +495,27 @@
       return layer;
     }
 
+    const reactionSoundUrls = {
+      clap: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Applause_i.ogg",
+      party: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Hurray.ogg",
+      heart: "https://commons.wikimedia.org/wiki/Special:Redirect/file/Kiss_Pop.ogg"
+    };
+
     function playReactionSound(type) {
+      const source = reactionSoundUrls[type];
+      if (!source) return;
       try {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextClass) return;
-        soundContext ||= new AudioContextClass();
-        soundContext.resume?.();
-        const now = soundContext.currentTime;
-        const gain = soundContext.createGain();
-        gain.connect(soundContext.destination);
-        gain.gain.setValueAtTime(.0001, now);
-        if (type === "clap") {
-          const buffer = soundContext.createBuffer(1, Math.floor(soundContext.sampleRate * .22), soundContext.sampleRate);
-          const values = buffer.getChannelData(0);
-          for (let i = 0; i < values.length; i += 1) values[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / values.length, 2);
-          const source = soundContext.createBufferSource();
-          source.buffer = buffer; source.connect(gain);
-          gain.gain.exponentialRampToValueAtTime(.18, now + .01);
-          gain.gain.exponentialRampToValueAtTime(.0001, now + .22);
-          source.start(now);
-        } else if (type === "party") {
-          const oscillator = soundContext.createOscillator();
-          oscillator.type = "sawtooth"; oscillator.connect(gain);
-          oscillator.frequency.setValueAtTime(330, now);
-          oscillator.frequency.exponentialRampToValueAtTime(740, now + .35);
-          gain.gain.exponentialRampToValueAtTime(.13, now + .02);
-          gain.gain.exponentialRampToValueAtTime(.0001, now + .45);
-          oscillator.start(now); oscillator.stop(now + .46);
-        } else if (type === "heart") {
-          const playTone = (frequency, offset, duration) => {
-            const oscillator = soundContext.createOscillator();
-            const toneGain = soundContext.createGain();
-            oscillator.type = "sine";
-            oscillator.frequency.setValueAtTime(frequency, now + offset);
-            toneGain.gain.setValueAtTime(.0001, now + offset);
-            toneGain.gain.exponentialRampToValueAtTime(.09, now + offset + .015);
-            toneGain.gain.exponentialRampToValueAtTime(.0001, now + offset + duration);
-            oscillator.connect(toneGain);
-            toneGain.connect(soundContext.destination);
-            oscillator.start(now + offset);
-            oscillator.stop(now + offset + duration + .02);
-          };
-          playTone(523.25, 0, .18);
-          playTone(659.25, .16, .22);
+        let audio = reactionAudio.get(type);
+        if (!audio) {
+          audio = new Audio(source);
+          audio.preload = "auto";
+          audio.crossOrigin = "anonymous";
+          reactionAudio.set(type, audio);
         }
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = type === "clap" ? .58 : type === "party" ? .68 : .5;
+        audio.play().catch(() => {});
       } catch {}
     }
 
@@ -772,7 +751,7 @@
         authToken: options.authToken || "",
         shareToken: options.shareToken || "",
         featuredShareIdentity: controllerShareIdentity,
-        meetingMuted,
+        meetingMuted: false,
         mutedParticipants: [...mutedParticipants]
       });
     }
@@ -780,7 +759,7 @@
     function applyControllerState(message) {
       if (!message || (message.presentationId && message.presentationId !== options.presentationId)) return;
       controllerShareIdentity = String(message.featuredShareIdentity || "");
-      meetingMuted = Boolean(message.meetingMuted);
+      meetingMuted = false;
       mutedParticipants = new Set(Array.isArray(message.mutedParticipants) ? message.mutedParticipants.map(String) : []);
       applyRemoteAudioState();
       renderParticipants();
@@ -1088,7 +1067,7 @@
       label.textContent = `${participant.name || "Guest"}${isLocal ? " (You)" : ""}`;
       const state = document.createElement("span");
       const micOn = publications(participant).some(publication => isSource(publication, "Microphone") && !publication.isMuted);
-      const micAudible = micOn && !meetingMuted && !mutedParticipants.has(participant.identity);
+      const micAudible = micOn && !mutedParticipants.has(participant.identity);
       state.textContent = `${participantRole(participant) === "presenter" ? "Presenter" : "Audience"} · ${micAudible ? "Mic on" : "Muted"}`;
       caption.append(label, state);
       const raised = raisedHands.get(participant.identity);
@@ -1122,8 +1101,8 @@
         mute.innerHTML = muted
           ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 11.7 5.2M12 18v3M9 21h6M3 3l18 18"></path></svg>'
           : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path></svg>';
-        mute.disabled = meetingMuted;
-        const muteLabel = meetingMuted ? "Everyone is muted. Turn off Mute all before changing one participant" : muted ? `Ask ${participant.name || "participant"} to unmute their microphone` : `Mute ${participant.name || "participant"}`;
+        mute.disabled = false;
+        const muteLabel = muted ? `Ask ${participant.name || "participant"} to unmute their microphone` : `Mute ${participant.name || "participant"}`;
         mute.setAttribute("aria-label", muteLabel);
         mute.title = muteLabel;
         mute.setAttribute("aria-pressed", String(muted));
@@ -1158,7 +1137,27 @@
           participantActions.append(feature);
         }
         const registryItem = participantRegistry.get(String(participant.identity));
-        if (registryItem?.clientId && participantRole(participant) !== "presenter") {
+        if (registryItem?.clientId && participantRole(participant) !== "presenter" && !isCohostController) {
+          const roleButton = document.createElement("button");
+          const cohost = registryItem.role === "cohost";
+          roleButton.type = "button";
+          roleButton.className = "meeting-v2-role-button" + (cohost ? " is-cohost" : "");
+          roleButton.innerHTML = cohost
+            ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"></path></svg>'
+            : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 15 9l6 .9-4.5 4.4 1.1 6.2L12 17.5 6.4 20.5l1.1-6.2L3 9.9 9 9z"></path></svg>';
+          roleButton.setAttribute("aria-label", cohost ? `Make ${participant.name || "participant"} a normal audience member` : `Make ${participant.name || "participant"} co-host`);
+          roleButton.title = roleButton.getAttribute("aria-label");
+          roleButton.addEventListener("click", event => {
+            event.stopPropagation();
+            options.socket?.emit("meeting_role_update", {
+              ...moderationCredentials(),
+              clientId: registryItem.clientId,
+              role: cohost ? "audience" : "cohost"
+            });
+            setStatus(cohost ? `Returning ${participant.name || "participant"} to audience…` : `Promoting ${participant.name || "participant"} to co-host…`);
+          });
+          participantActions.append(roleButton);
+
           const remove = document.createElement("button");
           remove.type = "button";
           remove.className = "live-participant-remove";
@@ -1388,7 +1387,7 @@
       cameraButton.disabled = !connected;
       screenShareButton.disabled = !connected;
       if (backgroundButton) backgroundButton.disabled = !connected;
-      if (muteAllButton) muteAllButton.disabled = !connected;
+      if (muteAllButton) muteAllButton.disabled = !connected || isCohostController;
       if (handButton) handButton.disabled = !connected;
       reactionButtons.forEach(button => { button.disabled = !connected; });
       if (chatInput) chatInput.disabled = !connected;
@@ -1795,14 +1794,26 @@
       await applySelectedCameraBackground(true);
     }));
     muteAllButton?.addEventListener("click", () => {
-      meetingMuted = !meetingMuted;
+      if (!room || isCohostController) return;
+      const targets = [...room.remoteParticipants.values()]
+        .filter(participant => participantRole(participant) !== "presenter")
+        .map(participant => String(participant.identity || ""))
+        .filter(Boolean);
+      const allMuted = targets.length > 0 && targets.every(identity => mutedParticipants.has(identity));
+      targets.forEach(identity => {
+        if (allMuted) mutedParticipants.delete(identity);
+        else mutedParticipants.add(identity);
+        options.socket?.emit("meeting_participant_audio", {
+          ...moderationCredentials(),
+          targetIdentity: identity,
+          muted: !allMuted
+        });
+      });
+      meetingMuted = false;
       applyRemoteAudioState();
       publishControllerState();
-      options.socket?.emit("meeting_participant_audio", {
-        presentationId: options.presentationId, authToken: options.authToken || "", shareToken: options.shareToken || "",
-        targetIdentity: "*", muted: meetingMuted
-      });
-      setStatus(meetingMuted ? "Muted everyone" : "Asked everyone to unmute", "success");
+      renderParticipants();
+      setStatus(allMuted ? "Asked all participants to unmute" : "Muted all participants except the owner", "success");
     });
     handButton?.addEventListener("click", () => {
       if (!room) return;
