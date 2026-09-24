@@ -132,7 +132,7 @@ jobs:
                 --show-error \
                 --fail \
                 --max-time 10 \
-                https://studio.snapkey.in/api/health; then
+                https://connect.snapkeystudio.in//api/health; then
 
                 echo
                 echo "Public endpoint is healthy."
