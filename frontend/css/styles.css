@@ -3825,3 +3825,53 @@ button.present-back {
 @media (max-width: 520px) {
   .appearance-theme-options { grid-template-columns: 1fr; }
 }
+
+
+/* Rich meeting chat: safe links, attachments, paste/drop feedback. */
+.live-chat-message p {
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.live-chat-link {
+  color: #8ecbff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.live-chat-attachment {
+  display: grid;
+  gap: 6px;
+  margin-top: 7px;
+}
+.live-chat-attachment img {
+  display: block;
+  width: min(100%, 320px);
+  max-height: 240px;
+  border-radius: 9px;
+  object-fit: contain;
+  background: #111;
+}
+.live-chat-attachment a {
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: #8ecbff;
+  font-size: .72rem;
+  font-weight: 700;
+}
+.live-chat-attach {
+  min-width: 38px;
+  padding-inline: 9px !important;
+  font-size: 1rem;
+}
+.live-chat-messages.is-file-dragover {
+  outline: 2px dashed #ffd54a;
+  outline-offset: -5px;
+  background: rgba(255,213,74,.06) !important;
+}
+.present-page[data-audience-theme="light"] .live-chat-link,
+.present-page[data-audience-theme="light"] .live-chat-attachment a,
+.live-controller-page[data-controller-theme="light"] .live-chat-link,
+.live-controller-page[data-controller-theme="light"] .live-chat-attachment a {
+  color: #245f9f;
+}
