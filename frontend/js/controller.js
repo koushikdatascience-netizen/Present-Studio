@@ -3,6 +3,9 @@
   const params = new URLSearchParams(location.search);
   const presentationId = params.get("id") || "pres_demo";
   const shareToken = params.get("token") || "";
+  const cohostGuestId = params.get("cohostGuestId") || "";
+  const cohostName = params.get("cohostName") || "";
+  const isCohost = params.get("cohost") === "1" && Boolean(cohostGuestId);
   const authToken = localStorage.getItem("presentStudio.accessToken") || "";
   const socket = window.io ? window.io() : null;
   const $ = (selector) => document.querySelector(selector);
@@ -1544,13 +1547,16 @@
     videoVolume = initialVolume;
     audioVolume = initialVolume;
     syncVolumeControls();
+    const cachedPresenterName = api.getCachedSession()?.name || "";
+    const resolvedPresenterName = isCohost ? (cohostName || "Co-host") : (cachedPresenterName || "Presenter");
     liveMediaSession = window.SnapKeyLiveMedia?.create({
       root: $("#controllerLiveMedia"),
       presentationId,
       shareToken,
       authToken,
       socket,
-      displayName: api.getCachedSession()?.name || "Presenter",
+      displayName: resolvedPresenterName,
+      cohostGuestId,
       fullscreenTarget: $("#controllerLiveMedia").querySelector(".interactive-main-stage"),
       fullscreenOnJoin: false,
       controller: true,
@@ -1560,6 +1566,17 @@
         label: () => $("#previewTitle").textContent || presentation.title
       }
     });
+    const joinNameInput = $("#controllerLiveMedia")?.querySelector("[data-live-name]");
+    const joinButton = $("#controllerLiveMedia")?.querySelector("[data-live-join]");
+    const joinStatus = $("#controllerLiveMedia")?.querySelector("[data-live-status]");
+    if (joinNameInput) {
+      joinNameInput.value = resolvedPresenterName;
+      joinNameInput.closest("label")?.setAttribute("hidden", "");
+    }
+    if (joinButton) joinButton.hidden = true;
+    if (joinStatus) joinStatus.textContent = isCohost ? "Joining as co-host…" : "Joining as presentation owner…";
+    queueMicrotask(() => liveMediaSession?.join?.(true));
+
     previewCanvas = new fabric.StaticCanvas("controllerPreviewCanvas", { width: 1280, height: 720, selection: false, renderOnAddRemove: false });
     $("#backToEditor").href = `/builder.html?id=${encodeURIComponent(presentation.id)}`;
     renderControllerTargets();
