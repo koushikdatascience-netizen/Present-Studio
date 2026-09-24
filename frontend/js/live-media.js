@@ -549,14 +549,15 @@
         try {
           const audio = reactionAudioElement(type);
           if (!audio) return;
-          audio.muted = true;
+          const volume = audio.volume;
+          audio.volume = 0;
           const playback = audio.play();
           Promise.resolve(playback).then(() => {
             audio.pause();
             audio.currentTime = 0;
-            audio.muted = false;
+            audio.volume = volume;
           }).catch(error => {
-            audio.muted = false;
+            audio.volume = volume;
             console.warn(`Reaction audio warm-up failed for ${type}`, error);
           });
         } catch (error) {
@@ -1393,6 +1394,11 @@
           mutedParticipants = activeMuted;
           publishControllerState();
         }
+      }
+      if (isController) {
+        const previousMeetingMuted = meetingMuted;
+        recomputeMeetingMuted();
+        if (previousMeetingMuted !== meetingMuted) publishControllerState();
       }
       const participants = [{ participant: room.localParticipant, isLocal: true }, ...[...room.remoteParticipants.values()].map(participant => ({ participant, isLocal: false }))];
       const existingTiles = new Map([...tiles.querySelectorAll("[data-participant-identity]")].map(tile => [tile.dataset.participantIdentity, tile]));
