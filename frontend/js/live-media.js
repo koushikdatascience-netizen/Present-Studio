@@ -45,6 +45,10 @@
     const screenShareMedia = root.querySelector("[data-live-screen-share-media]");
     const screenShareLabel = root.querySelector("[data-live-screen-share-label]");
     const screenShareMode = root.querySelector("[data-live-screen-share-mode]");
+    const featuredCameraViewer = root.querySelector("[data-live-featured-camera-viewer]");
+    const featuredCameraMedia = root.querySelector("[data-live-featured-camera-media]");
+    const featuredCameraLabel = root.querySelector("[data-live-featured-camera-label]");
+    const featuredCameraClose = root.querySelector("[data-live-featured-camera-close]");
     const presentationViewer = root.querySelector("[data-live-presentation-viewer]");
     const presentationCanvas = root.querySelector("[data-live-presentation-canvas]");
     const presentationMedia = root.querySelector("[data-live-presentation-media]");
@@ -94,6 +98,7 @@
     let participantRenderTimer = 0;
     let selectedShareIdentity = "";
     let controllerShareIdentity = "";
+    let selectedCameraIdentity = "";
     let meetingMuted = false;
     let mutedParticipants = new Set();
     let audioPlaybackBlocked = false;
@@ -1016,6 +1021,37 @@
 
     syncBackgroundOptions();
 
+    function renderFeaturedCamera() {
+      if (!featuredCameraViewer || !featuredCameraMedia) return;
+      if (!selectedCameraIdentity || !room) {
+        detachNodeTracks(featuredCameraMedia);
+        featuredCameraMedia.replaceChildren();
+        featuredCameraViewer.hidden = true;
+        return;
+      }
+      const candidates = [room.localParticipant, ...room.remoteParticipants.values()];
+      const participant = candidates.find(item => String(item.identity || "") === selectedCameraIdentity);
+      const publication = participant && publications(participant).find(item => isSource(item, "Camera") && item.track && !item.isMuted);
+      if (!participant || !publication?.track) {
+        detachNodeTracks(featuredCameraMedia);
+        featuredCameraMedia.replaceChildren();
+        featuredCameraViewer.hidden = true;
+        return;
+      }
+      const current = featuredCameraMedia.querySelector("video");
+      const signature = String(participant.identity) + ":" + (publication.track.sid || publication.track.mediaStreamTrack?.id || "camera");
+      if (featuredCameraMedia.dataset.signature !== signature || !current) {
+        detachNodeTracks(featuredCameraMedia);
+        featuredCameraMedia.replaceChildren();
+        const video = publication.track.attach();
+        Object.assign(video, { autoplay: true, playsInline: true, muted: participant === room.localParticipant });
+        rememberAttachedTrack(publication.track, video);
+        featuredCameraMedia.append(video);
+        featuredCameraMedia.dataset.signature = signature;
+      }
+      if (featuredCameraLabel) featuredCameraLabel.textContent = (participant.name || "Guest") + " camera";
+      featuredCameraViewer.hidden = false;
+    }
     function addParticipantTile(participant, isLocal = false) {
       const tile = document.createElement("article");
       tile.className = "live-media-tile";
@@ -1104,6 +1140,23 @@
           setStatus(muted ? `Asked ${participant.name || "participant"} to unmute` : `Muted ${participant.name || "participant"}`, "success");
         });
         participantActions.append(mute);
+        if (videoPublication?.track && !videoPublication.isMuted) {
+          const feature = document.createElement("button");
+          feature.type = "button";
+          feature.className = "live-participant-feature";
+          feature.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10v10H4zM14 10l6-3v10l-6-3z"></path></svg>';
+          const featuring = selectedCameraIdentity === String(participant.identity);
+          feature.setAttribute("aria-pressed", String(featuring));
+          feature.setAttribute("aria-label", featuring ? "Stop featuring " + (participant.name || "participant") + " camera" : "Feature " + (participant.name || "participant") + " camera");
+          feature.title = feature.getAttribute("aria-label");
+          feature.addEventListener("click", event => {
+            event.stopPropagation();
+            selectedCameraIdentity = featuring ? "" : String(participant.identity);
+            renderFeaturedCamera();
+            renderParticipants();
+          });
+          participantActions.append(feature);
+        }
         const registryItem = participantRegistry.get(String(participant.identity));
         if (registryItem?.clientId && participantRole(participant) !== "presenter") {
           const remove = document.createElement("button");
@@ -1307,6 +1360,7 @@
       count.textContent = `${total} connected`;
       if (peopleBadge) peopleBadge.textContent = String(total);
       if (restoreCount) restoreCount.textContent = String(total);
+      renderFeaturedCamera();
       options.onParticipantTilesRendered?.();
     }
 
@@ -1855,6 +1909,11 @@
       fullscreenButton.textContent = active ? "×" : "⛶";
       fullscreenButton.setAttribute("aria-label", active ? "Exit presentation fullscreen" : "Enter presentation fullscreen");
       fullscreenButton.title = active ? "Exit fullscreen" : "Enter fullscreen";
+    });
+    featuredCameraClose?.addEventListener("click", () => {
+      selectedCameraIdentity = "";
+      renderFeaturedCamera();
+      renderParticipants();
     });
     panelToggle?.addEventListener("click", () => setAudienceSidebarHidden(true, true));
     panelRestore?.addEventListener("click", () => setAudienceSidebarHidden(false, true));
