@@ -110,6 +110,9 @@
     let soundContext = null;
     const reactionAudio = new Map();
     let reactionAudioWarmed = false;
+    let admissionAlarmActive = false;
+    let admissionAlarmTimer = 0;
+    let admissionAlarmPulseInFlight = false;
     let joinSoundEnabled = localStorage.getItem("presentStudio.joinSoundEnabled") !== "false";
     let joinSoundButton = null;
     let tabSpeakerMuted = localStorage.getItem("presentStudio.tabSpeakerMuted") === "true";
@@ -352,11 +355,74 @@
       participantRegistry = nextRegistry;
     }
 
+    function stopAdmissionAlarm() {
+      admissionAlarmActive = false;
+      if (!admissionAlarmTimer) return;
+      window.clearInterval(admissionAlarmTimer);
+      admissionAlarmTimer = 0;
+    }
+
+    async function playAdmissionAlarmPulse() {
+      if (!admissionAlarmActive || !isController || admissionAlarmPulseInFlight) return;
+      admissionAlarmPulseInFlight = true;
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        soundContext ||= new AudioContextClass();
+        await soundContext.resume?.();
+        if (!admissionAlarmActive) return;
+        const now = soundContext.currentTime;
+        [880, 1175, 880].forEach((frequency, index) => {
+          const oscillator = soundContext.createOscillator();
+          const gain = soundContext.createGain();
+          const start = now + index * .18;
+          oscillator.type = "sine";
+          oscillator.frequency.setValueAtTime(frequency, start);
+          gain.gain.setValueAtTime(.0001, start);
+          gain.gain.exponentialRampToValueAtTime(.16, start + .02);
+          gain.gain.exponentialRampToValueAtTime(.0001, start + .15);
+          oscillator.connect(gain);
+          gain.connect(soundContext.destination);
+          oscillator.start(start);
+          oscillator.stop(start + .16);
+        });
+      } catch {
+      } finally {
+        admissionAlarmPulseInFlight = false;
+      }
+    }
+
+    function syncAdmissionAlarm(pendingCount) {
+      const shouldRing = isController && Number(pendingCount) > 0;
+      if (!shouldRing) {
+        stopAdmissionAlarm();
+        return;
+      }
+      admissionAlarmActive = true;
+      if (admissionAlarmTimer) return;
+      playAdmissionAlarmPulse();
+      admissionAlarmTimer = window.setInterval(playAdmissionAlarmPulse, 1400);
+    }
+
+    function unlockAdmissionAlarm() {
+      if (!isController) return;
+      document.removeEventListener("pointerdown", unlockAdmissionAlarm, true);
+      document.removeEventListener("keydown", unlockAdmissionAlarm, true);
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        soundContext ||= new AudioContextClass();
+        soundContext.resume?.();
+        if (admissionAlarmActive) playAdmissionAlarmPulse();
+      } catch {}
+    }
+
     function renderLobby(message) {
       if (!isController || !lobby || message?.presentationId !== options.presentationId) return;
       const pending = Array.isArray(message.pending) ? message.pending : [];
       const active = Array.isArray(message.active) ? message.active : [];
       const shareRequests = Array.isArray(message.screenShareRequests) ? message.screenShareRequests : [];
+      syncAdmissionAlarm(pending.length);
       updateParticipantRegistry(active);
       const peopleTab = sidebarTabs.find(button => button.dataset.liveTab === "people");
       peopleTab?.classList.toggle("has-pending", pending.length > 0 || shareRequests.length > 0);
@@ -2023,6 +2089,10 @@
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") setMoreMenuOpen(false);
     });
+    if (isController) {
+      document.addEventListener("pointerdown", unlockAdmissionAlarm, { capture: true, passive: true });
+      document.addEventListener("keydown", unlockAdmissionAlarm, { capture: true });
+    }
     if (sheetHandle && !isController) {
       let startY = null;
       sheetHandle.addEventListener("pointerdown", event => {
@@ -2056,6 +2126,7 @@
       renderParticipants();
     });
     options.socket?.on("meeting_lobby_state", renderLobby);
+    options.socket?.on("disconnect", stopAdmissionAlarm);
     options.socket?.on("meeting_role_changed", message => {
       if (message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
       if (message.role === "cohost" && message.controllerUrl && !isController) {
@@ -2147,6 +2218,7 @@
       recoverMeetingAfterBackground().catch(() => {});
     });
     window.addEventListener("beforeunload", () => {
+      stopAdmissionAlarm();
       releaseMeetingTab();
       try { meetingTabChannel?.close(); } catch {}
     });
