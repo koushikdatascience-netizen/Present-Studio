@@ -6,7 +6,7 @@
     <title>Present Studio — Live Controller</title>
     <link rel="stylesheet" href="/css/styles.css?v=20260925-more-reactions">
   </head>
-  <body class="live-controller-page" data-controller-mode="control">
+  <body class="live-controller-page" data-controller-mode="control" data-controller-theme="light">
     <main class="live-controller-shell">
       <header class="live-controller-header">
         <div class="controller-brand"><p class="eyebrow">Private presenter panel</p><h1 id="controllerTitle">Live Controller</h1></div>
@@ -183,7 +183,7 @@
     </main>
     <dialog class="appearance-settings-dialog" id="controllerSettingsDialog" aria-labelledby="controllerSettingsTitle">
       <div class="appearance-settings-header"><div><span>Preferences</span><h2 id="controllerSettingsTitle">Appearance settings</h2></div><button type="button" id="controllerSettingsClose" aria-label="Close settings">×</button></div>
-      <div class="appearance-settings-body"><p>Choose how the controller workspace looks on this device.</p><div class="appearance-theme-options" role="group" aria-label="Controller theme"><button type="button" data-controller-theme-option="dark" aria-pressed="true"><span aria-hidden="true">☾</span><span><strong>Black</strong><small>Dark workspace</small></span><b>Selected</b></button><button type="button" data-controller-theme-option="light" aria-pressed="false"><span aria-hidden="true">☀</span><span><strong>Light</strong><small>Bright workspace</small></span><b>Use</b></button></div></div>
+      <div class="appearance-settings-body"><p>Choose how the controller workspace looks on this device.</p><div class="appearance-theme-options" role="group" aria-label="Controller theme"><button type="button" data-controller-theme-option="dark" aria-pressed="false"><span aria-hidden="true">☾</span><span><strong>Black</strong><small>Dark workspace</small></span><b>Use</b></button><button type="button" data-controller-theme-option="light" aria-pressed="true"><span aria-hidden="true">☀</span><span><strong>Light</strong><small>Bright workspace</small></span><b>Selected</b></button></div></div>
     </dialog>
     <dialog class="local-recording-dialog" id="localRecordingDialog" aria-labelledby="localRecordingTitle">
       <div class="local-recording-header"><div><span class="local-recording-kicker">Saved only on this device</span><h2 id="localRecordingTitle">Record meeting locally</h2></div><div class="local-recording-header-actions"><button type="button" id="localRecordingMinimize" aria-label="Minimize recording controls" title="Minimize recording controls" hidden><span aria-hidden="true">—</span></button><button type="button" id="localRecordingClose" aria-label="Close recording panel">×</button></div></div>
@@ -212,10 +212,11 @@
     <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
     <script src="/js/fabric-patch.js?v=20260908-paragraph-align"></script>
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
+    <script src="/js/appearance.js?v=20260925-light-default"></script>
     <script src="/js/api.js?v=20260919-participant-icons"></script>
     <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
     <script src="/js/live-media.js?v=20260925-more-reactions"></script>
-    <script src="/js/controller.js?v=20260919-recording-minimize"></script>
+    <script src="/js/controller.js?v=20260925-light-default"></script>
   </body>
 </html>

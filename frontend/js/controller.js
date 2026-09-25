@@ -453,7 +453,7 @@
   }
 
   function setControllerTheme(theme, remember = true) {
-    const nextTheme = theme === "light" ? "light" : "dark";
+    const nextTheme = theme === "dark" ? "dark" : "light";
     document.body.dataset.controllerTheme = nextTheme;
     document.querySelectorAll("[data-controller-theme-option]").forEach(button => {
       const selected = button.dataset.controllerThemeOption === nextTheme;
@@ -467,8 +467,7 @@
   function bindControllerTheme() {
     const settingsButton = $("#controllerSettingsButton");
     const settingsDialog = $("#controllerSettingsDialog");
-    let initialTheme = "dark";
-    try { initialTheme = localStorage.getItem("presentStudio.controllerTheme") || initialTheme; } catch {}
+    const initialTheme = window.SnapKeyAppearance?.theme("presentStudio.controllerTheme") || "light";
     setControllerTheme(initialTheme, false);
     document.querySelectorAll("[data-controller-theme-option]").forEach(button => button.addEventListener("click", () => setControllerTheme(button.dataset.controllerThemeOption)));
     settingsButton.addEventListener("click", () => settingsDialog.showModal());

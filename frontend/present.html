@@ -6,7 +6,7 @@
     <title>Present Studio - Present</title>
     <link rel="stylesheet" href="/css/styles.css?v=20260925-more-reactions">
   </head>
-  <body class="present-page" data-audience-theme="dark">
+  <body class="present-page" data-audience-theme="light">
     <div class="present-loading" id="presentLoading">
       <div class="loading-spinner"></div>
       <p>Loading presentation...</p>
@@ -104,15 +104,16 @@
     </main>
     <dialog class="appearance-settings-dialog" id="audienceSettingsDialog" aria-labelledby="audienceSettingsTitle">
       <div class="appearance-settings-header"><div><span>Preferences</span><h2 id="audienceSettingsTitle">Appearance settings</h2></div><button type="button" id="audienceSettingsClose" aria-label="Close settings">×</button></div>
-      <div class="appearance-settings-body"><p>Choose how the audience meeting looks on this device.</p><div class="appearance-theme-options" role="group" aria-label="Audience theme"><button type="button" data-audience-theme-option="dark" aria-pressed="true"><span aria-hidden="true">☾</span><span><strong>Black</strong><small>Dark meeting view</small></span><b>Selected</b></button><button type="button" data-audience-theme-option="light" aria-pressed="false"><span aria-hidden="true">☀</span><span><strong>Light</strong><small>Bright meeting view</small></span><b>Use</b></button></div></div>
+      <div class="appearance-settings-body"><p>Choose how the audience meeting looks on this device.</p><div class="appearance-theme-options" role="group" aria-label="Audience theme"><button type="button" data-audience-theme-option="dark" aria-pressed="false"><span aria-hidden="true">☾</span><span><strong>Black</strong><small>Dark meeting view</small></span><b>Use</b></button><button type="button" data-audience-theme-option="light" aria-pressed="true"><span aria-hidden="true">☀</span><span><strong>Light</strong><small>Bright meeting view</small></span><b>Selected</b></button></div></div>
     </dialog>
     <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
     <script src="/js/fabric-patch.js?v=20260908-paragraph-align"></script>
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
+    <script src="/js/appearance.js?v=20260925-light-default"></script>
     <script src="/js/api.js?v=20260919-participant-icons"></script>
     <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
     <script src="/js/live-media.js?v=20260925-more-reactions"></script>
-    <script src="/js/present.js?v=20260919-theme-settings"></script>
+    <script src="/js/present.js?v=20260925-light-default"></script>
   </body>
 </html>

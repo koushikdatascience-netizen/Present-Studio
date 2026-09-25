@@ -14,7 +14,7 @@ function playback() { return presentation.slides[0]?.canvas?.presentation_playba
 function setVisible(element, visible) { if (element) element.hidden = !visible; }
 function setStatus(message) { $("presentStatus").textContent = message; }
 function setAudienceTheme(theme, remember = true) {
-  const nextTheme = theme === "light" ? "light" : "dark";
+  const nextTheme = theme === "dark" ? "dark" : "light";
   document.body.dataset.audienceTheme = nextTheme;
   document.querySelectorAll("[data-audience-theme-option]").forEach(button => {
     const selected = button.dataset.audienceThemeOption === nextTheme;
@@ -26,8 +26,7 @@ function setAudienceTheme(theme, remember = true) {
 }
 function bindAudienceSettings() {
   const dialog = $("audienceSettingsDialog");
-  let initialTheme = "dark";
-  try { initialTheme = localStorage.getItem("presentStudio.audienceTheme") || initialTheme; } catch {}
+  const initialTheme = window.SnapKeyAppearance?.theme("presentStudio.audienceTheme") || "light";
   setAudienceTheme(initialTheme, false);
   document.querySelectorAll("[data-audience-theme-option]").forEach(button => button.addEventListener("click", () => setAudienceTheme(button.dataset.audienceThemeOption)));
   $("audienceSettingsButton").addEventListener("click", () => dialog.showModal());
