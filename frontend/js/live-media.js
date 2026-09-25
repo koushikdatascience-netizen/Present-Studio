@@ -2151,30 +2151,74 @@
     });
     options.socket?.on("meeting_lobby_state", renderLobby);
     options.socket?.on("disconnect", stopAdmissionAlarm);
+    let cohostAudienceTransitionStarted = false;
+
+    function returnCohostToAudience(message = {}) {
+      if (!isController || !options.cohostGuestId) return false;
+      if (message?.presentationId !== options.presentationId) return false;
+      if (message.clientId !== options.cohostGuestId) return false;
+
+      // Demotion currently produces both meeting_controller_revoked and
+      // meeting_role_changed. Only the first event may navigate.
+      if (cohostAudienceTransitionStarted) return true;
+      cohostAudienceTransitionStarted = true;
+
+      const returnKey = `presentStudio.cohostReturn.${options.presentationId}`;
+      let returnUrl = "";
+
+      try {
+        returnUrl = sessionStorage.getItem(returnKey) || "";
+      } catch {}
+
+      setStatus(
+        message.reason === "demoted"
+          ? "You are now an audience participant."
+          : "Co-host access ended. Returning to the audience view…"
+      );
+
+      window.setTimeout(() => {
+        try { sessionStorage.removeItem(returnKey); } catch {}
+        location.replace(
+          returnUrl || `/present.html?id=${encodeURIComponent(options.presentationId)}`
+        );
+      }, 450);
+
+      return true;
+    }
+
     options.socket?.on("meeting_role_changed", message => {
       if (message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
+
       if (message.role === "cohost" && message.controllerUrl && !isController) {
-        try { sessionStorage.setItem(`presentStudio.cohostReturn.${options.presentationId}`, location.href); } catch {}
-        setStatus("You have been promoted to co-host. Opening presenter controls…", "success");
+        try {
+          sessionStorage.setItem(
+            `presentStudio.cohostReturn.${options.presentationId}`,
+            location.href
+          );
+        } catch {}
+
+        setStatus(
+          "You have been promoted to co-host. Opening presenter controls…",
+          "success"
+        );
+
         window.setTimeout(() => location.replace(message.controllerUrl), 450);
         return;
       }
-      if (message.role === "audience" && isController && options.cohostGuestId === message.clientId) {
-        const returnKey = `presentStudio.cohostReturn.${options.presentationId}`;
-        let returnUrl = "";
-        try { returnUrl = sessionStorage.getItem(returnKey) || ""; sessionStorage.removeItem(returnKey); } catch {}
-        setStatus("Co-host access ended. Returning to the audience view…");
-        window.setTimeout(() => location.replace(returnUrl || `/present.html?id=${encodeURIComponent(options.presentationId)}`), 450);
+
+      if (
+        message.role === "audience" &&
+        isController &&
+        options.cohostGuestId === message.clientId
+      ) {
+        returnCohostToAudience({ ...message, reason: "demoted" });
       }
     });
+
     options.socket?.on("meeting_controller_revoked", message => {
-      if (!isController || !options.cohostGuestId || message?.presentationId !== options.presentationId || message.clientId !== options.cohostGuestId) return;
-      const returnKey = `presentStudio.cohostReturn.${options.presentationId}`;
-      let returnUrl = "";
-      try { returnUrl = sessionStorage.getItem(returnKey) || ""; sessionStorage.removeItem(returnKey); } catch {}
-      setStatus(message.reason === "demoted" ? "You are now an audience participant." : "Your co-host access has ended.");
-      window.setTimeout(() => location.replace(returnUrl || `/present.html?id=${encodeURIComponent(options.presentationId)}`), 450);
+      returnCohostToAudience(message);
     });
+
     options.socket?.on("connect", () => announceParticipantIdentity({ refreshAdmission: true }));
     options.socket?.on("meeting_admission_decision", message => {
       if (isController || message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
