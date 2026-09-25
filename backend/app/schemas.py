@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 from pydantic import BaseModel, Field
 
@@ -142,3 +143,27 @@ class LiveSessionOut(BaseModel):
     videoVolume: float = 1.0
     audioVolume: float = 1.0
     serverTime: int | None = None
+
+
+class MeetingCreate(BaseModel):
+    title: str = Field(default="New meeting", max_length=255)
+    timingMode: Literal["instant", "scheduled"] = "instant"
+    durationMode: Literal["unlimited", "timed"] = "unlimited"
+    accessType: Literal["public", "private"] = "public"
+    scheduledStart: datetime | None = None
+    scheduledEnd: datetime | None = None
+
+
+class MeetingOut(BaseModel):
+    id: str
+    presentationId: str
+    title: str
+    timingMode: Literal["instant", "scheduled"]
+    durationMode: Literal["unlimited", "timed"]
+    accessType: Literal["public", "private"]
+    scheduledStart: str
+    scheduledEnd: str | None = None
+    status: str
+    audienceUrl: str
+    controllerUrl: str
+    accessCode: str | None = None

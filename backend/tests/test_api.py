@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
+from datetime import datetime, timedelta, timezone
 import jwt
 from app.database import SessionLocal
 from app.config import get_settings
@@ -45,6 +46,56 @@ def test_create_presentation_creates_its_live_session():
     assert signup.status_code == 200
     assert response.status_code == 200
     assert response.json()["presentation"]["title"] == "Builder test presentation"
+
+
+def test_create_public_instant_meeting_returns_passwordless_audience_link():
+    email = f"meeting-owner-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Meeting Owner", "email": email, "password": "securepass123"})
+        headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
+        response = client.post(
+            "/api/meetings",
+            json={"title": "Public team room", "timingMode": "instant", "durationMode": "unlimited", "accessType": "public"},
+            headers=headers,
+        )
+        meetings = client.get("/api/meetings", headers=headers)
+        access = client.get(f"/api/presentations/{response.json()['presentationId']}/screen-access?token={response.json()['audienceUrl'].rsplit('/', 1)[-1]}")
+    assert response.status_code == 200
+    assert response.json()["accessCode"] is None
+    assert "/join/" in response.json()["audienceUrl"]
+    assert response.json()["controllerUrl"].endswith(f"controller.html?id={response.json()['presentationId']}")
+    assert meetings.status_code == 200
+    assert any(item["id"] == response.json()["id"] for item in meetings.json()["meetings"])
+    assert access.status_code == 200
+    assert access.json() == {"requiresCode": False}
+
+
+def test_create_private_scheduled_timed_meeting_generates_code_and_range():
+    email = f"scheduled-owner-{uuid4().hex}@example.com"
+    start = datetime.now(timezone.utc) + timedelta(days=1)
+    end = start + timedelta(hours=2)
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Scheduled Owner", "email": email, "password": "securepass123"})
+        response = client.post(
+            "/api/meetings",
+            json={
+                "title": "Private planning room",
+                "timingMode": "scheduled",
+                "durationMode": "timed",
+                "accessType": "private",
+                "scheduledStart": start.isoformat(),
+                "scheduledEnd": end.isoformat(),
+            },
+            headers={"Authorization": f"Bearer {signup.json()['accessToken']}"},
+        )
+        early_join = client.get(f"/api/presentations/shared/{response.json()['audienceUrl'].rsplit('/', 1)[-1]}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "scheduled"
+    assert response.json()["accessCode"].isdigit()
+    assert len(response.json()["accessCode"]) == 4
+    assert response.json()["scheduledEnd"] is not None
+    assert early_join.status_code == 403
+    assert "scheduled for" in early_join.json()["detail"]
 
 
 def test_share_link_requires_auth():

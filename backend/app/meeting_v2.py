@@ -7,7 +7,7 @@ from urllib.parse import quote
 from . import socket_manager as sm
 from .database import SessionLocal
 from .live_state import utc_now
-from .models import LiveSession, MeetingParticipantGrant, Presentation, ShareLink
+from .models import LiveSession, Meeting, MeetingParticipantGrant, Presentation, ShareLink
 from .security import new_id, new_share_token, user_from_token
 
 
@@ -305,6 +305,12 @@ async def meeting_controller_register(sid, data):
 
     cohost_guest_id = str(data.get("cohostGuestId") or "").strip()[:128]
     with SessionLocal() as db:
+        managed_meeting = db.query(Meeting).filter(Meeting.presentation_id == presentation_id).first()
+        if managed_meeting:
+            end = _aware(managed_meeting.scheduled_end)
+            if managed_meeting.status == "closed" or (end and datetime.now(timezone.utc) >= end):
+                await sm.sio.emit("presenter_rejected", {"message": "This meeting has ended"}, room=sid)
+                return
         live = _ensure_meeting_instance(db, presentation_id)
         if cohost_guest_id:
             grant = _grant(db, presentation_id, live.meeting_instance_id, cohost_guest_id)
@@ -344,6 +350,7 @@ async def meeting_admission_request(sid, data):
             await sm.sio.emit("session_ended", {"presentationId": presentation_id}, room=sid)
             return
         grant = _grant(db, presentation_id, live.meeting_instance_id, guest_id)
+        managed_meeting = db.query(Meeting).filter(Meeting.presentation_id == presentation_id).first()
 
         if grant and grant.status == "approved":
             active = {
@@ -361,7 +368,7 @@ async def meeting_admission_request(sid, data):
             await sm._emit_lobby_state(presentation_id)
             return
 
-        if not sm.controller_sids.get(presentation_id):
+        if not sm.controller_sids.get(presentation_id) and not managed_meeting:
             grant = _upsert_grant(
                 db,
                 presentation_id,
@@ -577,7 +584,11 @@ async def end_session(sid, data):
         with SessionLocal() as db:
             if meeting_instance_id:
                 _revoke_instance(db, presentation_id, meeting_instance_id)
-                db.commit()
+            managed_meeting = db.query(Meeting).filter(Meeting.presentation_id == presentation_id).first()
+            if managed_meeting:
+                managed_meeting.status = "closed"
+                managed_meeting.updated_at = utc_now()
+            db.commit()
         for guest_id in list(cohost_controller_sids.get(presentation_id, {})):
             await _revoke_cohost_controller(presentation_id, guest_id, "session-ended")
 

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
 from ..live_state import apply_controller_state, live_session_payload
-from ..models import LiveSession, MeetingParticipantGrant, Presentation, PresentationMember, ShareLink, Slide, User
+from ..models import LiveSession, Meeting, MeetingParticipantGrant, Presentation, PresentationMember, ShareLink, Slide, User
 from ..schemas import LiveMediaTokenOut, LiveMediaTokenRequest, LiveSessionOut, LiveSlideUpdate, PresentationCreate, PresentationOut, PresentationPayload, PresentationSave, ScreenAccessRequest, ShareLinkCreate, ShareLinkOut, ShareLinkResolveOut, SlideOut
 from ..security import can_edit_presentation, can_view_presentation, current_user, hash_password, new_id, new_share_token, optional_current_user, resolve_share_permission, verify_password
 from ..socket_manager import meeting_admission_required, meeting_client_is_admitted, sio
@@ -82,6 +82,22 @@ def verify_screen_access_code(share: ShareLink, code: str | None) -> bool:
     if not share.screen_access_code_hash:
         return True
     return bool(code and verify_password(code, share.screen_access_code_hash))
+
+
+def enforce_meeting_join_window(db: Session, presentation_id: str) -> Meeting | None:
+    meeting = db.query(Meeting).filter(Meeting.presentation_id == presentation_id).first()
+    if not meeting:
+        return None
+    now = datetime.now(timezone.utc)
+    start = _aware_datetime(meeting.scheduled_start)
+    end = _aware_datetime(meeting.scheduled_end)
+    if meeting.status == "closed":
+        raise HTTPException(status_code=410, detail="This meeting has been closed by its owner")
+    if start and now < start:
+        raise HTTPException(status_code=403, detail=f"This meeting is scheduled for {start.isoformat()}")
+    if end and now >= end:
+        raise HTTPException(status_code=410, detail="This timed meeting has ended")
+    return meeting
 
 
 def screen_code_share(db: Session, presentation_id: str, share: ShareLink | None = None) -> ShareLink | None:
@@ -250,7 +266,7 @@ def list_presentations(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, list[PresentationOut]]:
-    presentations = db.query(Presentation).filter(Presentation.owner_id == user.id).order_by(Presentation.updated_at.desc()).all()
+    presentations = db.query(Presentation).filter(Presentation.owner_id == user.id, Presentation.status != "meeting").order_by(Presentation.updated_at.desc()).all()
     return {"presentations": [serialize_presentation(item) for item in presentations]}
 
 
@@ -265,6 +281,7 @@ def resolve_shared_presentation(token: str, db: Session = Depends(get_db)) -> Sh
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if not share or (expires_at and expires_at <= datetime.now(timezone.utc)):
         raise HTTPException(status_code=404, detail="This audience link is invalid or has expired")
+    enforce_meeting_join_window(db, share.presentation_id)
     return ShareLinkResolveOut(presentationId=share.presentation_id)
 
 
@@ -275,7 +292,7 @@ def create_presentation(
     db: Session = Depends(get_db),
 ) -> PresentationPayload:
     quota_user = db.query(User).filter(User.id == user.id).with_for_update().one()
-    presentation_count = db.query(func.count(Presentation.id)).filter(Presentation.owner_id == user.id).scalar() or 0
+    presentation_count = db.query(func.count(Presentation.id)).filter(Presentation.owner_id == user.id, Presentation.status != "meeting").scalar() or 0
     if presentation_count >= quota_user.presentation_limit:
         raise HTTPException(
             status_code=409,
@@ -327,6 +344,7 @@ def get_presentation(
         share = active_share_link(db, presentation.id, token)
         if not share:
             raise HTTPException(status_code=403, detail="Share link is not valid")
+        enforce_meeting_join_window(db, presentation.id)
         if is_screen_output:
             required_code_share = screen_code_share(db, presentation.id, share)
             if not required_code_share:
@@ -508,6 +526,7 @@ def create_live_media_token(
     elif payload.shareToken:
         share = active_share_link(db, presentation_id, payload.shareToken)
         if share:
+            enforce_meeting_join_window(db, presentation_id)
             permission = share.permission if share.permission in {"viewer", "presenter"} else "viewer"
             default_name = "Presenter" if permission == "presenter" else "Guest"
             if permission == "viewer" and not verify_screen_access_code(share, payload.screenAccessCode):
@@ -549,7 +568,10 @@ def screen_access_requirements(
     share = active_share_link(db, presentation_id, token)
     if not share:
         raise HTTPException(status_code=403, detail="Share link is not valid")
+    meeting = enforce_meeting_join_window(db, presentation_id)
     if not share.screen_access_code_hash:
+        if meeting and meeting.access_type == "public":
+            return {"requiresCode": False}
         raise HTTPException(status_code=403, detail="This unprotected screen link is no longer valid. Generate a new protected link")
     return {"requiresCode": True}
 
@@ -566,6 +588,7 @@ def verify_screen_access(
     share = active_share_link(db, presentation_id, payload.token)
     if not share:
         raise HTTPException(status_code=403, detail="Share link is not valid")
+    enforce_meeting_join_window(db, presentation_id)
     required_code_share = screen_code_share(db, presentation_id, share)
     if not required_code_share:
         raise HTTPException(status_code=403, detail="This unprotected screen link is no longer valid. Generate a new protected link")
@@ -650,6 +673,7 @@ async def delete_presentation(
         raise HTTPException(status_code=404, detail="Presentation not found")
 
     db.query(PresentationMember).filter(PresentationMember.presentation_id == presentation_id).delete()
+    db.query(Meeting).filter(Meeting.presentation_id == presentation_id).delete()
     db.query(MeetingParticipantGrant).filter(MeetingParticipantGrant.presentation_id == presentation_id).delete()
     db.query(ShareLink).filter(ShareLink.presentation_id == presentation_id).delete()
     db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).delete()

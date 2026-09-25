@@ -27,6 +27,7 @@
   let previewTextPoint = null;
   let previewToolbarTimer;
   let meetingClosed = false;
+  let meetingExpiryTimer = 0;
   let interactiveToolZoom = 1;
   let interactiveToolPan = { x: 0, y: 0 };
   let interactiveToolPointer = null;
@@ -1279,6 +1280,22 @@
     if (state && socket?.connected) socket.emit("controller_state", state);
   }
 
+  function scheduleMeetingExpiry(meeting) {
+    if (isCohost || !meeting?.scheduledEnd) return;
+    const endAt = new Date(meeting.scheduledEnd).getTime();
+    if (!Number.isFinite(endAt)) return;
+    const arm = () => {
+      const remaining = endAt - Date.now();
+      if (remaining <= 0) {
+        socket?.emit("meeting_close", credentials());
+        return;
+      }
+      meetingExpiryTimer = window.setTimeout(arm, Math.min(remaining, 2147483647));
+    };
+    window.clearTimeout(meetingExpiryTimer);
+    arm();
+  }
+
   function controlPreviewMedia(action, position) {
     const mediaElements = previewMediaElements();
     mediaElements.forEach(media => {
@@ -1673,9 +1690,10 @@
 
   try {
     if (!window.fabric) throw new Error("The slide preview library could not be loaded.");
-    const [result, live] = await Promise.all([
+    const [result, live, meetingPlan] = await Promise.all([
       api.getPresentation(presentationId, shareToken),
-      api.getLiveSession(presentationId).catch(() => ({ activeSlideId: "" }))
+      api.getLiveSession(presentationId).catch(() => ({ activeSlideId: "" })),
+      api.getMeetingForPresentation ? api.getMeetingForPresentation(presentationId).catch(() => null) : Promise.resolve(null)
     ]);
     if (result.permission !== "presenter") throw new Error("A trusted presenter link is required for this controller.");
     presentation = result.presentation;
@@ -1715,6 +1733,7 @@
     if (joinButton) joinButton.hidden = true;
     if (joinStatus) joinStatus.textContent = isCohost ? "Joining as co-host…" : "Joining as presentation owner…";
     queueMicrotask(() => liveMediaSession?.join?.(true));
+    scheduleMeetingExpiry(meetingPlan);
 
     previewCanvas = new fabric.StaticCanvas("controllerPreviewCanvas", { width: 1280, height: 720, selection: false, renderOnAddRemove: false });
     $("#backToEditor").href = `/builder.html?id=${encodeURIComponent(presentation.id)}`;
@@ -1802,6 +1821,7 @@
     socket?.on("session_ended", event => {
       if (event?.presentationId && event.presentationId !== presentationId) return;
       meetingClosed = true;
+      window.clearTimeout(meetingExpiryTimer);
       stopLoop(false);
       setConnectionStatus("Closed");
       toast("Meeting closed. All participants were disconnected.");

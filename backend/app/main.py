@@ -9,7 +9,7 @@ from .database import Base, SessionLocal, engine
 from .models import User
 from .socket_manager import sio
 from . import meeting_v2
-from .routers import admin, auth, media, presentations
+from .routers import admin, auth, media, meetings, presentations
 from .security import admin_user
 from .seed import seed_demo_data
 
@@ -138,6 +138,7 @@ def health() -> dict[str, str]:
 
 fastapi_app.include_router(auth.router)
 fastapi_app.include_router(presentations.router)
+fastapi_app.include_router(meetings.router)
 fastapi_app.include_router(media.router)
 fastapi_app.include_router(admin.router)
 

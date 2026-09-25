@@ -1,6 +1,10 @@
 const api = window.PresentStudioApi;
 const grid = document.querySelector("#presentationGrid");
 const createButton = document.querySelector("#createPresentation");
+const createMeetingButton = document.querySelector("#createMeeting");
+const meetingGrid = document.querySelector("#meetingGrid");
+const meetingDialog = document.querySelector("#meetingCreateDialog");
+const meetingForm = document.querySelector("#meetingCreateForm");
 const toast = document.querySelector("#toast");
 const profileButton = document.querySelector("#profileButton");
 const builderButtons = [document.querySelector("#builderNav"), document.querySelector("#openBuilder")].filter(Boolean);
@@ -8,6 +12,7 @@ const searchInput = document.querySelector("#presentationSearch");
 
 let toastTimer = null;
 let dashboardPresentations = [];
+let dashboardMeetings = [];
 function showToast(message) {
   if (!toast) return;
   toast.textContent = message;
@@ -97,14 +102,162 @@ function renderDecks(presentations) {
   }));
 }
 
+function meetingStatusLabel(meeting) {
+  if (meeting.status === "closed") return "Closed";
+  if (meeting.status === "ended") return "Ended";
+  if (meeting.status === "scheduled") return "Scheduled";
+  return meeting.timingMode === "instant" ? "Ready now" : "Ready to start";
+}
+
+function meetingTimeLabel(meeting) {
+  const start = new Date(meeting.scheduledStart);
+  const startLabel = meeting.timingMode === "instant" ? "Instant meeting" : start.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  if (!meeting.scheduledEnd) return `${startLabel} · Unlimited`;
+  return `${startLabel} – ${new Date(meeting.scheduledEnd).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`;
+}
+
+async function copyText(value, successMessage) {
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = value;
+    document.body.append(input);
+    input.select();
+    document.execCommand("copy");
+    input.remove();
+  }
+  showToast(successMessage);
+}
+
+function renderMeetings(meetings) {
+  if (!meetingGrid) return;
+  if (!meetings.length) {
+    meetingGrid.innerHTML = `<p class="dashboard-status">No meetings yet. Create an instant room or schedule one for later.</p>`;
+    return;
+  }
+  meetingGrid.innerHTML = meetings.map(meeting => {
+    const ended = ["closed", "ended"].includes(meeting.status);
+    return `<article class="meeting-card ${ended ? "is-ended" : ""}">
+      <div class="meeting-card-icon"><i class="bi bi-camera-video"></i></div>
+      <div class="meeting-card-content"><div><span class="meeting-status">${escapeHtml(meetingStatusLabel(meeting))}</span><span class="meeting-privacy"><i class="bi ${meeting.accessType === "private" ? "bi-lock" : "bi-globe2"}"></i>${escapeHtml(meeting.accessType)}</span></div><h3>${escapeHtml(meeting.title)}</h3><p>${escapeHtml(meetingTimeLabel(meeting))}</p></div>
+      <div class="meeting-card-actions"><button type="button" data-copy-audience="${escapeHtml(meeting.audienceUrl)}" ${ended ? "disabled" : ""}><i class="bi bi-link-45deg"></i><span>Copy link</span></button><a href="${escapeHtml(meeting.controllerUrl)}" ${ended ? 'aria-disabled="true" tabindex="-1"' : ""}><i class="bi bi-box-arrow-up-right"></i><span>Owner controls</span></a></div>
+    </article>`;
+  }).join("");
+  meetingGrid.querySelectorAll("[data-copy-audience]").forEach(button => button.addEventListener("click", () => copyText(button.dataset.copyAudience, "Audience link copied.")));
+}
+
 async function loadDashboard() {
   if (!grid) return;
   grid.innerHTML = `<p class="dashboard-status">Loading your presentations…</p>`;
-  const { presentations } = await api.listPresentations();
-  dashboardPresentations = presentations;
-  updateDashboardStats(presentations);
-  renderDecks(presentations);
+  const [{ presentations }, { meetings }] = await Promise.all([api.listPresentations(), api.listMeetings()]);
+  dashboardPresentations = presentations.filter(item => item.status !== "meeting");
+  dashboardMeetings = meetings;
+  updateDashboardStats(dashboardPresentations);
+  renderDecks(dashboardPresentations);
+  renderMeetings(meetings);
 }
+
+function localDateTimeValue(date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function resetMeetingDialog() {
+  meetingForm?.reset();
+  const now = new Date();
+  const start = new Date(now.getTime() + 30 * 60000);
+  start.setMinutes(Math.ceil(start.getMinutes() / 15) * 15, 0, 0);
+  const end = new Date(start.getTime() + 60 * 60000);
+  document.querySelector("#meetingTitle").value = "New meeting";
+  document.querySelector("#meetingScheduledStart").value = localDateTimeValue(start);
+  document.querySelector("#meetingScheduledEnd").value = localDateTimeValue(end);
+  document.querySelector("[data-meeting-form]").hidden = false;
+  document.querySelector("[data-meeting-result]").hidden = true;
+  document.querySelector("#meetingSubmit").hidden = false;
+  document.querySelector("#meetingCancel").textContent = "Cancel";
+  document.querySelector("#meetingOwnerJoin").hidden = true;
+  document.querySelector("#meetingFormError").hidden = true;
+  syncMeetingFields();
+}
+
+function syncMeetingFields() {
+  const timing = meetingForm?.elements.timingMode?.value || "instant";
+  const duration = meetingForm?.elements.durationMode?.value || "unlimited";
+  const startField = document.querySelector("[data-scheduled-start]");
+  const endField = document.querySelector("[data-scheduled-end]");
+  startField.hidden = timing !== "scheduled";
+  endField.hidden = duration !== "timed";
+  startField.querySelector("input").required = timing === "scheduled";
+  endField.querySelector("input").required = duration === "timed";
+}
+
+function closeMeetingDialog() {
+  meetingDialog?.close();
+}
+
+createMeetingButton?.addEventListener("click", () => {
+  resetMeetingDialog();
+  meetingDialog.showModal();
+});
+meetingForm?.addEventListener("change", syncMeetingFields);
+document.querySelector("#meetingDialogClose")?.addEventListener("click", closeMeetingDialog);
+document.querySelector("#meetingCancel")?.addEventListener("click", closeMeetingDialog);
+meetingDialog?.addEventListener("click", event => { if (event.target === meetingDialog) closeMeetingDialog(); });
+meetingForm?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const submit = document.querySelector("#meetingSubmit");
+  const error = document.querySelector("#meetingFormError");
+  const timingMode = meetingForm.elements.timingMode.value;
+  const durationMode = meetingForm.elements.durationMode.value;
+  const startInput = document.querySelector("#meetingScheduledStart").value;
+  const endInput = document.querySelector("#meetingScheduledEnd").value;
+  const scheduledStart = timingMode === "scheduled" ? new Date(startInput) : new Date();
+  const scheduledEnd = durationMode === "timed" ? new Date(endInput) : null;
+  if (timingMode === "scheduled" && (!startInput || scheduledStart <= new Date())) {
+    error.textContent = "Choose a future start date and time.";
+    error.hidden = false;
+    return;
+  }
+  if (durationMode === "timed" && (!endInput || scheduledEnd <= scheduledStart)) {
+    error.textContent = "The end date and time must be after the meeting starts.";
+    error.hidden = false;
+    return;
+  }
+  error.hidden = true;
+  submit.disabled = true;
+  try {
+    const meeting = await api.createMeeting({
+      title: document.querySelector("#meetingTitle").value.trim() || "New meeting",
+      timingMode,
+      durationMode,
+      accessType: meetingForm.elements.accessType.value,
+      scheduledStart: timingMode === "scheduled" ? scheduledStart.toISOString() : null,
+      scheduledEnd: scheduledEnd?.toISOString() || null
+    });
+    document.querySelector("[data-meeting-form]").hidden = true;
+    document.querySelector("[data-meeting-result]").hidden = false;
+    document.querySelector("#meetingSubmit").hidden = true;
+    document.querySelector("#meetingCancel").textContent = "Done";
+    document.querySelector("#meetingResultSummary").textContent = `${meetingStatusLabel(meeting)} · ${meeting.accessType === "private" ? "Private access" : "Public access"}`;
+    document.querySelector("#meetingAudienceLink").value = meeting.audienceUrl;
+    const codePanel = document.querySelector("[data-meeting-access-code]");
+    codePanel.hidden = !meeting.accessCode;
+    document.querySelector("#meetingAccessCode").textContent = meeting.accessCode || "";
+    const ownerJoin = document.querySelector("#meetingOwnerJoin");
+    ownerJoin.href = meeting.controllerUrl;
+    ownerJoin.hidden = false;
+    dashboardMeetings = [meeting, ...dashboardMeetings];
+    renderMeetings(dashboardMeetings);
+  } catch (creationError) {
+    error.textContent = creationError.message;
+    error.hidden = false;
+  } finally {
+    submit.disabled = false;
+  }
+});
+document.querySelector("[data-copy-meeting-link]")?.addEventListener("click", () => copyText(document.querySelector("#meetingAudienceLink").value, "Audience link copied."));
+document.querySelector("[data-copy-meeting-code]")?.addEventListener("click", () => copyText(document.querySelector("#meetingAccessCode").textContent, "Meeting code copied."));
 
 async function openBuilder() {
   const existing = dashboardPresentations[0];
