@@ -120,6 +120,7 @@ def live_session_repair_statements(dialect_name: str, columns: set[str]) -> list
         "audio_volume": "FLOAT DEFAULT 1 NOT NULL",
         "media_updated_at": timestamp_type,
         "featured_share_identity": "VARCHAR(128)",
+        "featured_camera_identity": "VARCHAR(128)",
         "meeting_muted": f"BOOLEAN DEFAULT {bool_default} NOT NULL",
         "muted_participant_identities": "TEXT DEFAULT '[]' NOT NULL",
     }

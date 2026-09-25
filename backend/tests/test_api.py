@@ -385,6 +385,7 @@ def test_live_session_schema_repair_covers_postgres_media_columns():
     assert "ALTER TABLE live_sessions ADD COLUMN media_muted BOOLEAN DEFAULT FALSE NOT NULL" in statements
     assert "ALTER TABLE live_sessions ADD COLUMN media_updated_at TIMESTAMP WITH TIME ZONE" in statements
     assert "ALTER TABLE live_sessions ADD COLUMN featured_share_identity VARCHAR(128)" in statements
+    assert "ALTER TABLE live_sessions ADD COLUMN featured_camera_identity VARCHAR(128)" in statements
     assert "ALTER TABLE live_sessions ADD COLUMN meeting_muted BOOLEAN DEFAULT FALSE NOT NULL" in statements
     assert "ALTER TABLE live_sessions ADD COLUMN muted_participant_identities TEXT DEFAULT '[]' NOT NULL" in statements
 
@@ -394,6 +395,7 @@ def test_meeting_control_payload_restores_persisted_override_state():
         id="live_test",
         presentation_id="pres_test",
         featured_share_identity="participant_screen_owner",
+        featured_camera_identity="participant_camera_owner",
         meeting_muted=True,
         muted_participant_identities='["participant_one","participant_two"]',
     )
@@ -401,6 +403,7 @@ def test_meeting_control_payload_restores_persisted_override_state():
     assert meeting_control_payload(live, "pres_test") == {
         "presentationId": "pres_test",
         "featuredShareIdentity": "participant_screen_owner",
+        "featuredCameraIdentity": "participant_camera_owner",
         "meetingMuted": True,
         "mutedParticipants": ["participant_one", "participant_two"],
     }

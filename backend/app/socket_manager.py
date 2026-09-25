@@ -316,6 +316,9 @@ async def meeting_control(sid, data):
         return
     raw_featured_identity = data.get("featuredShareIdentity")
     featured_identity = (raw_featured_identity.strip()[:128] or None) if isinstance(raw_featured_identity, str) else None
+    featured_camera_identity_supplied = "featuredCameraIdentity" in data
+    raw_featured_camera_identity = data.get("featuredCameraIdentity")
+    featured_camera_identity = (raw_featured_camera_identity.strip()[:128] or None) if isinstance(raw_featured_camera_identity, str) else None
     raw_muted = data.get("mutedParticipants")
     if not isinstance(raw_muted, list):
         raw_muted = []
@@ -330,6 +333,8 @@ async def meeting_control(sid, data):
             live = LiveSession(id=new_id("live"), presentation_id=presentation_id)
             db.add(live)
         live.featured_share_identity = featured_identity
+        if featured_camera_identity_supplied:
+            live.featured_camera_identity = featured_camera_identity
         live.meeting_muted = data.get("meetingMuted") is True
         live.muted_participant_identities = json.dumps(muted_identities, separators=(",", ":"))
         db.commit()
@@ -615,6 +620,7 @@ async def end_session(sid, data):
             live.media_playing = False
             live.media_updated_at = utc_now()
             live.featured_share_identity = None
+            live.featured_camera_identity = None
             live.meeting_muted = False
             live.muted_participant_identities = "[]"
             db.commit()

@@ -865,6 +865,7 @@
         authToken: options.authToken || "",
         shareToken: options.shareToken || "",
         featuredShareIdentity: controllerShareIdentity,
+        featuredCameraIdentity: selectedCameraIdentity,
         meetingMuted,
         mutedParticipants: [...mutedParticipants]
       });
@@ -873,6 +874,9 @@
     function applyControllerState(message) {
       if (!message || (message.presentationId && message.presentationId !== options.presentationId)) return;
       controllerShareIdentity = String(message.featuredShareIdentity || "");
+      if (Object.prototype.hasOwnProperty.call(message, "featuredCameraIdentity")) {
+        selectedCameraIdentity = String(message.featuredCameraIdentity || "");
+      }
       mutedParticipants = new Set(Array.isArray(message.mutedParticipants) ? message.mutedParticipants.map(String) : []);
       meetingMuted = Boolean(message.meetingMuted);
       if (room && nonPresenterRemoteIdentities().length) recomputeMeetingMuted();
@@ -1130,6 +1134,10 @@
         detachNodeTracks(featuredCameraMedia);
         featuredCameraMedia.replaceChildren();
         featuredCameraViewer.hidden = true;
+        if (isController && selectedCameraIdentity) {
+          selectedCameraIdentity = "";
+          publishControllerState();
+        }
         return;
       }
       const current = featuredCameraMedia.querySelector("video");
@@ -1251,6 +1259,7 @@
           feature.addEventListener("click", event => {
             event.stopPropagation();
             selectedCameraIdentity = featuring ? "" : String(participant.identity);
+            publishControllerState();
             renderFeaturedCamera();
             renderParticipants();
           });
@@ -1448,7 +1457,8 @@
       ].join(":")).sort().join("|");
       const registryItem = participantRegistry.get(String(participant.identity));
       return [participant.identity, participant.name, participant.metadata, isLocal, publicationState,
-        raisedHands.has(participant.identity), meetingMuted, mutedParticipants.has(participant.identity), registryItem?.clientId || ""].join("::");
+        raisedHands.has(participant.identity), meetingMuted, mutedParticipants.has(participant.identity),
+        selectedCameraIdentity, registryItem?.clientId || ""].join("::");
     }
 
     function renderParticipants() {
@@ -2069,6 +2079,7 @@
     });
     featuredCameraClose?.addEventListener("click", () => {
       selectedCameraIdentity = "";
+      publishControllerState();
       renderFeaturedCamera();
       renderParticipants();
     });
