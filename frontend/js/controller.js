@@ -49,6 +49,7 @@
   let localRecordingDownloadUrl = "";
   let localRecordingCleanupTimer = 0;
   let localRecordingTempCleanup = null;
+  const previewShapeTools = new Set(["line", "arrow", "rectangle", "circle"]);
 
   function escapeHtml(value) { return String(value || "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char])); }
   function toast(message) { const node = $("#toast"); node.textContent = message; node.classList.add("show"); clearTimeout(toast.timer); toast.timer = setTimeout(() => node.classList.remove("show"), 2600); }
@@ -591,6 +592,7 @@
         $("#previewFullscreenTools").classList.remove("is-visible");
         closePreviewTextEditor();
         stage.classList.remove("is-preview-grabbing");
+        $("#previewWhiteboardCursor").hidden = true;
         previewToolPointer = null;
         if (previewToolZoom !== 1 || previewToolPan.x || previewToolPan.y) {
           previewToolZoom = 1;
@@ -608,11 +610,14 @@
     bindFullscreenPreviewTools();
   }
 
-  function previewHighlighterColor() {
-    const value = $("#previewToolColor").value || "#ffd54a";
+  function translucentAnnotationColor(value) {
     const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(value);
     if (!match) return "rgba(255, 213, 74, .38)";
     return `rgba(${parseInt(match[1], 16)}, ${parseInt(match[2], 16)}, ${parseInt(match[3], 16)}, .38)`;
+  }
+
+  function previewHighlighterColor() {
+    return translucentAnnotationColor($("#previewToolColor").value || "#ffd54a");
   }
 
   function previewToolPoint(event) {
@@ -625,23 +630,9 @@
   }
 
   function drawPreviewToolPath(points, color, size) {
-    if (points.length < 2) return;
+    if (!points.length) return;
     const canvas = $("#previewAnnotationCanvas");
-    const context = canvas.getContext("2d");
-    context.save();
-    context.strokeStyle = color;
-    context.lineWidth = size;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.beginPath();
-    points.forEach((point, index) => {
-      const x = point.x * canvas.width;
-      const y = point.y * canvas.height;
-      if (index) context.lineTo(x, y);
-      else context.moveTo(x, y);
-    });
-    context.stroke();
-    context.restore();
+    drawAnnotationPath(canvas, points, color, size);
   }
 
   function addPreviewToolText(text, point, color, size) {
@@ -655,14 +646,26 @@
   }
 
   function drawInteractiveToolPath(points, color, size) {
-    if (points.length < 2) return;
+    if (!points.length) return;
     const canvas = $("#interactiveAnnotationCanvas");
+    drawAnnotationPath(canvas, points, color, size);
+  }
+
+  function drawAnnotationPath(canvas, points, color, size) {
     const context = canvas.getContext("2d");
     context.save();
     context.strokeStyle = color;
+    context.fillStyle = color;
     context.lineWidth = size;
     context.lineCap = "round";
     context.lineJoin = "round";
+    if (points.length === 1) {
+      context.beginPath();
+      context.arc(points[0].x * canvas.width, points[0].y * canvas.height, Math.max(1, size / 2), 0, Math.PI * 2);
+      context.fill();
+      context.restore();
+      return;
+    }
     context.beginPath();
     points.forEach((point, index) => {
       const x = point.x * canvas.width;
@@ -672,6 +675,58 @@
     });
     context.stroke();
     context.restore();
+  }
+
+  function drawAnnotationShape(canvas, shape, start, end, color, size) {
+    if (!previewShapeTools.has(shape) || !start || !end) return;
+    const context = canvas.getContext("2d");
+    const startX = start.x * canvas.width;
+    const startY = start.y * canvas.height;
+    const endX = end.x * canvas.width;
+    const endY = end.y * canvas.height;
+    const width = endX - startX;
+    const height = endY - startY;
+    if (Math.hypot(width, height) < 2) return;
+    context.save();
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.lineWidth = Math.max(2, Number(size) || 2);
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.beginPath();
+    if (shape === "rectangle") context.rect(startX, startY, width, height);
+    else if (shape === "circle") context.ellipse(startX + width / 2, startY + height / 2, Math.abs(width / 2), Math.abs(height / 2), 0, 0, Math.PI * 2);
+    else {
+      context.moveTo(startX, startY);
+      context.lineTo(endX, endY);
+    }
+    context.stroke();
+    if (shape === "arrow") {
+      const angle = Math.atan2(endY - startY, endX - startX);
+      const head = Math.max(12, Math.min(34, context.lineWidth * 2.2));
+      context.beginPath();
+      context.moveTo(endX, endY);
+      context.lineTo(endX - head * Math.cos(angle - Math.PI / 6), endY - head * Math.sin(angle - Math.PI / 6));
+      context.lineTo(endX - head * Math.cos(angle + Math.PI / 6), endY - head * Math.sin(angle + Math.PI / 6));
+      context.closePath();
+      context.fill();
+    }
+    context.restore();
+  }
+
+  function updateWhiteboardCursor(cursor, event, bounds, color, size) {
+    if (!cursor || previewTool !== "highlighter" || document.fullscreenElement === null ||
+        event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+      if (cursor) cursor.hidden = true;
+      return;
+    }
+    const stageBounds = cursor.parentElement.getBoundingClientRect();
+    cursor.hidden = false;
+    cursor.style.left = `${event.clientX - stageBounds.left}px`;
+    cursor.style.top = `${event.clientY - stageBounds.top}px`;
+    cursor.style.width = `${Math.max(8, Number(size) || 18)}px`;
+    cursor.style.height = cursor.style.width;
+    cursor.style.setProperty("--whiteboard-cursor-color", color);
   }
 
   function addInteractiveToolText(text, point, color, size) {
@@ -754,9 +809,15 @@
     const stage = $("#previewStage");
     stage.classList.toggle("is-preview-highlighting", tool === "highlighter");
     stage.classList.toggle("is-preview-panning", tool === "pan");
+    stage.classList.toggle("is-preview-shaping", previewShapeTools.has(tool));
     const interactiveStage = $("#controllerLiveMedia")?.querySelector(".interactive-main-stage");
     interactiveStage?.classList.toggle("is-preview-highlighting", tool === "highlighter");
     interactiveStage?.classList.toggle("is-preview-panning", tool === "pan");
+    interactiveStage?.classList.toggle("is-preview-shaping", previewShapeTools.has(tool));
+    if (tool !== "highlighter") {
+      $("#previewWhiteboardCursor").hidden = true;
+      $("#interactiveWhiteboardCursor").hidden = true;
+    }
   }
 
   function showPreviewToolbar() {
@@ -798,6 +859,8 @@
     stage.addEventListener("pointermove", event => {
       if (document.fullscreenElement !== stage) return;
       showPreviewToolbar();
+      const visualBounds = $("#controllerPreviewVisual").getBoundingClientRect();
+      updateWhiteboardCursor($("#previewWhiteboardCursor"), event, visualBounds, color(), size());
       if (!previewToolPointer || previewToolPointer.id !== event.pointerId) return;
       if (previewTool === "pan") {
         previewToolPan = {
@@ -809,6 +872,11 @@
       }
       const point = previewToolPoint(event);
       if (!point) return;
+      if (previewShapeTools.has(previewTool)) {
+        previewToolPointer.endPoint = point;
+        return;
+      }
+      if (previewTool !== "highlighter") return;
       const previous = previewToolPointer.points.at(-1);
       previewToolPointer.points.push(point);
       drawPreviewToolPath([previous, point], previewHighlighterColor(), size());
@@ -821,21 +889,27 @@
         openPreviewTextEditor(point);
         return;
       }
-      previewToolPointer = { id: event.pointerId, startX: event.clientX, startY: event.clientY, pan: { ...previewToolPan }, points: point ? [point] : [] };
+      previewToolPointer = { id: event.pointerId, startX: event.clientX, startY: event.clientY, pan: { ...previewToolPan }, points: point ? [point] : [], startPoint: point, endPoint: point };
+      if (previewTool === "highlighter" && point) drawPreviewToolPath([point], previewHighlighterColor(), size());
       stage.setPointerCapture(event.pointerId);
       stage.classList.toggle("is-preview-grabbing", previewTool === "pan");
       event.preventDefault();
     });
     const finishPointer = event => {
       if (!previewToolPointer || previewToolPointer.id !== event.pointerId) return;
-      if (previewTool === "highlighter" && previewToolPointer.points.length > 1) {
+      if (previewTool === "highlighter" && previewToolPointer.points.length) {
         annotationPayload("draw", { points: previewToolPointer.points, color: previewHighlighterColor(), size: size() });
+      } else if (previewShapeTools.has(previewTool) && previewToolPointer.startPoint && previewToolPointer.endPoint) {
+        const payload = { shape: previewTool, start: previewToolPointer.startPoint, end: previewToolPointer.endPoint, color: color(), size: size() };
+        drawAnnotationShape($("#previewAnnotationCanvas"), payload.shape, payload.start, payload.end, payload.color, payload.size);
+        annotationPayload("shape", payload);
       }
       previewToolPointer = null;
       stage.classList.remove("is-preview-grabbing");
     };
     stage.addEventListener("pointerup", finishPointer);
     stage.addEventListener("pointercancel", finishPointer);
+    stage.addEventListener("pointerleave", () => { $("#previewWhiteboardCursor").hidden = true; });
     setPreviewTool(previewTool);
     applyPreviewToolViewport(false);
   }
@@ -945,6 +1019,8 @@
     stage.addEventListener("pointermove", event => {
       if (document.fullscreenElement !== stage) return;
       showInteractiveToolbar();
+      const drawingBounds = $("#controllerLiveMedia").querySelector(".live-presentation-feed-frame").getBoundingClientRect();
+      updateWhiteboardCursor($("#interactiveWhiteboardCursor"), event, drawingBounds, color(), size());
       if (!interactiveToolPointer || interactiveToolPointer.id !== event.pointerId) return;
       if (previewTool === "pan") {
         interactiveToolPan = {
@@ -956,9 +1032,14 @@
       }
       const point = interactiveToolPoint(event);
       if (!point) return;
+      if (previewShapeTools.has(previewTool)) {
+        interactiveToolPointer.endPoint = point;
+        return;
+      }
+      if (previewTool !== "highlighter") return;
       const previous = interactiveToolPointer.points.at(-1);
       interactiveToolPointer.points.push(point);
-      drawInteractiveToolPath([previous, point], color(), size());
+      drawInteractiveToolPath([previous, point], translucentAnnotationColor(color()), size());
     });
     stage.addEventListener("pointerdown", event => {
       if (document.fullscreenElement !== stage || event.button !== 0 || event.target.closest("#interactiveFullscreenTools, #interactiveTextEditor")) return;
@@ -968,21 +1049,27 @@
         openInteractiveTextEditor(point);
         return;
       }
-      interactiveToolPointer = { id: event.pointerId, startX: event.clientX, startY: event.clientY, pan: { ...interactiveToolPan }, points: point ? [point] : [] };
+      interactiveToolPointer = { id: event.pointerId, startX: event.clientX, startY: event.clientY, pan: { ...interactiveToolPan }, points: point ? [point] : [], startPoint: point, endPoint: point };
+      if (previewTool === "highlighter" && point) drawInteractiveToolPath([point], translucentAnnotationColor(color()), size());
       stage.setPointerCapture(event.pointerId);
       stage.classList.toggle("is-preview-grabbing", previewTool === "pan");
       event.preventDefault();
     });
     const finishPointer = event => {
       if (!interactiveToolPointer || interactiveToolPointer.id !== event.pointerId) return;
-      if (previewTool === "highlighter" && interactiveToolPointer.points.length > 1) {
-        annotationPayload("draw", { points: interactiveToolPointer.points, color: color(), size: size() });
+      if (previewTool === "highlighter" && interactiveToolPointer.points.length) {
+        annotationPayload("draw", { points: interactiveToolPointer.points, color: translucentAnnotationColor(color()), size: size() });
+      } else if (previewShapeTools.has(previewTool) && interactiveToolPointer.startPoint && interactiveToolPointer.endPoint) {
+        const payload = { shape: previewTool, start: interactiveToolPointer.startPoint, end: interactiveToolPointer.endPoint, color: color(), size: size() };
+        drawAnnotationShape($("#interactiveAnnotationCanvas"), payload.shape, payload.start, payload.end, payload.color, payload.size);
+        annotationPayload("shape", payload);
       }
       interactiveToolPointer = null;
       stage.classList.remove("is-preview-grabbing");
     };
     stage.addEventListener("pointerup", finishPointer);
     stage.addEventListener("pointercancel", finishPointer);
+    stage.addEventListener("pointerleave", () => { $("#interactiveWhiteboardCursor").hidden = true; });
     document.addEventListener("fullscreenchange", () => {
       const active = document.fullscreenElement === stage;
       if (active) showInteractiveToolbar();
@@ -991,6 +1078,7 @@
         toolbar.classList.remove("is-visible");
         closeInteractiveTextEditor();
         interactiveToolPointer = null;
+        $("#interactiveWhiteboardCursor").hidden = true;
         stage.classList.remove("is-preview-grabbing");
       }
     });

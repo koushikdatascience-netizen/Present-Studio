@@ -925,7 +925,7 @@ button.present-back {
 .controller-preview-window-actions button[hidden] { display: none; }
 .controller-preview-window-actions button:hover, .controller-preview-window-actions button:focus-visible { border-color: #ffd54a; color: #ffd54a; }
 .controller-preview-body { display: grid; grid-template-columns: minmax(320px, 390px) minmax(0, 1fr); gap: 14px; align-items: stretch; padding: 12px; }
-.controller-preview-stage { position: relative; width: 100%; aspect-ratio: 16/9; min-height: 0; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 5px; background: #000; color: #888; }
+.controller-preview-stage { position: relative; width: 100%; aspect-ratio: 16/9; min-height: 0; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 5px; background: #fff; color: #686d75; }
 .controller-preview-visual { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; transform: translate(var(--preview-pan-x, 0px), var(--preview-pan-y, 0px)) scale(var(--preview-zoom, 1)); transform-origin: center; }
 .controller-preview-visual > canvas:not(.controller-preview-annotation-canvas) { position: absolute; inset: 0; z-index: 1; width: 100% !important; height: 100% !important; display: block; }
 .controller-preview-media { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
@@ -960,7 +960,7 @@ button.present-back {
 .controller-preview-panel.is-minimized { width: 100%; }
 .controller-preview-panel.is-minimized .controller-preview-bar { border-bottom: 0; }
 .controller-preview-panel.is-minimized .controller-preview-body { display: none; }
-.controller-preview-stage:fullscreen { width: 100vw; max-width: none; height: 100vh; aspect-ratio: auto; border: 0; border-radius: 0; background: #000; touch-action: none; }
+.controller-preview-stage:fullscreen { width: 100vw; max-width: none; height: 100vh; aspect-ratio: auto; border: 0; border-radius: 0; background: #fff; touch-action: none; }
 .controller-preview-stage:fullscreen .controller-preview-visual { top: 50%; left: 50%; right: auto; bottom: auto; width: 100vw; height: 100vh; transform: translate(-50%, -50%) translate(var(--preview-pan-x, 0px), var(--preview-pan-y, 0px)) scale(var(--preview-zoom, 1)); }
 .controller-fullscreen-tools { display: none; }
 .controller-preview-stage:fullscreen .controller-fullscreen-tools,
@@ -974,6 +974,10 @@ button.present-back {
 .controller-fullscreen-tools button.is-active { color: #111; background: #ffd740; }
 .controller-fullscreen-tools [data-preview-tool="highlighter"], .controller-fullscreen-tools #previewClearAnnotations { font-size: 18px; }
 .controller-fullscreen-tools [data-preview-tool="text"] { font-size: 16px; font-weight: 800; }
+.controller-fullscreen-tools [data-preview-tool="line"],
+.controller-fullscreen-tools [data-preview-tool="arrow"],
+.controller-fullscreen-tools [data-preview-tool="rectangle"],
+.controller-fullscreen-tools [data-preview-tool="circle"] { font-size: 19px; }
 .controller-fullscreen-tools [data-preview-tool="pan"] { font-size: 19px; }
 .controller-fullscreen-tools #previewFullscreenNotes { font-size: 18px; }
 .controller-fullscreen-tools #previewResetView { width: 42px; font-size: 11px; }
@@ -991,12 +995,16 @@ button.present-back {
 .controller-preview-text-editor button { min-height: 34px; border: 1px solid rgba(255,255,255,.24); border-radius: 4px; padding: 0 13px; background: transparent; color: #fff; font: 800 .68rem var(--mono); letter-spacing: .04em; text-transform: uppercase; }
 .controller-preview-text-editor button:hover, .controller-preview-text-editor button:focus-visible { border-color: #ffd740; }
 .controller-preview-text-editor button.is-primary { border-color: #ffd740; background: #ffd740; color: #111; }
-.controller-preview-stage:fullscreen.is-preview-highlighting { cursor: crosshair; }
+.controller-whiteboard-cursor { position: absolute; z-index: 79; border: 1px solid rgba(20,24,30,.52); border-radius: 50%; background: color-mix(in srgb, var(--whiteboard-cursor-color, #ffdc2d) 42%, transparent); box-shadow: 0 0 0 1px rgba(255,255,255,.78); pointer-events: none; transform: translate(-50%, -50%); }
+.controller-whiteboard-cursor[hidden] { display: none !important; }
+.controller-preview-stage:fullscreen.is-preview-highlighting { cursor: none; }
 .controller-preview-stage:fullscreen.is-preview-panning { cursor: grab; }
 .controller-preview-stage:fullscreen.is-preview-grabbing { cursor: grabbing; }
-.interactive-main-stage:fullscreen.is-preview-highlighting { cursor: crosshair; }
+.controller-preview-stage:fullscreen.is-preview-shaping { cursor: crosshair; }
+.interactive-main-stage:fullscreen.is-preview-highlighting { cursor: none; }
 .interactive-main-stage:fullscreen.is-preview-panning { cursor: grab; }
 .interactive-main-stage:fullscreen.is-preview-grabbing { cursor: grabbing; }
+.interactive-main-stage:fullscreen.is-preview-shaping { cursor: crosshair; }
 .controller-empty { color: var(--muted); }
 
 /* Clean audience/projector output */
@@ -1075,7 +1083,7 @@ button.present-back {
 .live-presentation-feed-heading { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 11px; background: #24200f; color: #ffd54a; }
 .live-presentation-feed-heading strong { flex: 0 0 auto; font-size: .74rem; }
 .live-presentation-feed-heading span { overflow: hidden; color: #d5d1c5; font: 600 .62rem var(--mono); text-overflow: ellipsis; white-space: nowrap; }
-.live-presentation-feed-frame { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
+.live-presentation-feed-frame { position: relative; width: 100%; height: 100%; overflow: hidden; background: #fff; }
 .live-presentation-feed-frame > canvas, .live-presentation-feed-media { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
 .live-presentation-feed-frame > canvas { z-index: 1; display: block; }
 .live-presentation-feed-frame > canvas[hidden] { display: none; }
@@ -3332,7 +3340,7 @@ button.present-back {
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   padding: 0;
-  background: #000;
+  background: #fff;
 }
 .interactive-main-stage:fullscreen > .interactive-presentation-feed,
 .interactive-main-stage:fullscreen > .interactive-screen-share,
@@ -3367,7 +3375,7 @@ button.present-back {
   height: 100%;
   min-height: 0;
   padding: 0;
-  background: #000;
+  background: #fff;
 }
 
 /* Appearance settings are intentionally limited to theme selection. */

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio — Live Controller</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20260925-transient-status">
+    <link rel="stylesheet" href="/css/styles.css?v=20260925-whiteboard-tools">
   </head>
   <body class="live-controller-page" data-controller-mode="control" data-controller-theme="light">
     <main class="live-controller-shell">
@@ -38,6 +38,10 @@
                   <div class="controller-fullscreen-tools" id="previewFullscreenTools" role="toolbar" aria-label="Fullscreen presentation tools">
                     <button type="button" data-preview-tool="highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
                     <button type="button" data-preview-tool="text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
+                    <button type="button" data-preview-tool="line" aria-label="Draw line" title="Line" aria-pressed="false">╱</button>
+                    <button type="button" data-preview-tool="arrow" aria-label="Draw arrow" title="Arrow" aria-pressed="false">➜</button>
+                    <button type="button" data-preview-tool="rectangle" aria-label="Draw rectangle" title="Rectangle" aria-pressed="false">□</button>
+                    <button type="button" data-preview-tool="circle" aria-label="Draw circle" title="Circle" aria-pressed="false">○</button>
                     <button type="button" data-preview-tool="pan" aria-label="Grab and move" title="Grab and move" aria-pressed="false">✥</button>
                     <button type="button" id="previewFullscreenNotes" aria-label="Open notes for the current slide" title="Open slide notes">▤</button>
                     <label class="controller-preview-tool-field" title="Highlighter color"><span>Color</span><input id="previewToolColor" type="color" value="#ffdc2d" aria-label="Highlighter color"></label>
@@ -45,6 +49,7 @@
                     <button type="button" id="previewZoomOut" aria-label="Zoom out" title="Zoom out">−</button><span id="previewZoomValue" aria-live="polite">100%</span><button type="button" id="previewZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
                     <button type="button" id="previewResetView" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button><button type="button" id="previewClearAnnotations" aria-label="Clear annotations" title="Clear annotations">⌫</button>
                   </div>
+                  <span class="controller-whiteboard-cursor" id="previewWhiteboardCursor" aria-hidden="true" hidden></span>
                   <form class="controller-preview-text-editor" id="previewTextEditor" hidden><label for="previewTextInput">Add text to the live screen</label><input id="previewTextInput" type="text" maxlength="180" autocomplete="off" placeholder="Type your text"><div><button type="button" id="previewTextCancel">Cancel</button><button type="submit" class="is-primary">Add text</button></div></form>
                 </div>
                 <aside class="controller-inline-notes" id="controllerNotesPanel" aria-labelledby="controllerNotesTitle" aria-describedby="controllerNotesDescription" hidden>
@@ -110,12 +115,17 @@
           <div class="controller-fullscreen-tools interactive-fullscreen-tools" id="interactiveFullscreenTools" role="toolbar" aria-label="Interactive fullscreen drawing tools">
             <button type="button" data-preview-tool="highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
             <button type="button" data-preview-tool="text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
+            <button type="button" data-preview-tool="line" aria-label="Draw line" title="Line" aria-pressed="false">╱</button>
+            <button type="button" data-preview-tool="arrow" aria-label="Draw arrow" title="Arrow" aria-pressed="false">➜</button>
+            <button type="button" data-preview-tool="rectangle" aria-label="Draw rectangle" title="Rectangle" aria-pressed="false">□</button>
+            <button type="button" data-preview-tool="circle" aria-label="Draw circle" title="Circle" aria-pressed="false">○</button>
             <button type="button" data-preview-tool="pan" aria-label="Grab and move" title="Grab and move" aria-pressed="false">✥</button>
             <label class="controller-preview-tool-field" title="Highlighter color"><span>Color</span><input id="interactiveToolColor" type="color" value="#ffdc2d" aria-label="Highlighter color"></label>
             <label class="controller-preview-tool-field" title="Highlighter size"><span>Size</span><select id="interactiveToolSize" aria-label="Highlighter size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
             <button type="button" id="interactiveZoomOut" aria-label="Zoom out" title="Zoom out">−</button><span id="interactiveZoomValue" aria-live="polite">100%</span><button type="button" id="interactiveZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
             <button type="button" id="interactiveResetView" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button><button type="button" id="interactiveClearAnnotations" aria-label="Clear annotations" title="Clear annotations">⌫</button>
           </div>
+          <span class="controller-whiteboard-cursor" id="interactiveWhiteboardCursor" aria-hidden="true" hidden></span>
           <form class="controller-preview-text-editor" id="interactiveTextEditor" hidden><label for="interactiveTextInput">Add text to the live screen</label><input id="interactiveTextInput" type="text" maxlength="180" autocomplete="off" placeholder="Type your text"><div><button type="button" id="interactiveTextCancel">Cancel</button><button type="submit" class="is-primary">Add text</button></div></form>
         </div>
         <aside class="interactive-session-sidebar live-meeting-sidebar" aria-label="Participants and meeting controls">
@@ -217,6 +227,6 @@
     <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
     <script src="/js/live-media.js?v=20260925-transient-status"></script>
-    <script src="/js/controller.js?v=20260925-light-default"></script>
+    <script src="/js/controller.js?v=20260925-whiteboard-tools"></script>
   </body>
 </html>

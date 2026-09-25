@@ -160,14 +160,22 @@ function tryUnlockAudienceAudio() {
 function annotationCanvases() { return [...document.querySelectorAll("[data-audience-annotation-canvas]")]; }
 function annotationTextLayers() { return [...document.querySelectorAll("[data-audience-annotation-text]")]; }
 function drawAudienceAnnotation(points = [], color = "#ffd54a", size = 7) {
-  if (points.length < 2) return;
+  if (!points.length) return;
   annotationCanvases().forEach(target => {
     const context = target.getContext("2d");
     context.save();
     context.strokeStyle = color;
+    context.fillStyle = color;
     context.lineWidth = Number(size) || 7;
     context.lineCap = "round";
     context.lineJoin = "round";
+    if (points.length === 1) {
+      context.beginPath();
+      context.arc(Math.max(0, Math.min(1, Number(points[0].x) || 0)) * target.width, Math.max(0, Math.min(1, Number(points[0].y) || 0)) * target.height, Math.max(1, context.lineWidth / 2), 0, Math.PI * 2);
+      context.fill();
+      context.restore();
+      return;
+    }
     context.beginPath();
     points.forEach((point, index) => {
       const x = Math.max(0, Math.min(1, Number(point.x) || 0)) * target.width;
@@ -175,6 +183,42 @@ function drawAudienceAnnotation(points = [], color = "#ffd54a", size = 7) {
       if (index) context.lineTo(x, y); else context.moveTo(x, y);
     });
     context.stroke();
+    context.restore();
+  });
+}
+function drawAudienceAnnotationShape(payload = {}) {
+  const supported = new Set(["line", "arrow", "rectangle", "circle"]);
+  if (!supported.has(payload.shape) || !payload.start || !payload.end) return;
+  annotationCanvases().forEach(target => {
+    const context = target.getContext("2d");
+    const startX = Math.max(0, Math.min(1, Number(payload.start.x) || 0)) * target.width;
+    const startY = Math.max(0, Math.min(1, Number(payload.start.y) || 0)) * target.height;
+    const endX = Math.max(0, Math.min(1, Number(payload.end.x) || 0)) * target.width;
+    const endY = Math.max(0, Math.min(1, Number(payload.end.y) || 0)) * target.height;
+    const width = endX - startX;
+    const height = endY - startY;
+    if (Math.hypot(width, height) < 2) return;
+    context.save();
+    context.strokeStyle = payload.color || "#20242b";
+    context.fillStyle = payload.color || "#20242b";
+    context.lineWidth = Math.max(2, Number(payload.size) || 2);
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.beginPath();
+    if (payload.shape === "rectangle") context.rect(startX, startY, width, height);
+    else if (payload.shape === "circle") context.ellipse(startX + width / 2, startY + height / 2, Math.abs(width / 2), Math.abs(height / 2), 0, 0, Math.PI * 2);
+    else { context.moveTo(startX, startY); context.lineTo(endX, endY); }
+    context.stroke();
+    if (payload.shape === "arrow") {
+      const angle = Math.atan2(endY - startY, endX - startX);
+      const head = Math.max(12, Math.min(34, context.lineWidth * 2.2));
+      context.beginPath();
+      context.moveTo(endX, endY);
+      context.lineTo(endX - head * Math.cos(angle - Math.PI / 6), endY - head * Math.sin(angle - Math.PI / 6));
+      context.lineTo(endX - head * Math.cos(angle + Math.PI / 6), endY - head * Math.sin(angle + Math.PI / 6));
+      context.closePath();
+      context.fill();
+    }
     context.restore();
   });
 }
@@ -207,6 +251,7 @@ function applyAudienceViewport(payload = {}) {
 function handleAudienceAnnotation(event = {}) {
   if (event.presentationId !== presentation?.id) return;
   if (event.type === "draw") drawAudienceAnnotation(event.payload?.points, event.payload?.color, event.payload?.size);
+  if (event.type === "shape") drawAudienceAnnotationShape(event.payload);
   if (event.type === "text") addAudienceAnnotationText(event.payload);
   if (event.type === "clear") clearAudienceAnnotations();
   if (event.type === "viewport") applyAudienceViewport(event.payload);

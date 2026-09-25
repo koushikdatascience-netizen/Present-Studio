@@ -293,7 +293,7 @@ async def annotation_event(sid, data):
     share_token = data.get("shareToken") or ""
     event_type = data.get("type")
     payload = data.get("payload") or {}
-    if not presentation_id or event_type not in {"draw", "text", "clear", "viewport"}:
+    if not presentation_id or event_type not in {"draw", "shape", "text", "clear", "viewport"}:
         return
     with SessionLocal() as db:
         presentation = db.get(Presentation, presentation_id)
