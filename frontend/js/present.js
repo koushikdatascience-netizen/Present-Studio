@@ -13,6 +13,22 @@ function activeSlide() { return presentation.slides[currentSlideIndex]; }
 function playback() { return presentation.slides[0]?.canvas?.presentation_playback || { mode: "manual", interval_ms: 5000, slide_ids: [], media_mode: "all", media_cycle: "all", media_interval_ms: 5000, loop_videos: true }; }
 function setVisible(element, visible) { if (element) element.hidden = !visible; }
 function setStatus(message) { $("presentStatus").textContent = message; }
+function takeCohostReturnState(id) {
+  if (!id) return {};
+  const key = `presentStudio.cohostReturnState.${id}`;
+  try {
+    const value = JSON.parse(sessionStorage.getItem(key) || "null");
+    sessionStorage.removeItem(key);
+    if (!value || typeof value !== "object") return {};
+    return {
+      displayName: String(value.displayName || "").trim().slice(0, 80),
+      screenAccessCode: /^\d{4}$/.test(String(value.screenAccessCode || "")) ? String(value.screenAccessCode) : ""
+    };
+  } catch {
+    try { sessionStorage.removeItem(key); } catch {}
+    return {};
+  }
+}
 function setAudienceTheme(theme, remember = true) {
   const nextTheme = theme === "dark" ? "dark" : "light";
   document.body.dataset.audienceTheme = nextTheme;
@@ -463,6 +479,12 @@ async function init() {
   if (welcomePresentation) welcomePresentation.textContent = `You’re watching “${presentation.title}” live. Enter your name${screenCodeRequired ? " and meeting code" : ""} to request a place in the interactive room.`;
   const screenCodeField = document.querySelector("[data-screen-code-field]");
   if (screenCodeField) screenCodeField.hidden = presenter || !screenCodeRequired;
+  const cohostReturnState = presenter ? {} : takeCohostReturnState(presentationId);
+  if (screenCodeRequired && cohostReturnState.screenAccessCode) {
+    screenAccessCode = cohostReturnState.screenAccessCode;
+    const screenCodeInput = document.querySelector("[data-screen-code]");
+    if (screenCodeInput) screenCodeInput.value = screenAccessCode;
+  }
   setVisible($("presentControls"), presenter);
   $("presenterBadge").textContent = presenter ? "Presenter Mode" : "Audience View";
   setVisible($("presenterBadge"), presenter);
@@ -482,7 +504,7 @@ async function init() {
   liveMediaSession = window.SnapKeyLiveMedia?.create({
     root: $("presentLiveMedia"), presentationId, shareToken, authToken: audienceJoinLink ? "" : authToken, screenAccessCode, socket,
     admissionBypass: presenter,
-    displayName: api.getCachedSession()?.name || "", fullscreenTarget: presenter ? null : $("presentLiveMedia").querySelector(".audience-meeting-stage"), fullscreenOnJoin: false,
+    displayName: cohostReturnState.displayName || api.getCachedSession()?.name || "", fullscreenTarget: presenter ? null : $("presentLiveMedia").querySelector(".audience-meeting-stage"), fullscreenOnJoin: false,
     onEnableAudio: enablePresentationAudio,
     onValidateAdmission: validateMeetingAccessCode,
     getScreenAccessCode: () => screenAccessCode,

@@ -219,34 +219,6 @@
     });
   }
 
-  function roleButton(ctx, item) {
-    const button = document.createElement("button");
-    const isCohost = item.role === "cohost";
-    button.type = "button";
-    button.className = `meeting-v2-role-button${isCohost ? " is-cohost" : ""}`;
-    button.dataset.meetingV2Role = String(item.clientId);
-    button.dataset.meetingV2RoleState = isCohost ? "cohost" : "audience";
-    button.innerHTML = isCohost
-      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"></circle><path d="M3.5 19c.3-3 2.2-5 5.5-5s5.2 2 5.5 5M16 12h6"></path></svg>'
-      : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"></circle><path d="M3.5 19c.3-3 2.2-5 5.5-5s5.2 2 5.5 5M19 9v6M16 12h6"></path></svg>';
-    const label = isCohost
-      ? `Remove co-host access from ${item.name || "participant"}`
-      : `Give ${item.name || "participant"} co-host controls`;
-    button.setAttribute("aria-label", label);
-    button.title = label;
-    button.addEventListener("click", event => {
-      event.stopPropagation();
-      ctx.socket.emit("meeting_role_update", {
-        presentationId: ctx.presentationId,
-        authToken: ctx.options.authToken || "",
-        shareToken: ctx.options.shareToken || "",
-        clientId: item.clientId,
-        role: isCohost ? "audience" : "cohost"
-      });
-    });
-    return button;
-  }
-
   function decorateControllerParticipants(ctx) {
     if (!ctx.isController || !ctx.root || !ctx.lastLobby) return;
     const active = Array.isArray(ctx.lastLobby.active) ? ctx.lastLobby.active : [];
@@ -275,25 +247,6 @@
         badge?.remove();
       }
 
-      const actions = tile.querySelector(".live-participant-actions");
-      if (!actions) return;
-
-      // IMPORTANT: keep this decoration idempotent.
-      // The controller watches participant DOM mutations. Replacing this button
-      // on every pass triggers the observer again and creates an infinite
-      // mutation loop as soon as an active participant appears.
-      const selector = `[data-meeting-v2-role="${escapeSelector(item.clientId)}"]`;
-      const existingButton = actions.querySelector(selector);
-      const expectedRole = item.role === "cohost" ? "cohost" : "audience";
-
-      if (!existingButton) {
-        actions.prepend(roleButton(ctx, item));
-      } else if (existingButton.dataset.meetingV2RoleState !== expectedRole) {
-        // Role actually changed (audience <-> co-host), so rebuild once to
-        // refresh the click handler's captured role. The next observer pass is
-        // stable and performs no DOM mutation.
-        existingButton.replaceWith(roleButton(ctx, item));
-      }
     });
 
     maybeAutoFeatureApprovedShare(ctx);

@@ -2270,6 +2270,14 @@
             `presentStudio.cohostReturn.${options.presentationId}`,
             location.href
           );
+          const code = String(options.getScreenAccessCode?.() || options.screenAccessCode || "").trim();
+          sessionStorage.setItem(
+            `presentStudio.cohostReturnState.${options.presentationId}`,
+            JSON.stringify({
+              displayName: nameInput.value.trim().slice(0, 80),
+              screenAccessCode: /^\d{4}$/.test(code) ? code : ""
+            })
+          );
         } catch {}
 
         setStatus(
