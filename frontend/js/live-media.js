@@ -29,6 +29,7 @@
     const meetingSidebar = root.querySelector(".live-meeting-sidebar");
     const audienceControls = !options.controller && meetingSidebar?.querySelector(".audience-meeting-controls");
     let audienceFeedback = null;
+    let audienceFeedbackTimer = 0;
     if (audienceControls) {
       // Keep personal media controls available while the mobile people sheet is closed.
       audienceFeedback = document.createElement("p");
@@ -175,13 +176,25 @@
     };
 
     nameInput.value = options.displayName || "";
+    function updateAudienceFeedback(message, kind = "") {
+      if (!audienceFeedback) return;
+      window.clearTimeout(audienceFeedbackTimer);
+      audienceFeedbackTimer = 0;
+      audienceFeedback.textContent = message;
+      audienceFeedback.dataset.kind = kind;
+      if (kind !== "success") return;
+      audienceFeedbackTimer = window.setTimeout(() => {
+        if (audienceFeedback.textContent !== message || audienceFeedback.dataset.kind !== kind) return;
+        audienceFeedback.textContent = "";
+        audienceFeedback.dataset.kind = "";
+        audienceFeedbackTimer = 0;
+      }, 4000);
+    }
+
     const setStatus = (message, kind = "") => {
       status.textContent = message;
       status.dataset.kind = kind;
-      if (audienceFeedback) {
-        audienceFeedback.textContent = message;
-        audienceFeedback.dataset.kind = kind;
-      }
+      updateAudienceFeedback(message, kind);
     };
 
     function readMeetingLease() {
