@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio — Live Controller</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20260925-fullscreen-render">
+    <link rel="stylesheet" href="/css/styles.css?v=20260925-fullscreen-share-fix">
   </head>
   <body class="live-controller-page" data-controller-mode="control" data-controller-theme="light">
     <main class="live-controller-shell">
@@ -49,7 +49,7 @@
                     <label class="controller-preview-tool-field" title="Highlighter color"><span>Color</span><input id="previewToolColor" type="color" value="#ffdc2d" aria-label="Highlighter color"></label>
                     <label class="controller-preview-tool-field" title="Highlighter size"><span>Size</span><select id="previewToolSize" aria-label="Highlighter size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
                     <button type="button" id="previewZoomOut" aria-label="Zoom out" title="Zoom out">−</button><span id="previewZoomValue" aria-live="polite">100%</span><button type="button" id="previewZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
-                    <button type="button" id="previewResetView" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button><button type="button" id="previewClearAnnotations" aria-label="Clear annotations" title="Clear annotations">⌫</button>
+                    <button type="button" id="previewResetView" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button><button type="button" id="previewClearAnnotations" aria-label="Clear annotations" title="Clear annotations">⌫</button><button type="button" id="previewExitFullscreen" class="fullscreen-exit-tool" aria-label="Exit preview fullscreen" title="Exit fullscreen">×</button>
                   </div>
                   <span class="controller-whiteboard-cursor" id="previewWhiteboardCursor" aria-hidden="true" hidden></span>
                   <form class="controller-preview-text-editor" id="previewTextEditor" hidden><label for="previewTextInput">Add text to the live screen</label><input id="previewTextInput" type="text" maxlength="180" autocomplete="off" placeholder="Type your text"><div><button type="button" id="previewTextCancel">Cancel</button><button type="submit" class="is-primary">Add text</button></div></form>
@@ -108,6 +108,7 @@
 
       <section class="controller-mode-view interactive-workspace live-media-panel" id="controllerLiveMedia" data-controller-mode-view="interactive" role="tabpanel" aria-labelledby="controllerInteractiveTab" hidden>
         <div class="interactive-main-stage">
+          <button class="stage-fullscreen-exit" data-live-fullscreen-exit type="button" aria-label="Exit meeting fullscreen" title="Exit fullscreen" hidden>×</button>
           <button class="interactive-sidebar-restore" data-live-panel-restore type="button" aria-label="Show participants and meeting controls" title="Show participants and meeting controls" hidden><span aria-hidden="true">‹</span><span>Show controls</span></button>
           <section class="live-presentation-feed interactive-presentation-feed" data-live-presentation-viewer aria-label="Current live presentation">
             <div class="live-presentation-feed-heading"><strong>Live presentation</strong><span data-live-presentation-label>Waiting for the current slide</span></div>
@@ -229,7 +230,7 @@
     <script src="/js/api.js?v=20260925-cohost-return"></script>
     <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
-    <script src="/js/live-media.js?v=20260925-fullscreen-render"></script>
-    <script src="/js/controller.js?v=20260925-fullscreen-render"></script>
+    <script src="/js/live-media.js?v=20260925-fullscreen-share-fix"></script>
+    <script src="/js/controller.js?v=20260925-fullscreen-share-fix"></script>
   </body>
 </html>

@@ -985,6 +985,8 @@ button.present-back {
 .controller-fullscreen-tools [data-preview-tool="circle"] { font-size: 19px; }
 .controller-fullscreen-tools [data-preview-tool="pan"] { font-size: 19px; }
 .controller-fullscreen-tools #previewFullscreenNotes { font-size: 18px; }
+.controller-fullscreen-tools .fullscreen-exit-tool { margin-left: 4px; background: #fff; color: #171713; font-size: 24px; }
+.controller-fullscreen-tools .fullscreen-exit-tool:hover, .controller-fullscreen-tools .fullscreen-exit-tool:focus-visible { background: #ffd54a; color: #171713; }
 .controller-fullscreen-tools #previewResetView { width: 42px; font-size: 11px; }
 .controller-preview-tool-field { flex: 0 0 auto; min-height: 34px; display: grid; grid-template-columns: auto auto; align-items: center; gap: 4px; padding: 0 6px; border-radius: 4px; color: rgba(255,255,255,.72); font: 600 9px/1 Arial, sans-serif; }
 .controller-preview-tool-field:focus-within { background: rgba(255,255,255,.14); }
@@ -2455,6 +2457,10 @@ button.present-back {
 .live-screen-share-gallery .live-screen-share-actions { top: 5px; right: 5px; gap: 3px; }
 .live-screen-share-gallery .live-screen-share-actions button { min-width: 27px; min-height: 27px; padding: 2px 5px; font-size: .8rem; }
 .live-screen-share-gallery figcaption { left: 5px; bottom: 5px; max-width: calc(100% - 10px); }
+.live-local-share-placeholder { width: 100%; height: 100%; min-height: 160px; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 24px; box-sizing: border-box; background: linear-gradient(145deg, #191a1d, #292b30); color: #fff; text-align: center; }
+.live-local-share-placeholder > span { color: #ffd54a; font-size: 2rem; }
+.live-local-share-placeholder > strong { font-size: 1rem; }
+.live-local-share-placeholder > small { max-width: 34rem; color: #c9cbd0; line-height: 1.4; }
 .audience-live-view .present-live-media.is-connected.has-screen-share .live-screen-share-media.has-multiple,
 .interactive-workspace.has-screen-share .live-screen-share-media.has-multiple { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(112px, 24%); }
 .audience-live-view .present-live-media.is-connected.has-screen-share .live-screen-share-media.has-multiple > .live-screen-share-gallery,
@@ -3374,6 +3380,13 @@ button.present-back {
   contain: layout paint;
   background: #fff;
 }
+.stage-fullscreen-exit { display: none; }
+.interactive-main-stage:fullscreen > .stage-fullscreen-exit,
+.audience-meeting-stage:fullscreen > .stage-fullscreen-exit { position: absolute; z-index: 100; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.28); border-radius: 9px; background: rgba(18,18,18,.88); color: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.3); font: 500 28px/1 Arial, sans-serif; cursor: pointer; }
+.interactive-main-stage:fullscreen > .stage-fullscreen-exit:hover,
+.interactive-main-stage:fullscreen > .stage-fullscreen-exit:focus-visible,
+.audience-meeting-stage:fullscreen > .stage-fullscreen-exit:hover,
+.audience-meeting-stage:fullscreen > .stage-fullscreen-exit:focus-visible { border-color: #ffd54a; color: #ffd54a; outline: none; }
 .interactive-main-stage:fullscreen > .interactive-presentation-feed,
 .interactive-main-stage:fullscreen > .interactive-screen-share,
 .audience-meeting-stage:fullscreen > .audience-presentation-feed,

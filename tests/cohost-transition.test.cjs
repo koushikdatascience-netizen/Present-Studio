@@ -21,12 +21,13 @@ function returnStateHarness(value) {
   return { context, values };
 }
 
-test("co-host return restores and consumes the guest name and meeting code", () => {
-  const harness = returnStateHarness(JSON.stringify({ displayName: "  Guest Name  ", screenAccessCode: "8642" }));
+test("co-host return restores and consumes the guest name, meeting code, and automatic rejoin", () => {
+  const harness = returnStateHarness(JSON.stringify({ displayName: "  Guest Name  ", screenAccessCode: "8642", autoRejoin: true }));
   const restored = harness.context.take("presentation-1");
 
   assert.equal(restored.displayName, "Guest Name");
   assert.equal(restored.screenAccessCode, "8642");
+  assert.equal(restored.autoRejoin, true);
   assert.equal(harness.values.size, 0);
 });
 
@@ -39,6 +40,8 @@ test("promotion saves return form state and only one frontend owns role updates"
   assert.match(liveMediaSource, /presentStudio\.cohostReturnState/);
   assert.match(liveMediaSource, /displayName:\s*nameInput\.value\.trim\(\)/);
   assert.match(liveMediaSource, /screenAccessCode:\s*\/\^\\d\{4\}\$\//);
+  assert.match(liveMediaSource, /autoRejoin:\s*true/);
+  assert.match(presentSource, /cohostReturnState\.autoRejoin[\s\S]*joinButton\.click\(\)/);
   assert.equal((liveMediaSource.match(/emit\("meeting_role_update"/g) || []).length, 1);
   assert.doesNotMatch(apiSource, /emit\("meeting_role_update"/);
   assert.doesNotMatch(apiSource, /function roleButton\(/);

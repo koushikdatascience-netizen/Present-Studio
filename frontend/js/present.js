@@ -22,7 +22,8 @@ function takeCohostReturnState(id) {
     if (!value || typeof value !== "object") return {};
     return {
       displayName: String(value.displayName || "").trim().slice(0, 80),
-      screenAccessCode: /^\d{4}$/.test(String(value.screenAccessCode || "")) ? String(value.screenAccessCode) : ""
+      screenAccessCode: /^\d{4}$/.test(String(value.screenAccessCode || "")) ? String(value.screenAccessCode) : "",
+      autoRejoin: value.autoRejoin === true
     };
   } catch {
     try { sessionStorage.removeItem(key); } catch {}
@@ -512,6 +513,14 @@ async function init() {
     requestOptions: audienceJoinLink ? { publicAccess: true } : {},
     presentationSource: { canvas: $("presentCanvas"), media: $("presentMedia"), label: () => currentOutputLabel || activeSlide()?.title || presentation.title }
   });
+  if (!presenter && cohostReturnState.autoRejoin) {
+    const joinButton = $("presentLiveMedia")?.querySelector("[data-live-join]");
+    if (joinButton) {
+      const joinStatus = $("presentLiveMedia")?.querySelector("[data-live-status]");
+      if (joinStatus) joinStatus.textContent = "Returning you to the audience…";
+      queueMicrotask(() => joinButton.click());
+    }
+  }
   if (presenter) {
     const joinButton = $("presentLiveMedia")?.querySelector("[data-live-join]");
     if (joinButton) {

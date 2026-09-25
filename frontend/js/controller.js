@@ -873,6 +873,10 @@
     $("#previewResetView").onclick = () => { previewToolZoom = 1; previewToolPan = { x: 0, y: 0 }; applyPreviewToolViewport(); };
     $("#previewClearAnnotations").onclick = () => clearPreviewToolAnnotations(true);
     $("#previewFullscreenNotes").onclick = () => $("#previewNotes").click();
+    $("#previewExitFullscreen").onclick = event => {
+      event.stopPropagation();
+      document.exitFullscreen?.().catch(() => {});
+    };
     $("#previewTextCancel").onclick = closePreviewTextEditor;
     $("#previewTextEditor").onsubmit = event => {
       event.preventDefault();

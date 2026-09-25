@@ -6,6 +6,9 @@ const path = require("node:path");
 const styles = fs.readFileSync(path.join(__dirname, "../frontend/css/styles.css"), "utf8");
 const controller = fs.readFileSync(path.join(__dirname, "../frontend/js/controller.js"), "utf8");
 const present = fs.readFileSync(path.join(__dirname, "../frontend/js/present.js"), "utf8");
+const liveMedia = fs.readFileSync(path.join(__dirname, "../frontend/js/live-media.js"), "utf8");
+const controllerHtml = fs.readFileSync(path.join(__dirname, "../frontend/controller.html"), "utf8");
+const presentHtml = fs.readFileSync(path.join(__dirname, "../frontend/present.html"), "utf8");
 
 test("fullscreen stages isolate their canvas and media paint layers", () => {
   assert.match(styles, /\.controller-preview-stage:fullscreen\s*\{[^}]*isolation:\s*isolate;[^}]*contain:\s*layout paint;/s);
@@ -24,4 +27,18 @@ test("default fullscreen rendering does not force GPU transforms", () => {
 test("fullscreen entry repaints and interactive exit clears viewport transforms", () => {
   assert.match(controller, /requestAnimationFrame\(\(\) => previewCanvas\?\.requestRenderAll\(\)\)/);
   assert.match(controller, /interactiveToolZoom = 1;[\s\S]*interactiveToolPan = \{ x: 0, y: 0 \};[\s\S]*applyInteractiveToolViewport\(\)/);
+});
+
+test("both fullscreen experiences provide an in-stage exit control", () => {
+  assert.match(controllerHtml, /id="previewExitFullscreen"/);
+  assert.match(controllerHtml, /interactive-main-stage[\s\S]*data-live-fullscreen-exit/);
+  assert.match(presentHtml, /audience-meeting-stage[\s\S]*data-live-fullscreen-exit/);
+  assert.match(controller, /previewExitFullscreen[\s\S]*document\.exitFullscreen/);
+  assert.match(liveMedia, /fullscreenExitButton[\s\S]*document\.exitFullscreen/);
+});
+
+test("controller hides its own screen-share preview to prevent capture recursion", () => {
+  assert.match(liveMedia, /isHiddenLocalControllerShare\s*=\s*participant\s*=>\s*isController\s*&&\s*participant\s*===\s*room\.localParticipant/);
+  assert.match(liveMedia, /Local preview is hidden to prevent a recursive screen-capture loop/);
+  assert.match(styles, /\.live-local-share-placeholder/);
 });

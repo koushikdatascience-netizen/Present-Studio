@@ -38,6 +38,7 @@
       meetingSidebar.after(audienceFeedback, audienceControls);
     }
     const fullscreenButton = root.querySelector("[data-live-fullscreen]");
+    const fullscreenExitButton = root.querySelector("[data-live-fullscreen-exit]");
     const fullscreenTarget = options.fullscreenTarget || null;
     const status = root.querySelector("[data-live-status]");
     const count = root.querySelector("[data-live-count]");
@@ -1376,19 +1377,38 @@
       screenShareRenderSignature = renderSignature;
       detachNodeTracks(screenShareMedia);
       screenShareMedia.replaceChildren();
+      const isHiddenLocalControllerShare = participant => isController && participant === room.localParticipant;
+      const createLocalSharePlaceholder = () => {
+        const placeholder = document.createElement("div");
+        placeholder.className = "live-local-share-placeholder";
+        const icon = document.createElement("span");
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = "▣";
+        const title = document.createElement("strong");
+        title.textContent = "You are sharing this screen";
+        const help = document.createElement("small");
+        help.textContent = "Local preview is hidden to prevent a recursive screen-capture loop.";
+        placeholder.append(icon, title, help);
+        return placeholder;
+      };
       embeddedSlots.forEach(slot => {
         detachNodeTracks(slot);
         const featured = activeShares.find(item => item.participant.identity === featuredIdentity);
         if (!featured) { setScreenShareSlotEmpty(slot); return; }
         slot.replaceChildren();
         slot.classList.add("is-live");
-        const video = featured.track.attach();
-        Object.assign(video, { autoplay: true, playsInline: true, muted: featured.participant === room.localParticipant });
-        rememberAttachedTrack(featured.track, video);
+        let media;
+        if (isHiddenLocalControllerShare(featured.participant)) {
+          media = createLocalSharePlaceholder();
+        } else {
+          media = featured.track.attach();
+          Object.assign(media, { autoplay: true, playsInline: true, muted: featured.participant === room.localParticipant });
+          rememberAttachedTrack(featured.track, media);
+        }
         const label = document.createElement("span");
         label.className = "slide-screen-share-label";
         label.textContent = `${featured.participant.name || "Guest"}${featured.participant === room.localParticipant ? " (You)" : ""}`;
-        slot.append(video, label);
+        slot.append(media, label);
         if (isController && activeShares.length > 1) {
           const picker = document.createElement("div");
           picker.className = "slide-screen-share-picker";
@@ -1417,9 +1437,14 @@
         const figure = document.createElement("figure");
         figure.dataset.participantIdentity = participant.identity;
         figure.classList.toggle("is-featured", participant.identity === featuredIdentity);
-        const video = track.attach();
-        Object.assign(video, { autoplay: true, playsInline: true, muted: participant === room.localParticipant });
-        rememberAttachedTrack(track, video);
+        let media;
+        if (isHiddenLocalControllerShare(participant)) {
+          media = createLocalSharePlaceholder();
+        } else {
+          media = track.attach();
+          Object.assign(media, { autoplay: true, playsInline: true, muted: participant === room.localParticipant });
+          rememberAttachedTrack(track, media);
+        }
         const caption = document.createElement("figcaption");
         caption.textContent = `${participant.name || "Guest"}${participant === room.localParticipant ? " (You)" : ""}`;
         const actions = document.createElement("div");
@@ -1443,13 +1468,15 @@
           });
           actions.append(select);
         }
-        const fullscreen = document.createElement("button");
-        fullscreen.type = "button";
-        fullscreen.textContent = "⛶";
-        fullscreen.setAttribute("aria-label", `View ${participant.name || "Guest"}'s screen fullscreen`);
-        fullscreen.title = fullscreen.getAttribute("aria-label");
-        fullscreen.addEventListener("click", () => figure.requestFullscreen?.().catch(() => {}));
-        actions.append(fullscreen);
+        if (!isHiddenLocalControllerShare(participant)) {
+          const fullscreen = document.createElement("button");
+          fullscreen.type = "button";
+          fullscreen.textContent = "⛶";
+          fullscreen.setAttribute("aria-label", `View ${participant.name || "Guest"}'s screen fullscreen`);
+          fullscreen.title = fullscreen.getAttribute("aria-label");
+          fullscreen.addEventListener("click", () => figure.requestFullscreen?.().catch(() => {}));
+          actions.append(fullscreen);
+        }
         if (isController && participant !== room.localParticipant) {
           const revoke = document.createElement("button");
           revoke.type = "button";
@@ -1462,7 +1489,7 @@
           }));
           actions.append(revoke);
         }
-        figure.append(video, caption, actions);
+        figure.append(media, caption, actions);
         if (participant.identity === featuredIdentity) screenShareMedia.append(figure);
         else gallery.append(figure);
       });
@@ -2158,12 +2185,18 @@
       try { await requestFullscreen.call(fullscreenTarget); }
       catch (error) { setStatus(error.message || "Fullscreen was blocked", "error"); }
     });
+    fullscreenExitButton?.addEventListener("click", event => {
+      event.stopPropagation();
+      document.exitFullscreen?.().catch(() => {});
+    });
     document.addEventListener("fullscreenchange", () => {
-      if (!fullscreenButton) return;
       const active = document.fullscreenElement === fullscreenTarget;
-      fullscreenButton.textContent = active ? "×" : "⛶";
-      fullscreenButton.setAttribute("aria-label", active ? "Exit presentation fullscreen" : "Enter presentation fullscreen");
-      fullscreenButton.title = active ? "Exit fullscreen" : "Enter fullscreen";
+      if (fullscreenButton) {
+        fullscreenButton.textContent = active ? "×" : "⛶";
+        fullscreenButton.setAttribute("aria-label", active ? "Exit presentation fullscreen" : "Enter presentation fullscreen");
+        fullscreenButton.title = active ? "Exit fullscreen" : "Enter fullscreen";
+      }
+      if (fullscreenExitButton) fullscreenExitButton.hidden = !active;
       if (active) requestAnimationFrame(syncPresentationViewer);
     });
     featuredCameraClose?.addEventListener("click", () => {
@@ -2276,7 +2309,8 @@
             `presentStudio.cohostReturnState.${options.presentationId}`,
             JSON.stringify({
               displayName: nameInput.value.trim().slice(0, 80),
-              screenAccessCode: /^\d{4}$/.test(code) ? code : ""
+              screenAccessCode: /^\d{4}$/.test(code) ? code : "",
+              autoRejoin: true
             })
           );
         } catch {}
