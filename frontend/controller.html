@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio — Live Controller</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20260925-whiteboard-tools">
+    <link rel="stylesheet" href="/css/styles.css?v=20260925-whiteboard-state">
   </head>
   <body class="live-controller-page" data-controller-mode="control" data-controller-theme="light">
     <main class="live-controller-shell">
@@ -32,10 +32,12 @@
                     <canvas id="controllerPreviewCanvas" width="1280" height="720" aria-label="Current slide preview"></canvas>
                     <div class="controller-preview-media" id="controllerPreviewMedia"></div>
                     <span class="controller-preview-placeholder" id="controllerPreviewPlaceholder">Waiting for a selection</span>
+                    <div class="controller-preview-whiteboard" id="previewWhiteboardSurface" aria-label="Whiteboard annotation surface" hidden></div>
                     <canvas class="controller-preview-annotation-canvas" id="previewAnnotationCanvas" width="1280" height="720" aria-hidden="true"></canvas>
                     <div class="controller-preview-annotation-text" id="previewAnnotationText" aria-live="polite"></div>
                   </div>
                   <div class="controller-fullscreen-tools" id="previewFullscreenTools" role="toolbar" aria-label="Fullscreen presentation tools">
+                    <button type="button" data-preview-whiteboard aria-label="Open whiteboard" title="Open whiteboard" aria-pressed="false">▱</button>
                     <button type="button" data-preview-tool="highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
                     <button type="button" data-preview-tool="text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
                     <button type="button" data-preview-tool="line" aria-label="Draw line" title="Line" aria-pressed="false">╱</button>
@@ -69,6 +71,7 @@
                   <button type="button" id="pauseMedia" disabled><span class="controller-control-icon" data-control-icon aria-hidden="true">▶</span><strong>Play</strong><small class="sr-only" id="previewMediaTiming">No active media</small></button>
                   <button type="button" id="previewAudio" disabled><span class="controller-control-icon" data-control-icon aria-hidden="true">🔊</span><strong>Enable Audio</strong><small class="sr-only">Audience and preview</small></button>
                   <button type="button" id="replayMedia" disabled><span class="controller-control-icon" aria-hidden="true">↻</span><strong>Replay</strong><small class="sr-only">Restart and sync</small></button>
+                  <button type="button" id="openWhiteboard" aria-pressed="false"><span class="controller-control-icon" aria-hidden="true">▱</span><strong>Whiteboard</strong><small class="sr-only">Open annotation workspace</small></button>
                   <button type="button" id="stopMedia" class="is-danger"><span class="controller-control-icon" aria-hidden="true">■</span><strong>Black Screen</strong><small class="sr-only">Clear output</small></button>
                   <button type="button" id="openScreen"><span class="controller-control-icon" aria-hidden="true">▣</span><strong>Open Screen</strong><small class="sr-only">Launch audience output</small></button>
                 </div>
@@ -227,6 +230,6 @@
     <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
     <script src="/js/live-media.js?v=20260925-transient-status"></script>
-    <script src="/js/controller.js?v=20260925-whiteboard-tools"></script>
+    <script src="/js/controller.js?v=20260925-whiteboard-state"></script>
   </body>
 </html>

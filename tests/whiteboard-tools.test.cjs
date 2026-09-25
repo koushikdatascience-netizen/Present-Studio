@@ -63,6 +63,45 @@ test("both controller workspaces expose the whiteboard tools and brush cursor", 
   assert.match(html, /id="interactiveWhiteboardCursor"/);
 });
 
+test("preview whiteboard is separate from the persisted black-screen state", () => {
+  const controllerSource = fs.readFileSync(path.join(__dirname, "../frontend/js/controller.js"), "utf8");
+  const start = controllerSource.indexOf("function setPreviewWhiteboard");
+  const end = controllerSource.indexOf("function recordingMimeType", start);
+  const whiteboardSource = controllerSource.slice(start, end);
+  const classList = () => ({ toggle() {} });
+  const elements = {
+    "#previewWhiteboardSurface": { hidden: true },
+    "#previewStage": { classList: classList() },
+    "#openWhiteboard": { classList: classList(), setAttribute() {} },
+    "#previewTitle": { textContent: "" }
+  };
+  const toolbarButton = { classList: classList(), setAttribute() {}, title: "" };
+  const context = {
+    document: { querySelectorAll: () => [toolbarButton] },
+    elements
+  };
+  vm.runInNewContext(`
+    let previewWhiteboardActive = false;
+    let outputBlanked = true;
+    let activeTargetId = "slide-1";
+    let targets = [{ id: "slide-1", title: "Opening slide" }];
+    const $ = selector => elements[selector];
+    ${whiteboardSource}
+    this.setPreviewWhiteboard = setPreviewWhiteboard;
+    this.isOutputBlanked = () => outputBlanked;
+  `, context);
+
+  context.setPreviewWhiteboard(true);
+  assert.equal(elements["#previewWhiteboardSurface"].hidden, false);
+  assert.equal(elements["#previewTitle"].textContent, "Whiteboard");
+  assert.equal(context.isOutputBlanked(), true);
+
+  context.setPreviewWhiteboard(false);
+  assert.equal(elements["#previewWhiteboardSurface"].hidden, true);
+  assert.equal(elements["#previewTitle"].textContent, "Screen cleared");
+  assert.equal(context.isOutputBlanked(), true);
+});
+
 test("the server relays synchronized shape annotations", () => {
   const source = fs.readFileSync(path.join(__dirname, "../backend/app/socket_manager.py"), "utf8");
   assert.match(source, /\{"draw", "shape", "text", "clear", "viewport"\}/);

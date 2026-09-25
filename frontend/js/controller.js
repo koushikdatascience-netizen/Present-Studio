@@ -41,6 +41,7 @@
   let volumeEmitTimer;
   let restoredMediaState = null;
   let outputBlanked = false;
+  let previewWhiteboardActive = false;
   let localRecording = null;
   let recordingUiMinimized = false;
   let recordingMiniOpen = false;
@@ -62,6 +63,29 @@
     status.innerHTML = `<i></i> ${label}`;
   }
   function annotationPayload(type, payload = {}) { socket?.emit("annotation_event", { ...credentials(), type, payload }); }
+
+  function setPreviewWhiteboard(active) {
+    previewWhiteboardActive = Boolean(active);
+    const surface = $("#previewWhiteboardSurface");
+    surface.hidden = !previewWhiteboardActive;
+    $("#previewStage").classList.toggle("is-whiteboard", previewWhiteboardActive);
+    document.querySelectorAll("[data-preview-whiteboard]").forEach(button => {
+      const label = previewWhiteboardActive ? "Close whiteboard" : "Open whiteboard";
+      button.classList.toggle("is-active", previewWhiteboardActive);
+      button.setAttribute("aria-pressed", String(previewWhiteboardActive));
+      button.setAttribute("aria-label", label);
+      button.title = label;
+    });
+    const launchButton = $("#openWhiteboard");
+    launchButton.classList.toggle("is-active", previewWhiteboardActive);
+    launchButton.setAttribute("aria-pressed", String(previewWhiteboardActive));
+    if (previewWhiteboardActive) {
+      $("#previewTitle").textContent = "Whiteboard";
+      return;
+    }
+    const target = targets.find(item => item.id === activeTargetId);
+    $("#previewTitle").textContent = outputBlanked ? "Screen cleared" : target?.title || "Screen ready";
+  }
 
   function recordingMimeType() {
     return [
@@ -836,6 +860,7 @@
     const toolbar = $("#previewFullscreenTools");
     const color = () => $("#previewToolColor").value || "#ffd54a";
     const size = () => Number($("#previewToolSize").value) || 18;
+    document.querySelectorAll("[data-preview-whiteboard]").forEach(button => button.onclick = () => setPreviewWhiteboard(!previewWhiteboardActive));
     document.querySelectorAll("[data-preview-tool]").forEach(button => button.onclick = () => setPreviewTool(button.dataset.previewTool));
     $("#previewZoomOut").onclick = () => { previewToolZoom = Math.max(.5, previewToolZoom - .1); applyPreviewToolViewport(); };
     $("#previewZoomIn").onclick = () => { previewToolZoom = Math.min(3, previewToolZoom + .1); applyPreviewToolViewport(); };
@@ -1537,6 +1562,7 @@
 
   function selectTarget(target) {
     if (!target) return;
+    setPreviewWhiteboard(false);
     activeTargetId = target.id;
     restoredMediaState = null;
     outputBlanked = false;
@@ -1682,11 +1708,12 @@
     $("#pauseMedia").onclick = () => sendMediaControl("toggle");
     $("#previewAudio").onclick = togglePreviewAudio;
     $("#replayMedia").onclick = () => sendMediaControl("replay");
+    $("#openWhiteboard").onclick = () => setPreviewWhiteboard(!previewWhiteboardActive);
     $("#stopMedia").onclick = () => {
       stopLoop(false);
       outputBlanked = true;
       restoredMediaState = null;
-      $("#previewTitle").textContent = "Screen cleared";
+      setPreviewWhiteboard(false);
       showPreviewPlaceholder("Black screen");
       emitControllerState();
       socket?.emit("media_control", { ...credentials(), action: "stop", position: 0, legacyOnly: true });
