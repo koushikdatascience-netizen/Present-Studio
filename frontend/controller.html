@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio — Live Controller</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20260925-whiteboard-state">
+    <link rel="stylesheet" href="/css/styles.css?v=20260925-icon-controls">
   </head>
   <body class="live-controller-page" data-controller-mode="control" data-controller-theme="light">
     <main class="live-controller-shell">
@@ -68,12 +68,12 @@
               <header class="controller-sidebar-controls-header"><div class="controller-sidebar-heading"><p class="eyebrow">Live controls</p><h2 id="presenterControlsTitle">Presenter controls</h2></div><div class="controller-workspace-links" id="controllerWorkspaceLinks"></div><div class="controller-preview-summary"><strong id="previewTitle" aria-live="polite">Screen ready</strong></div><div class="controller-preview-window-actions" role="toolbar" aria-label="Preview tools"><button type="button" id="previewNotes" aria-label="Open notes for the current slide" aria-pressed="false" title="Open slide notes" disabled><span aria-hidden="true">▤</span><span>Notes</span></button><button type="button" id="previewFullscreen" aria-label="Open preview in fullscreen" title="Open preview in fullscreen"><span aria-hidden="true">⛶</span><span data-preview-fullscreen-label>Fullscreen</span></button><button type="button" id="previewMinimize" aria-label="Minimize preview" aria-expanded="true" title="Minimize preview"><span aria-hidden="true" data-preview-minimize-icon>—</span><span data-preview-minimize-label>Minimize</span></button><button type="button" id="controllerSidebarHide" aria-label="Hide presenter controls" title="Hide presenter controls"><span aria-hidden="true">›</span><span>Hide</span></button></div></header>
               <div class="controller-console-actions" aria-label="Live presentation controls">
                 <div class="controller-control-ribbon" role="toolbar" aria-label="Playback and presentation">
-                  <button type="button" id="pauseMedia" disabled><span class="controller-control-icon" data-control-icon aria-hidden="true">▶</span><strong>Play</strong><small class="sr-only" id="previewMediaTiming">No active media</small></button>
-                  <button type="button" id="previewAudio" disabled><span class="controller-control-icon" data-control-icon aria-hidden="true">🔊</span><strong>Enable Audio</strong><small class="sr-only">Audience and preview</small></button>
-                  <button type="button" id="replayMedia" disabled><span class="controller-control-icon" aria-hidden="true">↻</span><strong>Replay</strong><small class="sr-only">Restart and sync</small></button>
-                  <button type="button" id="openWhiteboard" aria-pressed="false"><span class="controller-control-icon" aria-hidden="true">▱</span><strong>Whiteboard</strong><small class="sr-only">Open annotation workspace</small></button>
-                  <button type="button" id="stopMedia" class="is-danger"><span class="controller-control-icon" aria-hidden="true">■</span><strong>Black Screen</strong><small class="sr-only">Clear output</small></button>
-                  <button type="button" id="openScreen"><span class="controller-control-icon" aria-hidden="true">▣</span><strong>Open Screen</strong><small class="sr-only">Launch audience output</small></button>
+                  <button type="button" id="pauseMedia" aria-label="Play" data-tooltip="Play" disabled><span class="controller-control-icon" data-control-icon aria-hidden="true">▶</span><strong>Play</strong><small class="sr-only" id="previewMediaTiming">No active media</small></button>
+                  <button type="button" id="previewAudio" aria-label="Mute Audio" data-tooltip="Mute Audio" disabled><span class="controller-control-icon" data-control-icon aria-hidden="true">🔊</span><strong>Mute Audio</strong><small class="sr-only">Audience and preview</small></button>
+                  <button type="button" id="replayMedia" aria-label="Replay" data-tooltip="Replay" disabled><span class="controller-control-icon" aria-hidden="true">↻</span><strong>Replay</strong><small class="sr-only">Restart and sync</small></button>
+                  <button type="button" id="openWhiteboard" aria-label="Open Whiteboard" data-tooltip="Whiteboard" aria-pressed="false"><span class="controller-control-icon" aria-hidden="true">▱</span><strong>Whiteboard</strong><small class="sr-only">Open annotation workspace</small></button>
+                  <button type="button" id="stopMedia" class="is-danger" aria-label="Black Screen" data-tooltip="Black Screen"><span class="controller-control-icon" aria-hidden="true">■</span><strong>Black Screen</strong><small class="sr-only">Clear output</small></button>
+                  <button type="button" id="openScreen" aria-label="Open Screen" data-tooltip="Open Screen"><span class="controller-control-icon" aria-hidden="true">▣</span><strong>Open Screen</strong><small class="sr-only">Launch audience output</small></button>
                 </div>
                 <div class="controller-volume-mixer" aria-label="Audience presentation volume">
                   <div class="controller-volume-row"><label for="controllerMasterVolume">Master sound</label><input id="controllerMasterVolume" type="range" min="0" max="100" step="1" value="100" data-volume-kind="master" aria-label="Master presentation sound volume"><output for="controllerMasterVolume" data-volume-value="master">100%</output></div>
@@ -230,6 +230,6 @@
     <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
     <script src="/js/live-media.js?v=20260925-transient-status"></script>
-    <script src="/js/controller.js?v=20260925-whiteboard-state"></script>
+    <script src="/js/controller.js?v=20260925-icon-controls"></script>
   </body>
 </html>

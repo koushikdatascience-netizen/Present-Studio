@@ -79,6 +79,8 @@
     const launchButton = $("#openWhiteboard");
     launchButton.classList.toggle("is-active", previewWhiteboardActive);
     launchButton.setAttribute("aria-pressed", String(previewWhiteboardActive));
+    launchButton.setAttribute("aria-label", previewWhiteboardActive ? "Close Whiteboard" : "Open Whiteboard");
+    launchButton.dataset.tooltip = previewWhiteboardActive ? "Close Whiteboard" : "Whiteboard";
     if (previewWhiteboardActive) {
       $("#previewTitle").textContent = "Whiteboard";
       return;
@@ -1157,14 +1159,20 @@
     replayButton.disabled = !media && !hasYoutube;
     audioButton.disabled = !media && !hasYoutube;
     const playing = Boolean(media && !media.paused && !media.ended || !media && hasYoutube && restoredMediaState?.playing);
-    pauseButton.querySelector("strong").textContent = playing ? "Pause" : "Play";
+    const playbackLabel = playing ? "Pause" : "Play";
+    pauseButton.querySelector("strong").textContent = playbackLabel;
     pauseButton.querySelector("[data-control-icon]").textContent = playing ? "Ⅱ" : "▶";
     pauseButton.classList.toggle("is-active", playing);
     pauseButton.setAttribute("aria-pressed", String(playing));
-    audioButton.querySelector("strong").textContent = audienceAudioMuted ? "Enable Audio" : "Mute Audio";
+    pauseButton.setAttribute("aria-label", playbackLabel);
+    pauseButton.dataset.tooltip = playbackLabel;
+    const audioLabel = audienceAudioMuted ? "Enable Audio" : "Mute Audio";
+    audioButton.querySelector("strong").textContent = audioLabel;
     audioButton.querySelector("[data-control-icon]").textContent = audienceAudioMuted ? "🔇" : "🔊";
     audioButton.classList.toggle("is-active", Boolean((media || hasYoutube) && !audienceAudioMuted));
     audioButton.setAttribute("aria-pressed", String(Boolean((media || hasYoutube) && !audienceAudioMuted)));
+    audioButton.setAttribute("aria-label", audioLabel);
+    audioButton.dataset.tooltip = audioLabel;
     audioButton.querySelector("small").textContent = audienceAudioMuted
       ? "Audience and preview muted"
       : previewAudioEnabled ? "Audience and preview audio on" : "Audience audio on · preview muted";

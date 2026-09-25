@@ -72,7 +72,7 @@ test("preview whiteboard is separate from the persisted black-screen state", () 
   const elements = {
     "#previewWhiteboardSurface": { hidden: true },
     "#previewStage": { classList: classList() },
-    "#openWhiteboard": { classList: classList(), setAttribute() {} },
+    "#openWhiteboard": { classList: classList(), dataset: {}, setAttribute() {} },
     "#previewTitle": { textContent: "" }
   };
   const toolbarButton = { classList: classList(), setAttribute() {}, title: "" };
