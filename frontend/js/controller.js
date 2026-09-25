@@ -613,6 +613,7 @@
       fullscreenButton.querySelector("[data-preview-fullscreen-label]").textContent = active ? "Exit" : "Fullscreen";
       if (active) {
         showPreviewToolbar();
+        requestAnimationFrame(() => previewCanvas?.requestRenderAll());
       } else {
         clearTimeout(previewToolbarTimer);
         $("#previewFullscreenTools").classList.remove("is-visible");
@@ -812,15 +813,18 @@
     visual.style.setProperty("--preview-zoom", String(previewToolZoom));
     visual.style.setProperty("--preview-pan-x", `${previewToolPan.x}px`);
     visual.style.setProperty("--preview-pan-y", `${previewToolPan.y}px`);
+    visual.classList.toggle("has-viewport-transform", previewToolZoom !== 1 || Boolean(previewToolPan.x || previewToolPan.y));
     $("#previewZoomValue").textContent = `${Math.round(previewToolZoom * 100)}%`;
     if (send) annotationPayload("viewport", { zoom: previewToolZoom, x: previewToolPan.x, y: previewToolPan.y });
   }
 
   function applyInteractiveToolViewport(send = true) {
     const stage = $("#controllerLiveMedia").querySelector(".interactive-main-stage");
+    const frame = stage.querySelector(".live-presentation-feed-frame");
     stage.style.setProperty("--audience-zoom", String(interactiveToolZoom));
     stage.style.setProperty("--audience-pan-x", `${interactiveToolPan.x}px`);
     stage.style.setProperty("--audience-pan-y", `${interactiveToolPan.y}px`);
+    frame?.classList.toggle("has-viewport-transform", interactiveToolZoom !== 1 || Boolean(interactiveToolPan.x || interactiveToolPan.y));
     $("#interactiveZoomValue").textContent = `${Math.round(interactiveToolZoom * 100)}%`;
     if (send) annotationPayload("viewport", { zoom: interactiveToolZoom, x: interactiveToolPan.x, y: interactiveToolPan.y });
   }
@@ -1107,6 +1111,11 @@
         interactiveToolPointer = null;
         $("#interactiveWhiteboardCursor").hidden = true;
         stage.classList.remove("is-preview-grabbing");
+        if (interactiveToolZoom !== 1 || interactiveToolPan.x || interactiveToolPan.y) {
+          interactiveToolZoom = 1;
+          interactiveToolPan = { x: 0, y: 0 };
+          applyInteractiveToolViewport();
+        }
       }
     });
     applyInteractiveToolViewport(false);

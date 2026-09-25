@@ -926,7 +926,8 @@ button.present-back {
 .controller-preview-window-actions button:hover, .controller-preview-window-actions button:focus-visible { border-color: #ffd54a; color: #ffd54a; }
 .controller-preview-body { display: grid; grid-template-columns: minmax(320px, 390px) minmax(0, 1fr); gap: 14px; align-items: stretch; padding: 12px; }
 .controller-preview-stage { position: relative; width: 100%; aspect-ratio: 16/9; min-height: 0; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 5px; background: #fff; color: #686d75; }
-.controller-preview-visual { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; transform: translate(var(--preview-pan-x, 0px), var(--preview-pan-y, 0px)) scale(var(--preview-zoom, 1)); transform-origin: center; }
+.controller-preview-visual { position: absolute; inset: 0; display: grid; place-items: center; overflow: hidden; transform-origin: center; }
+.controller-preview-visual.has-viewport-transform { transform: translate(var(--preview-pan-x, 0px), var(--preview-pan-y, 0px)) scale(var(--preview-zoom, 1)); }
 .controller-preview-visual > canvas:not(.controller-preview-annotation-canvas) { position: absolute; inset: 0; z-index: 1; width: 100% !important; height: 100% !important; display: block; }
 .controller-preview-media { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
 .controller-preview-media img, .controller-preview-media video { position: absolute; display: block; max-width: none; object-fit: contain; }
@@ -941,7 +942,9 @@ button.present-back {
 .controller-preview-annotation-text span { position: absolute; max-width: 55%; padding: .18em .32em; background: rgba(0,0,0,.45); color: var(--annotation-color, #ffd54a); font: 800 var(--annotation-size, 34px) var(--sans); line-height: 1.12; overflow-wrap: anywhere; transform: translate(-50%, -50%); }
 .audience-annotation-layer { position: absolute; z-index: 9; inset: 0; overflow: hidden; pointer-events: none; }
 .present-frame > .present-media-layer, .present-frame > .canvas-container, .present-frame > .audience-annotation-layer,
-.live-presentation-feed-frame > canvas, .live-presentation-feed-frame > .live-presentation-feed-media, .live-presentation-feed-frame > .audience-annotation-layer { transform: translate(var(--audience-pan-x, 0px), var(--audience-pan-y, 0px)) scale(var(--audience-zoom, 1)); transform-origin: center; }
+.live-presentation-feed-frame > canvas, .live-presentation-feed-frame > .live-presentation-feed-media, .live-presentation-feed-frame > .audience-annotation-layer { transform-origin: center; }
+.present-frame.has-viewport-transform > .present-media-layer, .present-frame.has-viewport-transform > .canvas-container, .present-frame.has-viewport-transform > .audience-annotation-layer,
+.live-presentation-feed-frame.has-viewport-transform > canvas, .live-presentation-feed-frame.has-viewport-transform > .live-presentation-feed-media, .live-presentation-feed-frame.has-viewport-transform > .audience-annotation-layer { transform: translate(var(--audience-pan-x, 0px), var(--audience-pan-y, 0px)) scale(var(--audience-zoom, 1)); }
 .audience-annotation-layer canvas, .audience-annotation-layer [data-audience-annotation-text] { position: absolute; inset: 0; width: 100%; height: 100%; }
 .audience-annotation-layer [data-audience-annotation-text] { overflow: hidden; }
 .audience-annotation-layer [data-audience-annotation-text] span { position: absolute; max-width: 55%; padding: .18em .32em; background: rgba(0,0,0,.52); color: var(--annotation-color, #ffd54a); font: 800 var(--annotation-size, 34px) var(--sans); line-height: 1.12; overflow-wrap: anywhere; text-shadow: 0 1px 2px #000; transform: translate(-50%, -50%); }
@@ -962,8 +965,8 @@ button.present-back {
 .controller-preview-panel.is-minimized { width: 100%; }
 .controller-preview-panel.is-minimized .controller-preview-bar { border-bottom: 0; }
 .controller-preview-panel.is-minimized .controller-preview-body { display: none; }
-.controller-preview-stage:fullscreen { width: 100vw; max-width: none; height: 100vh; aspect-ratio: auto; border: 0; border-radius: 0; background: #fff; touch-action: none; }
-.controller-preview-stage:fullscreen .controller-preview-visual { top: 50%; left: 50%; right: auto; bottom: auto; width: 100vw; height: 100vh; transform: translate(-50%, -50%) translate(var(--preview-pan-x, 0px), var(--preview-pan-y, 0px)) scale(var(--preview-zoom, 1)); }
+.controller-preview-stage:fullscreen { width: 100vw; max-width: none; height: 100vh; aspect-ratio: auto; isolation: isolate; contain: layout paint; border: 0; border-radius: 0; background: #fff; touch-action: none; }
+.controller-preview-stage:fullscreen .controller-preview-visual { inset: 0; width: 100%; height: 100%; }
 .controller-fullscreen-tools { display: none; }
 .controller-preview-stage:fullscreen .controller-fullscreen-tools,
 .interactive-main-stage:fullscreen .controller-fullscreen-tools { position: absolute; z-index: 80; bottom: 18px; left: 50%; display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 36px); overflow-x: auto; padding: 7px; border: 1px solid rgba(255,255,255,.24); border-radius: 10px; background: rgba(18,18,18,.88); box-shadow: 0 14px 44px rgba(0,0,0,.46); opacity: 0; pointer-events: none; transform: translate(-50%, 8px); transition: opacity .16s ease, transform .16s ease; }
@@ -3367,6 +3370,8 @@ button.present-back {
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   padding: 0;
+  isolation: isolate;
+  contain: layout paint;
   background: #fff;
 }
 .interactive-main-stage:fullscreen > .interactive-presentation-feed,

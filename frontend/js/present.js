@@ -262,6 +262,7 @@ function applyAudienceViewport(payload = {}) {
     view.style.setProperty("--audience-zoom", String(zoom));
     view.style.setProperty("--audience-pan-x", `${x}px`);
     view.style.setProperty("--audience-pan-y", `${y}px`);
+    view.classList.toggle("has-viewport-transform", zoom !== 1 || Boolean(x || y));
   });
 }
 function handleAudienceAnnotation(event = {}) {

@@ -2164,6 +2164,7 @@
       fullscreenButton.textContent = active ? "×" : "⛶";
       fullscreenButton.setAttribute("aria-label", active ? "Exit presentation fullscreen" : "Enter presentation fullscreen");
       fullscreenButton.title = active ? "Exit fullscreen" : "Enter fullscreen";
+      if (active) requestAnimationFrame(syncPresentationViewer);
     });
     featuredCameraClose?.addEventListener("click", () => {
       selectedCameraIdentity = "";
