@@ -3182,7 +3182,7 @@ button.present-back {
   overflow-x: auto;
   overflow-y: hidden;
   margin: 0;
-  padding: 4px 104px 4px 14px;
+  padding: 4px 184px 4px 14px;
   border-top: 1px solid rgba(255,255,255,.14);
   border-bottom: 0;
   background: #191916;
@@ -3202,6 +3202,15 @@ button.present-back {
   width: 72px;
   max-width: 72px;
 }
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace > .interactive-control-dock.live-icon-control-dock .live-control-button.is-close-meeting {
+  position: absolute;
+  right: 104px;
+  width: 72px;
+  max-width: 72px;
+}
+.live-icon-control-dock .live-control-button.is-close-meeting .live-control-icon { border-color: #d94a43; background: #d94a43; color: #fff; }
+.live-icon-control-dock .live-control-button.is-close-meeting > [data-live-control-label] { color: #d94a43; }
+.live-icon-control-dock .live-control-button.is-close-meeting:hover:not(:disabled) .live-control-icon { border-color: #ffaaa3; background: #b8322c; }
 .live-controller-page[data-controller-mode="interactive"] .interactive-workspace > .interactive-control-dock.live-icon-control-dock .live-control-button.is-leave .live-control-icon {
   width: 66px;
   border-radius: 999px;
@@ -3244,6 +3253,13 @@ button.present-back {
     max-width: 78px;
     margin-left: auto;
   }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-workspace > .interactive-control-dock.live-icon-control-dock .live-control-button.is-close-meeting {
+    position: static;
+    width: auto;
+    max-width: 78px;
+    margin-left: auto;
+  }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-workspace > .interactive-control-dock.live-icon-control-dock .live-control-button.is-close-meeting + .live-control-button.is-leave { margin-left: 0; }
 }
 
 /* Browser-only meeting recording. Media never leaves the presenter's device. */

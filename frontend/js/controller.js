@@ -26,6 +26,7 @@
   let previewToolPointer = null;
   let previewTextPoint = null;
   let previewToolbarTimer;
+  let meetingClosed = false;
   let interactiveToolZoom = 1;
   let interactiveToolPan = { x: 0, y: 0 };
   let interactiveToolPointer = null;
@@ -1273,6 +1274,7 @@
   }
 
   function emitControllerState() {
+    if (meetingClosed) return;
     const state = controllerStatePayload();
     if (state && socket?.connected) socket.emit("controller_state", state);
   }
@@ -1677,6 +1679,9 @@
     ]);
     if (result.permission !== "presenter") throw new Error("A trusted presenter link is required for this controller.");
     presentation = result.presentation;
+    const closeMeetingButton = $("#controllerLiveMedia")?.querySelector("[data-live-close]");
+    const cachedUser = api.getCachedSession?.();
+    if (closeMeetingButton) closeMeetingButton.hidden = isCohost || !cachedUser?.id || cachedUser.id !== presentation.ownerId;
     const initialVolume = normalizedVolume(live.videoVolume ?? live.audioVolume);
     videoVolume = initialVolume;
     audioVolume = initialVolume;
@@ -1793,6 +1798,14 @@
       $("#controllerTitle").textContent = "Presentation deleted";
       showPreviewPlaceholder("This presentation is no longer available.");
       document.querySelectorAll("button").forEach(button => { if (button.id !== "backToEditor") button.disabled = true; });
+    });
+    socket?.on("session_ended", event => {
+      if (event?.presentationId && event.presentationId !== presentationId) return;
+      meetingClosed = true;
+      stopLoop(false);
+      setConnectionStatus("Closed");
+      toast("Meeting closed. All participants were disconnected.");
+      document.querySelectorAll("#controllerLiveMedia button, .controller-console-actions button").forEach(button => { button.disabled = true; });
     });
     setInterval(emitControllerState, 1000);
   } catch (error) {

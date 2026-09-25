@@ -6,7 +6,7 @@ from app import meeting_v2
 from app.database import Base, SessionLocal, engine
 from app.main import repair_live_session_schema
 from app.models import LiveSession, MeetingParticipantGrant, Presentation, ShareLink, User
-from app.security import hash_password, resolve_share_permission
+from app.security import create_access_token, hash_password, resolve_share_permission
 from app.routers.presentations import stable_livekit_participant_identity
 
 
@@ -322,6 +322,50 @@ def test_controller_remove_revokes_persistent_guest_admission():
             assert grant.role == "audience"
 
         assert meeting_v2.meeting_client_is_admitted(ids["presentation"], ids["guest"]) is False
+    finally:
+        _cleanup(ids)
+
+
+def test_only_owner_can_close_meeting_for_everyone():
+    ids = _create_meeting(approved=True)
+    try:
+        with SessionLocal() as db:
+            owner = db.get(User, ids["user"])
+            owner_token = create_access_token(owner)
+
+        with patch.object(meeting_v2.sm.sio, "emit", new_callable=AsyncMock) as emit:
+            asyncio.run(
+                meeting_v2.meeting_close(
+                    "owner-sid",
+                    {"presentationId": ids["presentation"], "authToken": owner_token},
+                )
+            )
+
+        with SessionLocal() as db:
+            live = db.query(LiveSession).filter(LiveSession.presentation_id == ids["presentation"]).one()
+            grant = db.query(MeetingParticipantGrant).filter(
+                MeetingParticipantGrant.presentation_id == ids["presentation"]
+            ).one()
+            assert live.is_live is False
+            assert grant.status == "revoked"
+        assert any(call.args[0] == "session_ended" for call in emit.await_args_list)
+
+        with patch.object(meeting_v2.sm.sio, "emit", new_callable=AsyncMock) as rejected_emit:
+            asyncio.run(
+                meeting_v2.meeting_close(
+                    "cohost-sid",
+                    {
+                        "presentationId": ids["presentation"],
+                        "authToken": owner_token,
+                        "cohostGuestId": ids["guest"],
+                    },
+                )
+            )
+        rejected_emit.assert_awaited_once_with(
+            "presenter_rejected",
+            {"message": "Only the presentation owner can close the meeting"},
+            room="cohost-sid",
+        )
     finally:
         _cleanup(ids)
 

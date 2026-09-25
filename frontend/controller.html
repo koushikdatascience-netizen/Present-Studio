@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio — Live Controller</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20260925-fullscreen-share-fix">
+    <link rel="stylesheet" href="/css/styles.css?v=20260925-owner-close">
   </head>
   <body class="live-controller-page" data-controller-mode="control" data-controller-theme="light">
     <main class="live-controller-shell">
@@ -191,6 +191,7 @@
               <button type="button" role="menuitem" data-live-more-action="settings">Appearance</button>
             </div>
           </div>
+          <button class="live-control-button is-close-meeting" type="button" data-live-close hidden disabled><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"></path></svg></span><span data-live-control-label>Close</span></button>
           <button class="live-control-button is-leave" type="button" data-live-leave disabled><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5.5 15.5c4.3-3.6 8.7-3.6 13 0M4 14l2 5 4-2M20 14l-2 5-4-2"></path></svg></span><span data-live-control-label>Leave</span></button>
         </div>
       </section>
@@ -230,7 +231,7 @@
     <script src="/js/api.js?v=20260925-cohost-return"></script>
     <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
-    <script src="/js/live-media.js?v=20260925-fullscreen-share-fix"></script>
-    <script src="/js/controller.js?v=20260925-fullscreen-share-fix"></script>
+    <script src="/js/live-media.js?v=20260925-owner-close"></script>
+    <script src="/js/controller.js?v=20260925-owner-close"></script>
   </body>
 </html>

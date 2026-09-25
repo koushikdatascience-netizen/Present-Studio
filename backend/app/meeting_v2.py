@@ -8,7 +8,7 @@ from . import socket_manager as sm
 from .database import SessionLocal
 from .live_state import utc_now
 from .models import LiveSession, MeetingParticipantGrant, Presentation, ShareLink
-from .security import new_id, new_share_token
+from .security import new_id, new_share_token, user_from_token
 
 
 _legacy_end_session = sm.end_session
@@ -339,7 +339,10 @@ async def meeting_admission_request(sid, data):
     with SessionLocal() as db:
         if not db.get(Presentation, presentation_id):
             return
-        live = _ensure_meeting_instance(db, presentation_id)
+        live = _current_live(db, presentation_id)
+        if not live or not live.is_live or not live.meeting_instance_id:
+            await sm.sio.emit("session_ended", {"presentationId": presentation_id}, room=sid)
+            return
         grant = _grant(db, presentation_id, live.meeting_instance_id, guest_id)
 
         if grant and grant.status == "approved":
@@ -579,6 +582,23 @@ async def end_session(sid, data):
             await _revoke_cohost_controller(presentation_id, guest_id, "session-ended")
 
 
+@sm.sio.event
+async def meeting_close(sid, data):
+    """Close a meeting for everyone. This action belongs to the presentation owner only."""
+    presentation_id = data.get("presentationId")
+    auth_token = data.get("authToken") or ""
+    allowed = False
+    if presentation_id and auth_token and not data.get("cohostGuestId"):
+        with SessionLocal() as db:
+            presentation = db.get(Presentation, presentation_id)
+            user = user_from_token(db, auth_token)
+            allowed = bool(presentation and user and presentation.owner_id == user.id)
+    if not allowed:
+        await sm.sio.emit("presenter_rejected", {"message": "Only the presentation owner can close the meeting"}, room=sid)
+        return
+    await end_session(sid, data)
+
+
 # Make direct imports/tests see the upgraded handlers too.
 sm.disconnect = disconnect
 sm.meeting_controller_register = meeting_controller_register
@@ -589,6 +609,7 @@ sm.meeting_participant_left = meeting_participant_left
 sm.meeting_remove_participant = meeting_remove_participant
 sm.meeting_role_update = meeting_role_update
 sm.end_session = end_session
+sm.meeting_close = meeting_close
 
 
 def install_router_guards(presentations_module) -> None:

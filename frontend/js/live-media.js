@@ -20,6 +20,7 @@
     const muteAllButton = root.querySelector("[data-live-mute-all]");
     const enableAudioButton = root.querySelector("[data-live-enable-audio]");
     const leaveButton = root.querySelector("[data-live-leave]");
+    const closeMeetingButton = root.querySelector("[data-live-close]");
     const panelToggle = root.querySelector("[data-live-panel-toggle]");
     const panelRestore = root.querySelector("[data-live-panel-restore]");
     const moreToggle = root.querySelector("[data-live-more-toggle]");
@@ -1588,6 +1589,7 @@
       reactionButtons.forEach(button => { button.disabled = !connected; });
       syncChatComposer(connected);
       leaveButton.disabled = !connected;
+      if (closeMeetingButton) closeMeetingButton.disabled = !connected;
       setControlLabel(microphoneButton, isController ? (microphoneEnabled ? "Mic on" : "Mic off") : (microphoneEnabled ? "Mute" : "Unmute"), microphoneEnabled ? "Microphone is on. Select to mute" : "Microphone is off. Select to unmute");
       setControlLabel(cameraButton, cameraEnabled ? "Camera off" : "Camera on", cameraEnabled ? "Turn camera off" : "Turn camera on");
       if (screenShareEnabled) setControlLabel(screenShareButton, "Stop share", "Stop sharing your screen");
@@ -2170,6 +2172,14 @@
     });
     enableAudioButton.addEventListener("click", () => enableAudio(true));
     leaveButton.addEventListener("click", leave);
+    closeMeetingButton?.addEventListener("click", () => {
+      if (!room || closeMeetingButton.hidden) return;
+      const confirmed = window.confirm("Close this meeting for everyone? All participants and co-hosts will be disconnected.");
+      if (!confirmed) return;
+      closeMeetingButton.disabled = true;
+      setStatus("Closing the meeting for everyone…");
+      options.socket?.emit("meeting_close", moderationCredentials());
+    });
     fullscreenButton?.addEventListener("click", async () => {
       if (!fullscreenTarget) return;
       if (document.fullscreenElement === fullscreenTarget) {
@@ -2359,6 +2369,16 @@
       await leave({ requeue: true });
       setStatus("The presenter moved you to the waiting room.");
       syncButtons(false);
+    });
+    options.socket?.on("session_ended", async message => {
+      if (message?.presentationId && message.presentationId !== options.presentationId) return;
+      admissionState = "closed";
+      await leave({ releaseTab: true });
+      options.socket?.disconnect?.();
+      syncButtons(false);
+      joinButton.hidden = true;
+      if (closeMeetingButton) closeMeetingButton.disabled = true;
+      setStatus(isController ? "Meeting closed. Everyone has been disconnected." : "The meeting owner closed this meeting.", "error");
     });
     options.socket?.on("meeting_screen_share_decision", async message => {
       if (isController || message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
