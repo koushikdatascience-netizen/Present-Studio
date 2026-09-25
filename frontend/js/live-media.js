@@ -77,6 +77,11 @@
     const chatSubmit = chatForm?.querySelector("button[type='submit']");
     const chatAttachButton = root.querySelector("[data-live-chat-attach]");
     const chatFileInput = root.querySelector("[data-live-chat-file]");
+    const chatPending = root.querySelector("[data-live-chat-pending]");
+    const chatPendingImage = root.querySelector("[data-live-chat-pending-image]");
+    const chatPendingName = root.querySelector("[data-live-chat-pending-name]");
+    const chatPendingSize = root.querySelector("[data-live-chat-pending-size]");
+    const chatPendingRemove = root.querySelector("[data-live-chat-pending-remove]");
     const lobby = root.querySelector("[data-live-lobby]");
     const waitingList = root.querySelector("[data-live-waiting-list]");
     const waitingCount = root.querySelector("[data-live-waiting-count]");
@@ -107,6 +112,9 @@
     let handRaised = false;
     let activeSidebarTab = "people";
     let unreadMessages = 0;
+    let pendingChatFile = null;
+    let pendingChatPreviewUrl = "";
+    let chatUploading = false;
     let raisedHands = new Map();
     let soundContext = null;
     const reactionAudio = new Map();
@@ -1551,9 +1559,7 @@
       }
       if (handButton) handButton.disabled = !connected;
       reactionButtons.forEach(button => { button.disabled = !connected; });
-      if (chatInput) chatInput.disabled = !connected;
-      if (chatSubmit) chatSubmit.disabled = !connected;
-      if (chatAttachButton) chatAttachButton.disabled = !connected;
+      syncChatComposer(connected);
       leaveButton.disabled = !connected;
       setControlLabel(microphoneButton, isController ? (microphoneEnabled ? "Mic on" : "Mic off") : (microphoneEnabled ? "Mute" : "Unmute"), microphoneEnabled ? "Microphone is on. Select to mute" : "Microphone is off. Select to unmute");
       setControlLabel(cameraButton, cameraEnabled ? "Camera off" : "Camera on", cameraEnabled ? "Turn camera off" : "Turn camera on");
@@ -1997,18 +2003,75 @@
       setMoreMenuOpen(false);
     }));
     sidebarTabs.forEach(button => button.addEventListener("click", () => setSidebarTab(button.dataset.liveTab)));
-    async function uploadMeetingAttachment(file) {
+    function formatChatFileSize(bytes) {
+      const size = Math.max(0, Number(bytes) || 0);
+      if (size < 1024) return `${size} B`;
+      if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+      return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function syncChatComposer(connected = Boolean(room)) {
+      if (chatInput) chatInput.disabled = !connected || chatUploading;
+      if (chatAttachButton) chatAttachButton.disabled = !connected || chatUploading;
+      if (chatSubmit) chatSubmit.disabled = !connected || chatUploading || (!chatInput?.value.trim() && !pendingChatFile);
+      if (chatPendingRemove) chatPendingRemove.disabled = chatUploading;
+    }
+
+    function clearPendingChatAttachment() {
+      if (pendingChatPreviewUrl) window.URL?.revokeObjectURL?.(pendingChatPreviewUrl);
+      pendingChatPreviewUrl = "";
+      pendingChatFile = null;
+      if (chatPending) {
+        chatPending.hidden = true;
+        chatPending.classList.remove("has-image");
+      }
+      if (chatPendingImage) {
+        chatPendingImage.hidden = true;
+        chatPendingImage.removeAttribute("src");
+      }
+      if (chatPendingName) chatPendingName.textContent = "";
+      if (chatPendingSize) chatPendingSize.textContent = "";
+      if (chatFileInput) chatFileInput.value = "";
+      syncChatComposer();
+    }
+
+    function stageChatAttachment(file) {
       if (!room || !file) return;
       if (file.size > 100 * 1024 * 1024) {
         setStatus("Chat files must be 100 MB or smaller", "error");
         return;
+      }
+      clearPendingChatAttachment();
+      pendingChatFile = file;
+      const isImage = Boolean(file.type?.startsWith("image/"));
+      if (isImage && chatPendingImage) {
+        pendingChatPreviewUrl = window.URL?.createObjectURL?.(file) || "";
+        if (pendingChatPreviewUrl) chatPendingImage.src = pendingChatPreviewUrl;
+        chatPendingImage.hidden = !pendingChatPreviewUrl;
+      }
+      if (chatPending) {
+        chatPending.hidden = false;
+        chatPending.classList.toggle("has-image", Boolean(pendingChatPreviewUrl));
+      }
+      if (chatPendingName) chatPendingName.textContent = file.name || "Pasted image";
+      if (chatPendingSize) chatPendingSize.textContent = `${formatChatFileSize(file.size)} · Ready to send`;
+      setSidebarTab("chat");
+      syncChatComposer();
+    }
+
+    async function uploadMeetingAttachment(file, text = "") {
+      if (!room || !file) return;
+      if (file.size > 100 * 1024 * 1024) {
+        setStatus("Chat files must be 100 MB or smaller", "error");
+        return false;
       }
       const form = new FormData();
       form.append("presentation_id", options.presentationId);
       form.append("client_id", meetingClientId);
       form.append("share_token", options.shareToken || "");
       form.append("file", file, file.name || "attachment");
-      chatAttachButton && (chatAttachButton.disabled = true);
+      chatUploading = true;
+      syncChatComposer();
       setStatus(`Uploading ${file.name || "attachment"}…`);
       try {
         const headers = {};
@@ -2020,37 +2083,49 @@
           presentationId: options.presentationId,
           identity: currentIdentity(),
           name: currentName(),
-          text: "",
+          text,
           attachment: payload.attachment
         });
         setSidebarTab("chat");
         setStatus("File shared", "success");
+        return true;
       } catch (error) {
         setStatus(error.message || "File upload failed", "error");
+        return false;
       } finally {
-        if (chatFileInput) chatFileInput.value = "";
-        if (chatAttachButton) chatAttachButton.disabled = !room;
+        chatUploading = false;
+        syncChatComposer();
       }
     }
 
-    chatForm?.addEventListener("submit", event => {
+    chatForm?.addEventListener("submit", async event => {
       event.preventDefault();
       const text = chatInput.value.trim();
-      if (!room || !text) return;
-      options.socket?.emit("meeting_chat", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), text });
+      const file = pendingChatFile;
+      if (!room || (!text && !file) || chatUploading) return;
+      if (file) {
+        const sent = await uploadMeetingAttachment(file, text);
+        if (!sent) return;
+        clearPendingChatAttachment();
+      } else {
+        options.socket?.emit("meeting_chat", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), text });
+      }
       chatInput.value = "";
       chatInput.focus();
+      syncChatComposer();
     });
     chatAttachButton?.addEventListener("click", () => chatFileInput?.click());
     chatFileInput?.addEventListener("change", () => {
       const file = chatFileInput.files?.[0];
-      if (file) uploadMeetingAttachment(file);
+      if (file) stageChatAttachment(file);
     });
+    chatPendingRemove?.addEventListener("click", clearPendingChatAttachment);
+    chatInput?.addEventListener("input", () => syncChatComposer());
     chatInput?.addEventListener("paste", event => {
       const file = [...(event.clipboardData?.files || [])].find(item => item.type?.startsWith("image/"));
       if (!file) return;
       event.preventDefault();
-      uploadMeetingAttachment(file);
+      stageChatAttachment(file);
     });
     chatMessages?.addEventListener("dragover", event => {
       if (!room || !event.dataTransfer?.types?.includes("Files")) return;
@@ -2064,7 +2139,7 @@
       const file = event.dataTransfer?.files?.[0];
       if (!room || !file) return;
       event.preventDefault();
-      uploadMeetingAttachment(file);
+      stageChatAttachment(file);
     });
     enableAudioButton.addEventListener("click", () => enableAudio(true));
     leaveButton.addEventListener("click", leave);
