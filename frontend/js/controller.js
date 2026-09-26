@@ -1280,6 +1280,36 @@
     if (state && socket?.connected) socket.emit("controller_state", state);
   }
 
+  function applyCanonicalControllerState(state) {
+    if (!state || (state.presentationId && state.presentationId !== presentationId)) return;
+    const stateVolume = normalizedVolume(state.videoVolume ?? state.audioVolume);
+    videoVolume = stateVolume;
+    audioVolume = stateVolume;
+    audienceAudioMuted = Boolean(state.muted);
+    previewAudioEnabled = !audienceAudioMuted;
+    previewAudioManuallyMuted = audienceAudioMuted;
+    applyPreviewVolumes();
+    syncVolumeControls();
+
+    const target = targetForLiveState(state);
+    if (!target) return;
+    const nextBlanked = state.kind === "blank";
+    const selectionChanged = activeTargetId !== target.id || outputBlanked !== nextBlanked;
+    activeTargetId = target.id;
+    outputBlanked = nextBlanked;
+    restoredMediaState = { ...state, slideId: state.slideId || state.activeSlideId };
+    document.querySelectorAll(".controller-target-card").forEach(card => card.classList.toggle("active", card.dataset.targetId === activeTargetId));
+    if (selectionChanged) {
+      setPreviewWhiteboard(false);
+      renderTargetPreview(target);
+    }
+    if (outputBlanked) {
+      if (selectionChanged) showPreviewPlaceholder("Black screen");
+      return;
+    }
+    applyRestoredMediaState(restoredMediaState);
+  }
+
   function scheduleMeetingExpiry(meeting) {
     if (isCohost || !meeting?.scheduledEnd) return;
     const endAt = new Date(meeting.scheduledEnd).getTime();
@@ -1788,14 +1818,7 @@
     socket?.on("connect_error", () => setConnectionStatus("Sync backup"));
     socket?.on("disconnect", () => setConnectionStatus("Sync backup"));
     socket?.on("presenter_rejected", event => toast(event.message || "Presenter permission required."));
-    socket?.on("presentation_state", state => {
-      if (state.presentationId && state.presentationId !== presentationId) return;
-      const stateVolume = normalizedVolume(state.videoVolume ?? state.audioVolume);
-      videoVolume = stateVolume;
-      audioVolume = stateVolume;
-      applyPreviewVolumes();
-      syncVolumeControls();
-    });
+    socket?.on("presentation_state", applyCanonicalControllerState);
     socket?.on("presentation_updated", event => {
       if (event.presentationId !== presentationId || !event.presentation) return;
       const previousState = controllerStatePayload();
@@ -1827,7 +1850,6 @@
       toast("Meeting closed. All participants were disconnected.");
       document.querySelectorAll("#controllerLiveMedia button, .controller-console-actions button").forEach(button => { button.disabled = true; });
     });
-    setInterval(emitControllerState, 1000);
   } catch (error) {
     $("#controllerTitle").textContent = "Controller unavailable";
     showPreviewPlaceholder(error.message);

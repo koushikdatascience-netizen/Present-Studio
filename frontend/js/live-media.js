@@ -1195,19 +1195,6 @@
         avatar.textContent = (participant.name || "Guest").trim().slice(0, 1).toUpperCase() || "G";
         media.append(avatar);
       }
-      if (!isLocal) publications(participant).filter(publication => (isSource(publication, "Microphone") || isSource(publication, "ScreenShareAudio")) && publication.track).forEach(publication => {
-        const audio = publication.track.attach();
-        Object.assign(audio, { autoplay: true, hidden: true, muted: participantAudioMuted(participant.identity) });
-        audio.dataset.liveAudioParticipant = participant.identity;
-        tile.append(audio);
-        rememberAttachedTrack(publication.track, audio);
-        audio.play?.().catch(error => {
-          if (error?.name !== "NotAllowedError") return;
-          audioPlaybackBlocked = true;
-          syncAudioRecovery();
-          setStatus("Browser blocked meeting audio. Select Enable Audio.", "error");
-        });
-      });
       const caption = document.createElement("footer");
       const label = document.createElement("strong");
       label.textContent = `${participant.name || "Guest"}${isLocal ? " (You)" : ""}`;
@@ -1274,6 +1261,7 @@
           const feature = document.createElement("button");
           feature.type = "button";
           feature.className = "live-participant-feature";
+          feature.dataset.liveFeatureCamera = String(participant.identity);
           feature.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10v10H4zM14 10l6-3v10l-6-3z"></path></svg>';
           const featuring = selectedCameraIdentity === String(participant.identity);
           feature.setAttribute("aria-pressed", String(featuring));
@@ -1281,7 +1269,8 @@
           feature.title = feature.getAttribute("aria-label");
           feature.addEventListener("click", event => {
             event.stopPropagation();
-            selectedCameraIdentity = featuring ? "" : String(participant.identity);
+            const identity = String(participant.identity);
+            selectedCameraIdentity = selectedCameraIdentity === identity ? "" : identity;
             publishControllerState();
             renderFeaturedCamera();
             renderParticipants();
@@ -1338,6 +1327,64 @@
       return tile;
     }
 
+    function publicationTrackKey(publication) {
+      return String(publication?.trackSid || publication?.sid || publication?.track?.sid || publication?.track?.mediaStreamTrack?.id || "");
+    }
+
+    function syncParticipantAudio(tile, participant, isLocal = false) {
+      const existing = new Map([...tile.querySelectorAll("audio[data-live-audio-track]")].map(audio => [audio.dataset.liveAudioTrack, audio]));
+      if (isLocal) {
+        existing.forEach(audio => { try { audio._liveTrack?.detach?.(audio); } catch {} audio.remove(); });
+        return;
+      }
+      const desired = publications(participant).filter(publication =>
+        (isSource(publication, "Microphone") || isSource(publication, "ScreenShareAudio")) && publication.track
+      );
+      const activeKeys = new Set();
+      desired.forEach(publication => {
+        const key = publicationTrackKey(publication);
+        if (!key) return;
+        activeKeys.add(key);
+        let audio = existing.get(key);
+        if (!audio) {
+          audio = publication.track.attach();
+          Object.assign(audio, { autoplay: true, hidden: true });
+          audio.dataset.liveAudioTrack = key;
+          audio.dataset.liveAudioParticipant = participant.identity;
+          tile.append(audio);
+          rememberAttachedTrack(publication.track, audio);
+          audio.play?.().catch(error => {
+            if (error?.name !== "NotAllowedError") return;
+            audioPlaybackBlocked = true;
+            syncAudioRecovery();
+            setStatus("Browser blocked meeting audio. Select Enable Audio.", "error");
+          });
+        }
+        audio.dataset.liveAudioParticipant = participant.identity;
+        audio.muted = tabSpeakerMuted || participantAudioMuted(participant.identity);
+      });
+      existing.forEach((audio, key) => {
+        if (activeKeys.has(key)) return;
+        try { audio._liveTrack?.detach?.(audio); } catch {}
+        audio.remove();
+      });
+    }
+
+    function syncFeaturedCameraControls() {
+      tiles.querySelectorAll("[data-live-feature-camera]").forEach(button => {
+        const identity = String(button.dataset.liveFeatureCamera || "");
+        const participant = identity && room
+          ? [room.localParticipant, ...room.remoteParticipants.values()].find(item => String(item.identity) === identity)
+          : null;
+        const featuring = identity === selectedCameraIdentity;
+        button.setAttribute("aria-pressed", String(featuring));
+        button.setAttribute("aria-label", featuring
+          ? `Stop featuring ${participant?.name || "participant"} camera`
+          : `Feature ${participant?.name || "participant"} camera`);
+        button.title = button.getAttribute("aria-label");
+      });
+    }
+
     function renderScreenShares() {
       const embeddedSlots = presentationMedia ? [...presentationMedia.querySelectorAll("[data-slide-screen-share]")] : [];
       if (!room) {
@@ -1378,7 +1425,7 @@
       screenShareRenderSignature = renderSignature;
       detachNodeTracks(screenShareMedia);
       screenShareMedia.replaceChildren();
-      const isHiddenLocalControllerShare = participant => isController && participant === room.localParticipant;
+      const isHiddenLocalShare = participant => participant === room.localParticipant;
       const createLocalSharePlaceholder = () => {
         const placeholder = document.createElement("div");
         placeholder.className = "live-local-share-placeholder";
@@ -1399,7 +1446,7 @@
         slot.replaceChildren();
         slot.classList.add("is-live");
         let media;
-        if (isHiddenLocalControllerShare(featured.participant)) {
+        if (isHiddenLocalShare(featured.participant)) {
           media = createLocalSharePlaceholder();
         } else {
           media = featured.track.attach();
@@ -1439,7 +1486,7 @@
         figure.dataset.participantIdentity = participant.identity;
         figure.classList.toggle("is-featured", participant.identity === featuredIdentity);
         let media;
-        if (isHiddenLocalControllerShare(participant)) {
+        if (isHiddenLocalShare(participant)) {
           media = createLocalSharePlaceholder();
         } else {
           media = track.attach();
@@ -1469,7 +1516,7 @@
           });
           actions.append(select);
         }
-        if (!isHiddenLocalControllerShare(participant)) {
+        if (!isHiddenLocalShare(participant)) {
           const fullscreen = document.createElement("button");
           fullscreen.type = "button";
           fullscreen.textContent = "⛶";
@@ -1498,7 +1545,9 @@
     }
 
     function participantRenderSignature(participant, isLocal) {
-      const publicationState = publications(participant).map(publication => [
+      const publicationState = publications(participant).filter(publication =>
+        isSource(publication, "Camera") || isSource(publication, "Microphone")
+      ).map(publication => [
         publication.trackSid || publication.sid || publication.track?.sid || publication.track?.mediaStreamTrack?.id || "track",
         publication.source || "",
         publication.isMuted ? "muted" : "live",
@@ -1506,8 +1555,8 @@
       ].join(":")).sort().join("|");
       const registryItem = participantRegistry.get(String(participant.identity));
       return [participant.identity, participant.name, participant.metadata, isLocal, publicationState,
-        raisedHands.has(participant.identity), meetingMuted, mutedParticipants.has(participant.identity),
-        selectedCameraIdentity, registryItem?.clientId || ""].join("::");
+        raisedHands.has(participant.identity), mutedParticipants.has(participant.identity),
+        registryItem?.clientId || "", registryItem?.role || ""].join("::");
     }
 
     function renderParticipants() {
@@ -1533,12 +1582,15 @@
         const signature = participantRenderSignature(participant, isLocal);
         let tile = existingTiles.get(identity);
         if (!tile || tile.dataset.renderSignature !== signature) {
+          const preservedAudio = tile ? [...tile.querySelectorAll("audio[data-live-audio-track]")] : [];
           const replacement = addParticipantTile(participant, isLocal);
+          preservedAudio.forEach(audio => replacement.append(audio));
           replacement.dataset.renderSignature = signature;
           if (tile) { detachNodeTracks(tile); tile.replaceWith(replacement); }
           else tiles.append(replacement);
           tile = replacement;
         }
+        syncParticipantAudio(tile, participant, isLocal);
         const currentAtIndex = tiles.children[index];
         if (currentAtIndex !== tile) tiles.insertBefore(tile, currentAtIndex || null);
         activeIdentities.add(identity);
@@ -1554,6 +1606,7 @@
       if (peopleBadge) peopleBadge.textContent = String(total);
       if (restoreCount) restoreCount.textContent = String(total);
       renderFeaturedCamera();
+      syncFeaturedCameraControls();
       options.onParticipantTilesRendered?.();
     }
 

@@ -37,8 +37,8 @@ test("both fullscreen experiences provide an in-stage exit control", () => {
   assert.match(liveMedia, /fullscreenExitButton[\s\S]*document\.exitFullscreen/);
 });
 
-test("controller hides its own screen-share preview to prevent capture recursion", () => {
-  assert.match(liveMedia, /isHiddenLocalControllerShare\s*=\s*participant\s*=>\s*isController\s*&&\s*participant\s*===\s*room\.localParticipant/);
+test("every participant hides their own screen-share preview to prevent capture recursion", () => {
+  assert.match(liveMedia, /isHiddenLocalShare\s*=\s*participant\s*=>\s*participant\s*===\s*room\.localParticipant/);
   assert.match(liveMedia, /Local preview is hidden to prevent a recursive screen-capture loop/);
   assert.match(styles, /\.live-local-share-placeholder/);
 });
