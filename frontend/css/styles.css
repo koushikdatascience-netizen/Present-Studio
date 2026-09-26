@@ -4346,3 +4346,82 @@ button.present-back {
   border-color: #ffd54a !important;
   color: #ffd54a !important;
 }
+
+/* Controller gallery view: reuse the participant directory as a full meeting stage. */
+.interactive-workspace .live-gallery-toggle svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+.interactive-workspace .live-gallery-toggle svg[hidden] { display: none; }
+.interactive-workspace .live-gallery-toggle[aria-pressed="true"] {
+  border-color: #d3aa0d;
+  background: #ffd54a;
+  color: #171713;
+}
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-gallery-view {
+  grid-template-columns: minmax(0, 1fr);
+}
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-gallery-view .interactive-main-stage {
+  display: none;
+}
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-gallery-view .interactive-session-sidebar {
+  position: relative;
+  inset: auto;
+  z-index: 10;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: 100%;
+  height: auto;
+  visibility: visible;
+  border: 0;
+  border-radius: 0;
+  opacity: 1;
+  box-shadow: none;
+  transform: none;
+}
+.interactive-workspace.is-gallery-view .live-sidebar-tabs { display: none; }
+.interactive-workspace.is-gallery-view .controller-people-panel { min-height: 0; }
+.interactive-workspace.is-gallery-view .interactive-participant-grid {
+  padding: clamp(12px, 2vw, 28px);
+}
+.interactive-workspace.is-gallery-view .live-participant-group {
+  max-width: 1500px;
+  margin: 0 auto 12px;
+}
+.interactive-workspace.is-gallery-view .live-participant-group-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 320px));
+  justify-content: center;
+  gap: clamp(10px, 1.35vw, 18px);
+}
+.interactive-workspace.is-gallery-view[data-gallery-size="single"] .live-participant-group-grid {
+  grid-template-columns: minmax(260px, 720px);
+  justify-content: center;
+}
+.interactive-workspace.is-gallery-view[data-gallery-size="pair"] .live-participant-group-grid {
+  grid-template-columns: repeat(2, minmax(240px, 560px));
+  justify-content: center;
+}
+.interactive-workspace.is-gallery-view .interactive-participant-grid .live-media-tile {
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.24);
+}
+.interactive-workspace.is-gallery-view .interactive-participant-grid .live-media-tile-video {
+  aspect-ratio: 16 / 9;
+}
+.live-controller-page[data-controller-theme="light"] .interactive-workspace.is-gallery-view .live-gallery-toggle[aria-pressed="true"] {
+  border-color: #d3aa0d;
+  background: #ffd54a;
+  color: #171713;
+}
+@media (max-width: 680px) {
+  .interactive-workspace.is-gallery-view .live-participant-group-grid,
+  .interactive-workspace.is-gallery-view[data-gallery-size="pair"] .live-participant-group-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .interactive-workspace.is-gallery-view[data-gallery-size="single"] .live-participant-group-grid { grid-template-columns: 1fr; }
+  .interactive-workspace.is-gallery-view .interactive-participant-grid { padding: 8px; }
+}

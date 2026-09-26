@@ -31,6 +31,10 @@
     const restoreCount = root.querySelector("[data-live-restore-count]");
     const sheetHandle = root.querySelector("[data-live-sheet-handle]");
     const meetingSidebar = root.querySelector(".live-meeting-sidebar");
+    const galleryToggle = root.querySelector("[data-live-gallery-toggle]");
+    const galleryExpandIcon = galleryToggle?.querySelector("[data-live-gallery-expand]");
+    const galleryRestoreIcon = galleryToggle?.querySelector("[data-live-gallery-restore]");
+    const sidebarTitle = root.querySelector("[data-live-sidebar-title]");
     const audienceControls = !options.controller && meetingSidebar?.querySelector(".audience-meeting-controls");
     let audienceFeedback = null;
     let audienceFeedbackTimer = 0;
@@ -147,6 +151,7 @@
     let participantFilter = "all";
     let activeSpeakerIdentities = new Set();
     let recentSpeakerIdentities = new Set();
+    let galleryViewActive = false;
     const speakerReleaseTimers = new Map();
     const participantGroups = new Map();
     let peopleEmpty = null;
@@ -1224,6 +1229,7 @@
         event.stopPropagation();
         const identity = String(participant.identity);
         selectedCameraIdentity = selectedCameraIdentity === identity ? "" : identity;
+        if (selectedCameraIdentity && galleryViewActive) setGalleryView(false);
         publishControllerState();
         renderFeaturedCamera();
         renderParticipants();
@@ -1449,6 +1455,7 @@
       const renderSignature = `${activeShares.map(({ participant, track }) => `${participant.identity}:${track.sid || track.mediaStreamTrack?.id || "share"}`).join("|")}::${featuredIdentity}::${controllerShareIdentity}::${embeddedSignature}`;
       const visible = activeShares.length > 0;
       const embedded = embeddedSlots.length > 0;
+      if (visible && galleryViewActive) setGalleryView(false);
       screenShareViewer.hidden = !visible || embedded;
       root.classList.toggle("has-screen-share", visible && !embedded);
       screenShareMedia.classList.toggle("has-multiple", activeShares.length > 1);
@@ -1691,6 +1698,7 @@
         updatePeopleFilters([]);
         count.textContent = "0 connected";
         if (restoreCount) restoreCount.textContent = "0";
+        root.dataset.gallerySize = "single";
         return;
       }
       if (isController && mutedParticipants.size) {
@@ -1760,6 +1768,7 @@
         visibleCount += matchingCount;
       });
       peopleEmpty.hidden = visibleCount !== 0;
+      root.dataset.gallerySize = visibleCount <= 1 ? "single" : visibleCount <= 2 ? "pair" : visibleCount <= 4 ? "quad" : visibleCount <= 9 ? "medium" : "large";
       renderScreenShares();
       const total = room.remoteParticipants.size + 1;
       count.textContent = `${total} connected`;
@@ -1800,7 +1809,11 @@
 
     function syncButtons(connected) {
       root.classList.toggle("is-connected", connected);
-      if (!connected) setAudienceSidebarHidden(false);
+      if (!connected) {
+        setGalleryView(false);
+        setAudienceSidebarHidden(false);
+      }
+      if (galleryToggle) galleryToggle.disabled = !connected;
       joinButton.hidden = connected;
       joinButton.disabled = joining || (!isController && admissionState === "waiting");
       joinButton.textContent = !isController && admissionState === "waiting" ? "Waiting for presenter…" : (isController ? "Join audio/video" : "Ask to join meeting");
@@ -1833,6 +1846,7 @@
 
     function setAudienceSidebarHidden(hidden, moveFocus = false) {
       const collapsed = Boolean(hidden);
+      if (collapsed && galleryViewActive) setGalleryView(false);
       root.classList.toggle("is-sidebar-hidden", collapsed);
       if (meetingSidebar) {
         meetingSidebar.inert = collapsed;
@@ -1867,6 +1881,24 @@
       } else if (moveFocus) {
         moreToggle?.focus();
       }
+    }
+
+    function setGalleryView(active, announce = false) {
+      if (!isController || !galleryToggle) return;
+      galleryViewActive = Boolean(active && room);
+      root.classList.toggle("is-gallery-view", galleryViewActive);
+      galleryToggle.setAttribute("aria-pressed", String(galleryViewActive));
+      galleryToggle.setAttribute("aria-label", galleryViewActive ? "Restore presentation preview" : "Open participant gallery");
+      galleryToggle.title = galleryViewActive ? "Restore preview" : "Gallery view";
+      if (galleryExpandIcon) galleryExpandIcon.hidden = galleryViewActive;
+      if (galleryRestoreIcon) galleryRestoreIcon.hidden = !galleryViewActive;
+      if (sidebarTitle) sidebarTitle.textContent = galleryViewActive ? "Participant gallery" : "Interactive audience";
+      if (galleryViewActive) {
+        setSidebarTab("people");
+        setAudienceSidebarHidden(false);
+        setAudienceToolsOpen(false);
+      }
+      if (announce) setStatus(galleryViewActive ? "Participant gallery opened" : "Presentation preview restored", "success");
     }
 
     function activateMoreAction(action) {
@@ -2471,6 +2503,7 @@
     });
     panelToggle?.addEventListener("click", () => setAudienceSidebarHidden(true, true));
     panelRestore?.addEventListener("click", () => setAudienceSidebarHidden(false, true));
+    galleryToggle?.addEventListener("click", () => setGalleryView(!galleryViewActive, true));
     peopleSearch?.addEventListener("input", () => {
       participantSearchQuery = peopleSearch.value.trim().toLocaleLowerCase();
       renderParticipants();
