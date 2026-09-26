@@ -13,8 +13,26 @@ test("controllers apply canonical state without competing periodic heartbeats", 
 });
 
 test("participant audio tracks survive camera and screen-share UI updates", () => {
-  assert.match(liveMedia, /function syncParticipantAudio\(tile, participant, isLocal = false\)/);
-  assert.match(liveMedia, /const preservedAudio = tile \? \[\.\.\.tile\.querySelectorAll\("audio\[data-live-audio-track\]"\)\] : \[\]/);
+  assert.match(liveMedia, /function syncParticipantAudio\(participant, isLocal = false\)/);
+  assert.match(liveMedia, /audioMount\.append\(audio\)/);
+  assert.doesNotMatch(liveMedia, /tile\.append\(audio\)/);
   assert.doesNotMatch(liveMedia, /meetingMuted, mutedParticipants\.has\(participant\.identity\),\s*selectedCameraIdentity/);
   assert.match(liveMedia, /isSource\(publication, "Camera"\) \|\| isSource\(publication, "Microphone"\)/);
+});
+
+test("participant directory provides stable groups, search, and status filters", () => {
+  const controllerHtml = fs.readFileSync(path.join(__dirname, "../frontend/controller.html"), "utf8");
+  const audienceHtml = fs.readFileSync(path.join(__dirname, "../frontend/present.html"), "utf8");
+  for (const html of [controllerHtml, audienceHtml]) {
+    assert.match(html, /data-live-people-search/);
+    for (const filter of ["all", "speaking", "hands", "unmuted", "camera"]) {
+      assert.match(html, new RegExp(`data-live-people-filter="${filter}"`));
+    }
+  }
+  assert.match(liveMedia, /\["speaking", "Speaking now"\]/);
+  assert.match(liveMedia, /\["presenters", "Presenters"\]/);
+  assert.match(liveMedia, /\["audience", "Audience"\]/);
+  assert.match(liveMedia, /participantSearchQuery/);
+  assert.match(liveMedia, /speakerReleaseTimers/);
+  assert.match(liveMedia, /}, 3500\)/);
 });

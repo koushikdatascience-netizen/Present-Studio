@@ -3937,6 +3937,211 @@ button.present-back {
   .appearance-theme-options { grid-template-columns: 1fr; }
 }
 
+/* Participant directory: compact controls, stable status groups, and calm activity cues. */
+.live-sidebar-panel[data-live-panel="people"].is-active {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.live-people-tools {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid rgba(255,255,255,.09);
+  background: #11110f;
+}
+.live-people-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 9px;
+  background: rgba(255,255,255,.06);
+  color: #a9a79f;
+}
+.live-people-search:focus-within {
+  border-color: rgba(255,211,64,.72);
+  box-shadow: 0 0 0 2px rgba(255,211,64,.12);
+}
+.live-people-search svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+.live-people-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: #f5f4ef;
+  font: inherit;
+  font-size: .72rem;
+}
+.live-people-search input::placeholder { color: #8d8b84; }
+.live-people-filters {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 1px;
+  scrollbar-width: none;
+}
+.live-people-filters::-webkit-scrollbar { display: none; }
+.live-people-filters button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 27px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: transparent;
+  color: #c6c3ba;
+  font-size: .61rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.live-people-filters button span {
+  min-width: 16px;
+  border-radius: 999px;
+  padding: 1px 4px;
+  background: rgba(255,255,255,.09);
+  color: inherit;
+  font-size: .55rem;
+  text-align: center;
+}
+.live-people-filters button:hover { border-color: rgba(255,211,64,.45); color: #fff; }
+.live-people-filters button.is-active {
+  border-color: #ffd340;
+  background: #ffd340;
+  color: #181711;
+}
+.live-people-filters button.is-active span { background: rgba(24,23,17,.12); }
+.live-audio-mount {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.live-media-panel .live-media-tiles,
+.interactive-workspace .interactive-participant-grid,
+.interactive-workspace.is-connected .interactive-participant-grid,
+.audience-live-view .present-live-media.is-connected .live-media-tiles {
+  display: block !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin: 0 !important;
+  padding: 4px 8px 12px;
+  background: #11110f;
+}
+.live-participant-group[hidden] { display: none !important; }
+.live-participant-group > header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  margin: 0 -2px;
+  padding: 7px 4px 5px;
+  background: #11110f;
+  color: #d7d4cb;
+}
+.live-participant-group > header strong {
+  overflow: hidden;
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.live-participant-group > header span {
+  min-width: 19px;
+  border-radius: 999px;
+  padding: 2px 5px;
+  background: rgba(255,255,255,.08);
+  color: #aaa79e;
+  font-size: .54rem;
+  font-weight: 800;
+  text-align: center;
+}
+.live-participant-group-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+.live-participant-group-grid > .live-media-tile[hidden] { display: none !important; }
+.live-people-empty {
+  margin: 28px 10px;
+  color: #9a978f;
+  font-size: .72rem;
+  text-align: center;
+}
+.live-media-tile.is-speaking {
+  border-color: #42c986 !important;
+  box-shadow: 0 0 0 2px rgba(66,201,134,.2), 0 8px 18px rgba(0,0,0,.2) !important;
+}
+.live-media-tile.is-unmuted:not(.is-speaking) { border-color: rgba(66,201,134,.55) !important; }
+.live-media-tile.is-unmuted footer > span:first-of-type { color: #83dfae; }
+.live-controller-page[data-controller-theme="light"] .live-people-tools,
+.present-page[data-audience-theme="light"] .live-people-tools,
+.live-controller-page[data-controller-theme="light"] .live-media-panel .live-media-tiles,
+.present-page[data-audience-theme="light"] .live-media-tiles,
+.live-controller-page[data-controller-theme="light"] .live-participant-group > header,
+.present-page[data-audience-theme="light"] .live-participant-group > header {
+  border-color: #e4e7eb;
+  background: #f7f8fa !important;
+}
+.live-controller-page[data-controller-theme="light"] .live-people-search,
+.present-page[data-audience-theme="light"] .live-people-search {
+  border-color: #d9dde3;
+  background: #fff;
+  color: #707782;
+}
+.live-controller-page[data-controller-theme="light"] .live-people-search input,
+.present-page[data-audience-theme="light"] .live-people-search input { color: #252b34; }
+.live-controller-page[data-controller-theme="light"] .live-people-filters button,
+.present-page[data-audience-theme="light"] .live-people-filters button {
+  border-color: #d9dde3;
+  color: #59616c;
+}
+.live-controller-page[data-controller-theme="light"] .live-people-filters button.is-active,
+.present-page[data-audience-theme="light"] .live-people-filters button.is-active {
+  border-color: #edbd18;
+  background: #ffd340;
+  color: #1e2228;
+}
+.live-controller-page[data-controller-theme="light"] .live-participant-group > header,
+.present-page[data-audience-theme="light"] .live-participant-group > header { color: #59616c; }
+.live-controller-page[data-controller-theme="light"] .live-participant-group > header span,
+.present-page[data-audience-theme="light"] .live-participant-group > header span {
+  background: #e7eaee;
+  color: #6b737d;
+}
+.live-controller-page[data-controller-theme="light"] .live-people-empty,
+.present-page[data-audience-theme="light"] .live-people-empty { color: #777f89; }
+
+@media (max-width: 440px) {
+  .live-people-tools { padding: 8px; }
+  .live-participant-group-grid { gap: 6px; }
+}
+
 
 /* Rich meeting chat: safe links, attachments, paste/drop feedback. */
 .live-chat-message p {

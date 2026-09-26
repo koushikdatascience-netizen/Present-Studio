@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio — Live Controller</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20260925-owner-close">
+    <link rel="stylesheet" href="/css/styles.css?v=20260926-people-directory">
   </head>
   <body class="live-controller-page" data-controller-mode="control" data-controller-theme="light">
     <main class="live-controller-shell">
@@ -164,6 +164,16 @@
                 <div class="live-lobby-heading" data-live-share-heading hidden><strong>Screen requests <span data-live-share-count>0</span></strong><button type="button" data-live-approve-shares hidden>Allow all</button></div>
                 <div class="live-lobby-list" data-live-share-list></div>
               </div>
+              <div class="live-people-tools" data-live-people-tools>
+                <label class="live-people-search"><span class="sr-only">Search participants</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg><input data-live-people-search type="search" autocomplete="off" placeholder="Search participants"></label>
+                <div class="live-people-filters" role="toolbar" aria-label="Filter participants">
+                  <button type="button" data-live-people-filter="all" class="is-active" aria-pressed="true">All <span>0</span></button>
+                  <button type="button" data-live-people-filter="speaking" aria-pressed="false">Speaking <span>0</span></button>
+                  <button type="button" data-live-people-filter="hands" aria-pressed="false">Hands <span>0</span></button>
+                  <button type="button" data-live-people-filter="unmuted" aria-pressed="false">Mic on <span>0</span></button>
+                  <button type="button" data-live-people-filter="camera" aria-pressed="false">Camera <span>0</span></button>
+                </div>
+              </div>
               <div class="live-media-tiles interactive-participant-grid" data-live-tiles aria-live="polite"></div>
             </section>
             <section class="live-sidebar-panel live-chat-panel" data-live-panel="chat" aria-label="Meeting chat" hidden><div class="live-chat-messages" data-live-chat-messages role="log" aria-live="polite"><p class="live-chat-empty" data-live-chat-empty>Messages shared in this meeting appear here.</p></div><form class="live-chat-compose" data-live-chat-form><div class="live-chat-pending" data-live-chat-pending hidden><img data-live-chat-pending-image alt=""><div><strong data-live-chat-pending-name></strong><small data-live-chat-pending-size></small></div><button type="button" data-live-chat-pending-remove aria-label="Remove attachment" title="Remove attachment">×</button></div><label class="sr-only" for="controllerChatInput">Message everyone</label><input id="controllerChatInput" data-live-chat-input maxlength="500" autocomplete="off" placeholder="Message everyone"><input data-live-chat-file type="file" hidden><button class="live-chat-attach" type="button" data-live-chat-attach disabled aria-label="Attach a file up to 100 MB" title="Attach file"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 12.5 5.8-5.8a3 3 0 0 1 4.2 4.2l-8.3 8.3a5 5 0 0 1-7.1-7.1l8.5-8.5"></path></svg></button><button class="live-chat-send" type="submit" disabled aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 17-8-6 18-3-7-8-3Zm8 3 4-4"></path></svg></button></form></section>
@@ -231,7 +241,7 @@
     <script src="/js/api.js?v=20260925-meetings"></script>
     <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
-    <script src="/js/live-media.js?v=20260926-load-stability"></script>
+    <script src="/js/live-media.js?v=20260926-people-directory"></script>
     <script src="/js/controller.js?v=20260926-load-stability"></script>
   </body>
 </html>

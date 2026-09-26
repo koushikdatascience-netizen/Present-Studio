@@ -44,6 +44,12 @@
     const status = root.querySelector("[data-live-status]");
     const count = root.querySelector("[data-live-count]");
     const tiles = root.querySelector("[data-live-tiles]");
+    const peopleSearch = root.querySelector("[data-live-people-search]");
+    const peopleFilterButtons = [...root.querySelectorAll("[data-live-people-filter]")];
+    const audioMount = document.createElement("div");
+    audioMount.className = "live-audio-mount";
+    audioMount.setAttribute("aria-hidden", "true");
+    root.append(audioMount);
     const screenShareViewer = root.querySelector("[data-live-screen-share-viewer]");
     const screenShareMedia = root.querySelector("[data-live-screen-share-media]");
     const screenShareLabel = root.querySelector("[data-live-screen-share-label]");
@@ -134,6 +140,13 @@
     let screenShareApproved = false;
     let pendingScreenShareTracks = [];
     let participantRegistry = new Map();
+    let participantSearchQuery = "";
+    let participantFilter = "all";
+    let activeSpeakerIdentities = new Set();
+    let recentSpeakerIdentities = new Set();
+    const speakerReleaseTimers = new Map();
+    const participantGroups = new Map();
+    let peopleEmpty = null;
     let backgroundProcessor = null;
     let backgroundProcessorTrack = null;
     let backgroundProcessorModule = null;
@@ -1331,8 +1344,11 @@
       return String(publication?.trackSid || publication?.sid || publication?.track?.sid || publication?.track?.mediaStreamTrack?.id || "");
     }
 
-    function syncParticipantAudio(tile, participant, isLocal = false) {
-      const existing = new Map([...tile.querySelectorAll("audio[data-live-audio-track]")].map(audio => [audio.dataset.liveAudioTrack, audio]));
+    function syncParticipantAudio(participant, isLocal = false) {
+      const identity = String(participant.identity);
+      const existing = new Map([...audioMount.querySelectorAll("audio[data-live-audio-track]")]
+        .filter(audio => audio.dataset.liveAudioParticipant === identity)
+        .map(audio => [audio.dataset.liveAudioTrack, audio]));
       if (isLocal) {
         existing.forEach(audio => { try { audio._liveTrack?.detach?.(audio); } catch {} audio.remove(); });
         return;
@@ -1350,8 +1366,8 @@
           audio = publication.track.attach();
           Object.assign(audio, { autoplay: true, hidden: true });
           audio.dataset.liveAudioTrack = key;
-          audio.dataset.liveAudioParticipant = participant.identity;
-          tile.append(audio);
+          audio.dataset.liveAudioParticipant = identity;
+          audioMount.append(audio);
           rememberAttachedTrack(publication.track, audio);
           audio.play?.().catch(error => {
             if (error?.name !== "NotAllowedError") return;
@@ -1360,8 +1376,8 @@
             setStatus("Browser blocked meeting audio. Select Enable Audio.", "error");
           });
         }
-        audio.dataset.liveAudioParticipant = participant.identity;
-        audio.muted = tabSpeakerMuted || participantAudioMuted(participant.identity);
+        audio.dataset.liveAudioParticipant = identity;
+        audio.muted = tabSpeakerMuted || participantAudioMuted(identity);
       });
       existing.forEach((audio, key) => {
         if (activeKeys.has(key)) return;
@@ -1559,8 +1575,105 @@
         registryItem?.clientId || "", registryItem?.role || ""].join("::");
     }
 
+    function ensureParticipantDirectory() {
+      if (participantGroups.size) return;
+      const definitions = [
+        ["speaking", "Speaking now"],
+        ["hands", "Raised hands"],
+        ["presenters", "Presenters"],
+        ["unmuted", "Mic on"],
+        ["audience", "Audience"]
+      ];
+      definitions.forEach(([key, label]) => {
+        const section = document.createElement("section");
+        section.className = "live-participant-group";
+        section.dataset.liveParticipantGroup = key;
+        section.hidden = true;
+        const heading = document.createElement("header");
+        const title = document.createElement("strong");
+        title.textContent = label;
+        const groupCount = document.createElement("span");
+        groupCount.dataset.liveParticipantGroupCount = "";
+        groupCount.textContent = "0";
+        heading.append(title, groupCount);
+        const grid = document.createElement("div");
+        grid.className = "live-participant-group-grid";
+        section.append(heading, grid);
+        tiles.append(section);
+        participantGroups.set(key, { section, grid, count: groupCount });
+      });
+      peopleEmpty = document.createElement("p");
+      peopleEmpty.className = "live-people-empty";
+      peopleEmpty.textContent = "No participants match this view.";
+      peopleEmpty.hidden = true;
+      tiles.append(peopleEmpty);
+    }
+
+    function participantDirectoryFacts(participant, isLocal) {
+      const identity = String(participant.identity);
+      const participantPublications = publications(participant);
+      const micOn = participantPublications.some(publication =>
+        isSource(publication, "Microphone") && !publication.isMuted
+      ) && !mutedParticipants.has(identity);
+      const cameraOn = participantPublications.some(publication =>
+        isSource(publication, "Camera") && publication.track && !publication.isMuted
+      );
+      const isActivelySpeaking = activeSpeakerIdentities.has(identity);
+      const speaking = isActivelySpeaking || recentSpeakerIdentities.has(identity);
+      const raised = raisedHands.has(identity);
+      const presenter = participantRole(participant) === "presenter";
+      const group = speaking ? "speaking" : raised ? "hands" : presenter ? "presenters" : micOn ? "unmuted" : "audience";
+      return {
+        identity,
+        name: String(participant.name || "Guest"),
+        isLocal,
+        micOn,
+        cameraOn,
+        isActivelySpeaking,
+        speaking,
+        raised,
+        presenter,
+        group
+      };
+    }
+
+    function participantMatchesDirectory(facts) {
+      if (participantSearchQuery && !facts.name.toLocaleLowerCase().includes(participantSearchQuery)) return false;
+      if (participantFilter === "speaking") return facts.speaking;
+      if (participantFilter === "hands") return facts.raised;
+      if (participantFilter === "unmuted") return facts.micOn;
+      if (participantFilter === "camera") return facts.cameraOn;
+      return true;
+    }
+
+    function updatePeopleFilters(factsList) {
+      const totals = {
+        all: factsList.length,
+        speaking: factsList.filter(facts => facts.speaking).length,
+        hands: factsList.filter(facts => facts.raised).length,
+        unmuted: factsList.filter(facts => facts.micOn).length,
+        camera: factsList.filter(facts => facts.cameraOn).length
+      };
+      peopleFilterButtons.forEach(button => {
+        const key = button.dataset.livePeopleFilter || "all";
+        const active = key === participantFilter;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+        const badge = button.querySelector("span");
+        if (badge) badge.textContent = String(totals[key] || 0);
+      });
+    }
+
     function renderParticipants() {
-      if (!room) { count.textContent = "0 connected"; if (restoreCount) restoreCount.textContent = "0"; return; }
+      ensureParticipantDirectory();
+      if (!room) {
+        participantGroups.forEach(group => { group.grid.replaceChildren(); group.section.hidden = true; group.count.textContent = "0"; });
+        peopleEmpty.hidden = true;
+        updatePeopleFilters([]);
+        count.textContent = "0 connected";
+        if (restoreCount) restoreCount.textContent = "0";
+        return;
+      }
       if (isController && mutedParticipants.size) {
         const connectedIdentities = new Set([room.localParticipant.identity, ...[...room.remoteParticipants.values()].map(participant => participant.identity)]);
         const activeMuted = new Set([...mutedParticipants].filter(identity => connectedIdentities.has(identity)));
@@ -1577,22 +1690,24 @@
       const participants = [{ participant: room.localParticipant, isLocal: true }, ...[...room.remoteParticipants.values()].map(participant => ({ participant, isLocal: false }))];
       const existingTiles = new Map([...tiles.querySelectorAll("[data-participant-identity]")].map(tile => [tile.dataset.participantIdentity, tile]));
       const activeIdentities = new Set();
-      participants.forEach(({ participant, isLocal }, index) => {
+      const directoryEntries = [];
+      participants.forEach(({ participant, isLocal }) => {
         const identity = String(participant.identity);
         const signature = participantRenderSignature(participant, isLocal);
         let tile = existingTiles.get(identity);
         if (!tile || tile.dataset.renderSignature !== signature) {
-          const preservedAudio = tile ? [...tile.querySelectorAll("audio[data-live-audio-track]")] : [];
           const replacement = addParticipantTile(participant, isLocal);
-          preservedAudio.forEach(audio => replacement.append(audio));
           replacement.dataset.renderSignature = signature;
           if (tile) { detachNodeTracks(tile); tile.replaceWith(replacement); }
-          else tiles.append(replacement);
           tile = replacement;
         }
-        syncParticipantAudio(tile, participant, isLocal);
-        const currentAtIndex = tiles.children[index];
-        if (currentAtIndex !== tile) tiles.insertBefore(tile, currentAtIndex || null);
+        syncParticipantAudio(participant, isLocal);
+        const facts = participantDirectoryFacts(participant, isLocal);
+        tile.classList.toggle("is-speaking", facts.isActivelySpeaking);
+        tile.classList.toggle("is-unmuted", facts.micOn);
+        tile.classList.toggle("is-muted", !facts.micOn);
+        tile.classList.toggle("has-camera", facts.cameraOn);
+        directoryEntries.push({ tile, facts });
         activeIdentities.add(identity);
       });
       existingTiles.forEach((tile, identity) => {
@@ -1600,6 +1715,32 @@
         detachNodeTracks(tile);
         tile.remove();
       });
+      audioMount.querySelectorAll("audio[data-live-audio-participant]").forEach(audio => {
+        if (activeIdentities.has(audio.dataset.liveAudioParticipant)) return;
+        try { audio._liveTrack?.detach?.(audio); } catch {}
+        audio.remove();
+      });
+      updatePeopleFilters(directoryEntries.map(entry => entry.facts));
+      const groupedEntries = new Map([...participantGroups.keys()].map(key => [key, []]));
+      directoryEntries.forEach(entry => {
+        entry.matchesDirectory = participantMatchesDirectory(entry.facts);
+        entry.tile.hidden = !entry.matchesDirectory;
+        groupedEntries.get(entry.facts.group)?.push(entry);
+      });
+      let visibleCount = 0;
+      participantGroups.forEach((group, key) => {
+        const entries = groupedEntries.get(key) || [];
+        entries.sort((left, right) => Number(right.facts.isLocal) - Number(left.facts.isLocal) || left.facts.name.localeCompare(right.facts.name));
+        entries.forEach((entry, index) => {
+          const currentAtIndex = group.grid.children[index];
+          if (currentAtIndex !== entry.tile) group.grid.insertBefore(entry.tile, currentAtIndex || null);
+        });
+        const matchingCount = entries.filter(entry => entry.matchesDirectory).length;
+        group.count.textContent = String(matchingCount);
+        group.section.hidden = matchingCount === 0;
+        visibleCount += matchingCount;
+      });
+      peopleEmpty.hidden = visibleCount !== 0;
       renderScreenShares();
       const total = room.remoteParticipants.size + 1;
       count.textContent = `${total} connected`;
@@ -1619,8 +1760,23 @@
     }
 
     function highlightSpeakers(speakers) {
-      const active = new Set((speakers || []).map(participant => participant.identity));
-      tiles.querySelectorAll("[data-participant-identity]").forEach(tile => tile.classList.toggle("is-speaking", active.has(tile.dataset.participantIdentity)));
+      const next = new Set((speakers || []).map(participant => String(participant.identity)));
+      next.forEach(identity => {
+        const releaseTimer = speakerReleaseTimers.get(identity);
+        if (releaseTimer) window.clearTimeout(releaseTimer);
+        speakerReleaseTimers.delete(identity);
+        recentSpeakerIdentities.add(identity);
+      });
+      activeSpeakerIdentities.forEach(identity => {
+        if (next.has(identity) || speakerReleaseTimers.has(identity)) return;
+        speakerReleaseTimers.set(identity, window.setTimeout(() => {
+          speakerReleaseTimers.delete(identity);
+          recentSpeakerIdentities.delete(identity);
+          scheduleParticipantRender();
+        }, 3500));
+      });
+      activeSpeakerIdentities = next;
+      scheduleParticipantRender();
     }
 
     function syncButtons(connected) {
@@ -1766,11 +1922,17 @@
         stopPendingScreenShare();
         joinNotificationArmed = false;
         microphoneEnabled = false; cameraEnabled = false; screenShareEnabled = false; audioPlaybackBlocked = false; detachMountedTracks(); room = null;
+        speakerReleaseTimers.forEach(timer => window.clearTimeout(timer));
+        speakerReleaseTimers.clear();
+        activeSpeakerIdentities.clear();
+        recentSpeakerIdentities.clear();
         wakeLockWanted = false;
         releaseMeetingWakeLock().catch(() => {});
         backgroundProcessor = null; backgroundProcessorTrack = null;
-        tiles.replaceChildren(); screenShareMedia.replaceChildren(); screenShareViewer.hidden = true; enableAudioButton.hidden = true;
+        tiles.replaceChildren(); participantGroups.clear(); peopleEmpty = null; audioMount.replaceChildren();
+        screenShareMedia.replaceChildren(); screenShareViewer.hidden = true; enableAudioButton.hidden = true;
         root.classList.remove("has-screen-share"); count.textContent = "0 connected"; setStatus("Left the live room"); syncButtons(false);
+        renderParticipants();
       });
     }
 
@@ -2270,6 +2432,14 @@
     });
     panelToggle?.addEventListener("click", () => setAudienceSidebarHidden(true, true));
     panelRestore?.addEventListener("click", () => setAudienceSidebarHidden(false, true));
+    peopleSearch?.addEventListener("input", () => {
+      participantSearchQuery = peopleSearch.value.trim().toLocaleLowerCase();
+      renderParticipants();
+    });
+    peopleFilterButtons.forEach(button => button.addEventListener("click", () => {
+      participantFilter = button.dataset.livePeopleFilter || "all";
+      renderParticipants();
+    }));
     moreToggle?.addEventListener("click", event => {
       event.stopPropagation();
       setMoreMenuOpen(moreMenu?.hidden !== false);
@@ -2484,6 +2654,8 @@
 
     if (isController) ensureJoinSoundControl();
     ensureTabSpeakerControl();
+    ensureParticipantDirectory();
+    updatePeopleFilters([]);
     syncButtons(false);
     setSidebarTab("people");
     function getLocalMicrophoneMediaTrack() {
