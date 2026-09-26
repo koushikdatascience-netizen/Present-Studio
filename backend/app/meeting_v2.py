@@ -8,7 +8,7 @@ from . import socket_manager as sm
 from .database import SessionLocal
 from .live_state import utc_now
 from .models import LiveSession, Meeting, MeetingParticipantGrant, Presentation, ShareLink
-from .security import new_id, new_share_token, user_from_token
+from .security import create_participant_resume_token, new_id, new_share_token, user_from_token
 
 
 _legacy_end_session = sm.end_session
@@ -267,7 +267,12 @@ def _cohost_sid_for(presentation_id: str, guest_id: str) -> str | None:
     return cohost_controller_sids.get(presentation_id, {}).get(guest_id)
 
 
-async def _revoke_cohost_controller(presentation_id: str, guest_id: str, reason: str) -> None:
+async def _revoke_cohost_controller(
+    presentation_id: str,
+    guest_id: str,
+    reason: str,
+    resume_token: str = "",
+) -> None:
     sid = _cohost_sid_for(presentation_id, guest_id)
     if not sid:
         return
@@ -279,7 +284,12 @@ async def _revoke_cohost_controller(presentation_id: str, guest_id: str, reason:
         cohost_controller_sids.pop(presentation_id, None)
     await sm.sio.emit(
         "meeting_controller_revoked",
-        {"presentationId": presentation_id, "clientId": guest_id, "reason": reason},
+        {
+            "presentationId": presentation_id,
+            "clientId": guest_id,
+            "reason": reason,
+            **({"resumeToken": resume_token} if resume_token else {}),
+        },
         room=sid,
     )
 
@@ -533,6 +543,7 @@ async def meeting_role_update(sid, data):
     if not active_item:
         return
 
+    resume_token = ""
     with SessionLocal() as db:
         live = _ensure_meeting_instance(db, presentation_id)
         grant = _upsert_grant(
@@ -552,15 +563,18 @@ async def meeting_role_update(sid, data):
             _revoke_cohost_share(db, grant)
             controller_url = None
         db.commit()
+        if next_role == "audience":
+            resume_token = create_participant_resume_token(grant)
 
     if next_role == "audience":
-        await _revoke_cohost_controller(presentation_id, guest_id, "demoted")
+        await _revoke_cohost_controller(presentation_id, guest_id, "demoted", resume_token)
 
     payload = {
         "presentationId": presentation_id,
         "clientId": guest_id,
         "role": next_role,
         "controllerUrl": controller_url,
+        **({"resumeToken": resume_token} if resume_token else {}),
     }
     await sm.sio.emit("meeting_role_changed", payload, room=active_item["sid"])
     await sm._emit_lobby_state(presentation_id)

@@ -1990,7 +1990,7 @@
         let audioUnlock = Promise.resolve(false);
         try { audioUnlock = Promise.resolve(room.startAudio()).then(() => true).catch(() => false); } catch {}
         const credentials = await api.getLiveMediaToken(options.presentationId, {
-          displayName: nameInput.value.trim(), shareToken: options.shareToken || "", screenAccessCode: options.getScreenAccessCode?.() || options.screenAccessCode || undefined,
+          displayName: nameInput.value.trim(), shareToken: options.shareToken || "", resumeToken: options.resumeToken || "", screenAccessCode: options.getScreenAccessCode?.() || options.screenAccessCode || undefined,
           clientId: meetingClientId
         }, options.requestOptions || {});
         await room.connect(credentials.url, credentials.token, { autoSubscribe: true });
@@ -2520,9 +2520,15 @@
 
       window.setTimeout(() => {
         try { sessionStorage.removeItem(returnKey); } catch {}
-        location.replace(
-          returnUrl || `/present.html?id=${encodeURIComponent(options.presentationId)}`
-        );
+        const fallbackUrl = `/present.html?id=${encodeURIComponent(options.presentationId)}`;
+        let destination = returnUrl || fallbackUrl;
+        const resumeToken = String(message.resumeToken || "");
+        if (resumeToken) {
+          const resumedUrl = new URL(destination, location.origin);
+          resumedUrl.searchParams.set("resume", resumeToken);
+          destination = resumedUrl.href;
+        }
+        location.replace(destination);
       }, 450);
 
       return true;

@@ -6,7 +6,7 @@ from app import meeting_v2
 from app.database import Base, SessionLocal, engine
 from app.main import repair_live_session_schema
 from app.models import LiveSession, MeetingParticipantGrant, Presentation, ShareLink, User
-from app.security import create_access_token, hash_password, resolve_share_permission
+from app.security import create_access_token, hash_password, resolve_participant_resume_token, resolve_share_permission
 from app.routers.presentations import stable_livekit_participant_identity
 
 
@@ -412,7 +412,7 @@ def test_promote_and_demote_cohost_creates_and_revokes_controller_access():
 
         with patch.object(meeting_v2.sm, "_presenter_allowed", return_value=True), patch.object(
             meeting_v2.sm.sio, "emit", new_callable=AsyncMock
-        ):
+        ) as demote_emit:
             asyncio.run(
                 meeting_v2.meeting_role_update(
                     "host-sid",
@@ -434,6 +434,20 @@ def test_promote_and_demote_cohost_creates_and_revokes_controller_access():
             share = db.query(ShareLink).filter(ShareLink.token == token).one()
             assert share.is_active is False
             assert resolve_share_permission(db, ids["presentation"], token) is None
+            role_updates = [
+                call.args[1]
+                for call in demote_emit.await_args_list
+                if call.args and call.args[0] == "meeting_role_changed"
+            ]
+            assert role_updates and role_updates[0]["resumeToken"]
+            resumed = resolve_participant_resume_token(
+                db,
+                role_updates[0]["resumeToken"],
+                ids["presentation"],
+            )
+            assert resumed is not None
+            assert resumed[0].guest_id == ids["guest"]
+            assert resumed[1]["permission"] == "audience"
     finally:
         _cleanup(ids)
 

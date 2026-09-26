@@ -46,3 +46,15 @@ test("promotion saves return form state and only one frontend owns role updates"
   assert.doesNotMatch(apiSource, /emit\("meeting_role_update"/);
   assert.doesNotMatch(apiSource, /function roleButton\(/);
 });
+
+test("demotion uses a meeting-scoped resume credential and rejoins automatically", () => {
+  assert.match(liveMediaSource, /message\.resumeToken/);
+  assert.match(liveMediaSource, /searchParams\.set\("resume", resumeToken\)/);
+  assert.match(liveMediaSource, /resumeToken: options\.resumeToken/);
+  assert.match(presentSource, /const participantResumeToken = params\.get\("resume"\)/);
+  assert.match(presentSource, /result\.resumeGuestId/);
+  assert.match(presentSource, /localStorage\.setItem\("presentStudio\.meetingGuestId"/);
+  assert.match(presentSource, /admissionBypass: presenter \|\| Boolean\(participantResumeToken\)/);
+  assert.match(presentSource, /cohostReturnState\.autoRejoin \|\| participantResumeToken/);
+  assert.match(apiSource, /resume=\$\{encodeURIComponent\(resumeToken\)\}/);
+});

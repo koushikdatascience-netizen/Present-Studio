@@ -26,7 +26,12 @@
     signup: (name, email, password) => request("/api/auth/signup", { method: "POST", body: JSON.stringify({ name, email, password }) }).then(persist),
     async logout() { const result = await request("/api/auth/logout", { method: "POST" }); localStorage.removeItem(sessionKey); localStorage.removeItem(tokenKey); return result; },
     getCurrentUser: () => request("/api/auth/me"), getCachedSession: () => { try { return JSON.parse(localStorage.getItem(sessionKey) || "null"); } catch { return null; } },
-    listPresentations: () => request("/api/presentations"), getPresentation: (id, token = "", options = {}) => request(`/api/presentations/${encodeURIComponent(id)}${token ? `?token=${encodeURIComponent(token)}` : ""}`, options),
+    listPresentations: () => request("/api/presentations"), getPresentation: (id, token = "", options = {}, resumeToken = "") => {
+      const query = [];
+      if (token) query.push(`token=${encodeURIComponent(token)}`);
+      if (resumeToken) query.push(`resume=${encodeURIComponent(resumeToken)}`);
+      return request(`/api/presentations/${encodeURIComponent(id)}${query.length ? `?${query.join("&")}` : ""}`, options);
+    },
     resolveShareLink: (token, options = {}) => request(`/api/presentations/shared/${encodeURIComponent(token)}`, options),
     createPresentation: (title) => request("/api/presentations", { method: "POST", body: JSON.stringify({ title }) }), savePresentation: (deck) => request(`/api/presentations/${encodeURIComponent(deck.id)}`, { method: "PUT", body: JSON.stringify(deck) }), deletePresentation: (id) => request(`/api/presentations/${encodeURIComponent(id)}`, { method: "DELETE" }),
     listMeetings: () => request("/api/meetings"),

@@ -71,6 +71,8 @@ class PresentationOut(BaseModel):
 class PresentationPayload(BaseModel):
     presentation: PresentationOut
     permission: SharePermission
+    resumeGuestId: str | None = None
+    resumeDisplayName: str | None = None
 
 
 class ShareLinkCreate(BaseModel):
@@ -95,6 +97,7 @@ class ShareLinkResolveOut(BaseModel):
 class LiveMediaTokenRequest(BaseModel):
     displayName: str | None = Field(default=None, max_length=80)
     shareToken: str = Field(default="", max_length=200)
+    resumeToken: str = Field(default="", max_length=1200)
     screenAccessCode: str | None = Field(default=None, pattern=r"^\d{4}$")
     clientId: str = Field(default="", max_length=128)
 

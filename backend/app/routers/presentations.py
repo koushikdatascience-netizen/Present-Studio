@@ -11,7 +11,7 @@ from ..database import get_db
 from ..live_state import apply_controller_state, live_session_payload
 from ..models import LiveSession, Meeting, MeetingParticipantGrant, Presentation, PresentationMember, ShareLink, Slide, User
 from ..schemas import LiveMediaTokenOut, LiveMediaTokenRequest, LiveSessionOut, LiveSlideUpdate, PresentationCreate, PresentationOut, PresentationPayload, PresentationSave, ScreenAccessRequest, ShareLinkCreate, ShareLinkOut, ShareLinkResolveOut, SlideOut
-from ..security import can_edit_presentation, can_view_presentation, current_user, hash_password, new_id, new_share_token, optional_current_user, resolve_share_permission, verify_password
+from ..security import can_edit_presentation, can_view_presentation, current_user, hash_password, new_id, new_share_token, optional_current_user, resolve_participant_resume_token, resolve_share_permission, verify_password
 from ..socket_manager import meeting_admission_required, meeting_client_is_admitted, sio
 
 
@@ -332,6 +332,18 @@ def get_presentation(
     is_screen_output = request.query_params.get("screen") == "1"
     auth_header = request.headers.get("authorization", "")
     has_explicit_auth = auth_header.lower().startswith("bearer ") and bool(auth_header[7:].strip())
+    resume_token = request.query_params.get("resume") or ""
+
+    if resume_token and not is_screen_output:
+        resumed = resolve_participant_resume_token(db, resume_token, presentation.id)
+        if not resumed:
+            raise HTTPException(status_code=403, detail="Audience resume access has expired")
+        return PresentationPayload(
+            presentation=serialize_presentation(presentation),
+            permission="viewer",
+            resumeGuestId=resumed[0].guest_id,
+            resumeDisplayName=resumed[0].display_name or "Guest",
+        )
 
     if user and has_explicit_auth and can_edit_presentation(db, presentation, user) and not is_screen_output:
         return PresentationPayload(
@@ -520,7 +532,13 @@ def create_live_media_token(
     user = optional_current_user(request, db)
     permission = None
     default_name = "Guest"
-    if user and can_view_presentation(db, presentation, user):
+    resumed = resolve_participant_resume_token(db, payload.resumeToken, presentation_id) if payload.resumeToken else None
+    if payload.resumeToken:
+        if not resumed or payload.clientId != resumed[0].guest_id:
+            raise HTTPException(status_code=403, detail="Audience resume access has expired")
+        permission = "viewer"
+        default_name = resumed[0].display_name or "Guest"
+    elif user and can_view_presentation(db, presentation, user):
         permission = "presenter" if can_edit_presentation(db, presentation, user) else "viewer"
         default_name = user.name
     elif payload.shareToken:

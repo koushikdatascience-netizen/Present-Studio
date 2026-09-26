@@ -37,6 +37,56 @@ def create_access_token(user: User) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+def create_participant_resume_token(grant: MeetingParticipantGrant, minutes: int = 10) -> str:
+    """Create a short-lived audience credential for a demoted co-host."""
+    settings = get_settings()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=max(1, minutes))
+    payload = {
+        "typ": "participant_resume",
+        "sub": grant.guest_id,
+        "presentationId": grant.presentation_id,
+        "meetingInstanceId": grant.meeting_instance_id,
+        "permission": "audience",
+        "name": grant.display_name or "Guest",
+        "exp": expires_at,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def resolve_participant_resume_token(
+    db: Session,
+    token: str,
+    presentation_id: str,
+) -> tuple[MeetingParticipantGrant, dict] | None:
+    """Validate a resume credential against the current live meeting grant."""
+    if not token or not presentation_id:
+        return None
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except jwt.PyJWTError:
+        return None
+    if (
+        payload.get("typ") != "participant_resume"
+        or payload.get("permission") != "audience"
+        or payload.get("presentationId") != presentation_id
+    ):
+        return None
+    meeting_instance_id = str(payload.get("meetingInstanceId") or "")
+    guest_id = str(payload.get("sub") or "")
+    live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).first()
+    if not live or not live.is_live or live.meeting_instance_id != meeting_instance_id:
+        return None
+    grant = db.query(MeetingParticipantGrant).filter(
+        MeetingParticipantGrant.presentation_id == presentation_id,
+        MeetingParticipantGrant.meeting_instance_id == meeting_instance_id,
+        MeetingParticipantGrant.guest_id == guest_id,
+    ).first()
+    if not grant or grant.status != "approved" or grant.role != "audience":
+        return None
+    return grant, payload
+
+
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     auth_header = request.headers.get("authorization", "")
     token = auth_header.removeprefix("Bearer ").strip() if auth_header.lower().startswith("bearer ") else ""

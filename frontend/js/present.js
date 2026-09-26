@@ -4,6 +4,7 @@ const shortJoinMatch = location.pathname.match(/^\/join\/([^/]+)\/?$/);
 const audienceJoinLink = Boolean(shortJoinMatch);
 let presentationId = params.get("id") || "";
 const shareToken = params.get("token") || (shortJoinMatch ? decodeURIComponent(shortJoinMatch[1]) : "");
+const participantResumeToken = params.get("resume") || "";
 const authToken = localStorage.getItem("presentStudio.accessToken") || "";
 const socket = window.io ? window.io({ reconnection: true, reconnectionAttempts: 5, reconnectionDelay: 700 }) : null;
 let canvas;
@@ -438,15 +439,19 @@ function setupSocket() {
   if (socket.connected) joinRoom();
 }
 async function loadPresentationAccess() {
-  const audienceRequest = audienceJoinLink ? { publicAccess: true } : {};
+  const audienceRequest = audienceJoinLink || participantResumeToken ? { publicAccess: true } : {};
   if (!presentationId && shareToken) {
     const resolved = await api.resolveShareLink(shareToken, audienceRequest);
     presentationId = resolved.presentationId;
   }
   if (!presentationId) presentationId = "pres_demo";
-  if (!shareToken) return api.getPresentation(presentationId);
+  if (!shareToken) return api.getPresentation(presentationId, "", audienceRequest, participantResumeToken);
 
-  const result = await api.getPresentation(presentationId, shareToken, audienceRequest);
+  const result = await api.getPresentation(presentationId, shareToken, audienceRequest, participantResumeToken);
+  if (participantResumeToken) {
+    screenCodeRequired = false;
+    return result;
+  }
   if (result.permission === "presenter") {
     screenCodeRequired = false;
     return audienceJoinLink ? { ...result, permission: "viewer" } : result;
@@ -469,6 +474,9 @@ async function init() {
   if (!window.fabric) throw new Error("Fabric.js could not be loaded. Check the presentation's network access and reload.");
   canvas = new fabric.StaticCanvas("presentCanvas", { width: 1280, height: 720, selection: false });
   const result = await loadPresentationAccess();
+  if (participantResumeToken && result.resumeGuestId) {
+    try { localStorage.setItem("presentStudio.meetingGuestId", String(result.resumeGuestId).slice(0, 128)); } catch {}
+  }
   presentation = result.presentation;
   permission = result.permission || "viewer";
   if (!presentation.slides.length) throw new Error("This presentation has no slides.");
@@ -504,16 +512,16 @@ async function init() {
   $("fullscreenToggle").onclick = () => document.fullscreenElement ? document.exitFullscreen() : $("presentStage").requestFullscreen();
   applyPresentationState(live, true);
   liveMediaSession = window.SnapKeyLiveMedia?.create({
-    root: $("presentLiveMedia"), presentationId, shareToken, authToken: audienceJoinLink ? "" : authToken, screenAccessCode, socket,
-    admissionBypass: presenter,
-    displayName: cohostReturnState.displayName || api.getCachedSession()?.name || "", fullscreenTarget: presenter ? null : $("presentLiveMedia").querySelector(".audience-meeting-stage"), fullscreenOnJoin: false,
+    root: $("presentLiveMedia"), presentationId, shareToken, resumeToken: participantResumeToken, authToken: audienceJoinLink || participantResumeToken ? "" : authToken, screenAccessCode, socket,
+    admissionBypass: presenter || Boolean(participantResumeToken),
+    displayName: cohostReturnState.displayName || result.resumeDisplayName || api.getCachedSession()?.name || "", fullscreenTarget: presenter ? null : $("presentLiveMedia").querySelector(".audience-meeting-stage"), fullscreenOnJoin: false,
     onEnableAudio: enablePresentationAudio,
     onValidateAdmission: validateMeetingAccessCode,
     getScreenAccessCode: () => screenAccessCode,
-    requestOptions: audienceJoinLink ? { publicAccess: true } : {},
+    requestOptions: audienceJoinLink || participantResumeToken ? { publicAccess: true } : {},
     presentationSource: { canvas: $("presentCanvas"), media: $("presentMedia"), label: () => currentOutputLabel || activeSlide()?.title || presentation.title }
   });
-  if (!presenter && cohostReturnState.autoRejoin) {
+  if (!presenter && (cohostReturnState.autoRejoin || participantResumeToken)) {
     const joinButton = $("presentLiveMedia")?.querySelector("[data-live-join]");
     if (joinButton) {
       const joinStatus = $("presentLiveMedia")?.querySelector("[data-live-status]");
