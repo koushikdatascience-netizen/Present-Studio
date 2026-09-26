@@ -34,6 +34,7 @@
     const galleryToggle = root.querySelector("[data-live-gallery-toggle]");
     const galleryExpandIcon = galleryToggle?.querySelector("[data-live-gallery-expand]");
     const galleryRestoreIcon = galleryToggle?.querySelector("[data-live-gallery-restore]");
+    const galleryLabel = galleryToggle?.querySelector("[data-live-gallery-label]");
     const sidebarTitle = root.querySelector("[data-live-sidebar-title]");
     const audienceControls = !options.controller && meetingSidebar?.querySelector(".audience-meeting-controls");
     let audienceFeedback = null;
@@ -1892,6 +1893,7 @@
       galleryToggle.title = galleryViewActive ? "Restore preview" : "Gallery view";
       if (galleryExpandIcon) galleryExpandIcon.hidden = galleryViewActive;
       if (galleryRestoreIcon) galleryRestoreIcon.hidden = !galleryViewActive;
+      if (galleryLabel) galleryLabel.textContent = galleryViewActive ? "Restore preview" : "Gallery view";
       if (sidebarTitle) sidebarTitle.textContent = galleryViewActive ? "Participant gallery" : "Interactive audience";
       if (galleryViewActive) {
         setSidebarTab("people");

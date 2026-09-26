@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio — Live Controller</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20260926-gallery-view">
+    <link rel="stylesheet" href="/css/styles.css?v=20260926-visible-gallery-view">
   </head>
   <body class="live-controller-page" data-controller-mode="control" data-controller-theme="light">
     <main class="live-controller-shell">
@@ -133,7 +133,7 @@
           <form class="controller-preview-text-editor" id="interactiveTextEditor" hidden><label for="interactiveTextInput">Add text to the live screen</label><input id="interactiveTextInput" type="text" maxlength="180" autocomplete="off" placeholder="Type your text"><div><button type="button" id="interactiveTextCancel">Cancel</button><button type="submit" class="is-primary">Add text</button></div></form>
         </div>
         <aside class="interactive-session-sidebar live-meeting-sidebar" aria-label="Participants and meeting controls">
-          <header class="interactive-session-sidebar-header"><div><strong data-live-sidebar-title>Interactive audience</strong><span data-live-count>0 connected</span></div><div><div class="interactive-workspace-links" id="interactiveWorkspaceLinks"></div><button class="interactive-header-button live-header-action live-gallery-toggle" data-live-gallery-toggle type="button" aria-pressed="false" aria-label="Open participant gallery" title="Gallery view"><svg data-live-gallery-expand viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg><svg data-live-gallery-restore viewBox="0 0 24 24" aria-hidden="true" hidden><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg></button><button class="interactive-header-button live-header-action" data-live-fullscreen type="button" aria-label="Enter meeting fullscreen" title="Enter meeting fullscreen">⛶</button><button class="interactive-header-button live-header-action" data-live-panel-toggle type="button" aria-expanded="true" aria-label="Hide participants and meeting controls" title="Hide participants and meeting controls">›</button></div></header>
+          <header class="interactive-session-sidebar-header"><div><strong data-live-sidebar-title>Interactive audience</strong><span data-live-count>0 connected</span></div><div><div class="interactive-workspace-links" id="interactiveWorkspaceLinks"></div><button class="interactive-header-button live-header-action" data-live-fullscreen type="button" aria-label="Enter meeting fullscreen" title="Enter meeting fullscreen">⛶</button><button class="interactive-header-button live-header-action" data-live-panel-toggle type="button" aria-expanded="true" aria-label="Hide participants and meeting controls" title="Hide participants and meeting controls">›</button></div></header>
           <div class="interactive-session-card interactive-session-setup"><p class="eyebrow">Session setup</p><div class="live-media-join"><label>Your name <input data-live-name type="text" maxlength="80" autocomplete="name" placeholder="Presenter"></label><button class="button button-gold" data-live-join type="button">Join audio/video</button></div><p class="live-media-status" data-live-status aria-live="polite">Join when you are ready. Camera and microphone start off.</p></div>
           <dialog class="live-background-dialog" data-live-background-dialog aria-labelledby="controllerBackgroundTitle">
             <div class="live-background-dialog-header"><div><small>Camera effects</small><strong id="controllerBackgroundTitle">Choose a background</strong></div><button type="button" data-live-background-close aria-label="Close background chooser">×</button></div>
@@ -158,6 +158,7 @@
           <nav class="live-sidebar-tabs" aria-label="Meeting sidebar" role="tablist"><button type="button" role="tab" data-live-tab="people" aria-selected="true" class="is-active">People <span data-live-people-badge>0</span></button><button type="button" role="tab" data-live-tab="chat" aria-selected="false">Chat <span data-live-chat-badge hidden>0</span></button></nav>
           <div class="live-sidebar-panels">
             <section class="live-sidebar-panel is-active controller-people-panel" data-live-panel="people" aria-label="People">
+              <div class="controller-gallery-bar"><button class="live-gallery-toggle" data-live-gallery-toggle type="button" aria-pressed="false" aria-label="Open participant gallery"><svg data-live-gallery-expand viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg><svg data-live-gallery-restore viewBox="0 0 24 24" aria-hidden="true" hidden><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M15 4v16"></path></svg><span data-live-gallery-label>Gallery view</span></button></div>
               <div class="live-lobby" data-live-lobby hidden>
                 <div class="live-lobby-heading"><strong>Waiting room <span data-live-waiting-count>0</span></strong><button type="button" data-live-admit-all hidden>Admit all</button></div>
                 <div class="live-lobby-list" data-live-waiting-list></div>
@@ -245,7 +246,7 @@
     <script src="/js/api.js?v=20260926-cohost-auth-fix"></script>
     <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
-    <script src="/js/live-media.js?v=20260926-gallery-view"></script>
+    <script src="/js/live-media.js?v=20260926-visible-gallery-view"></script>
     <script src="/js/controller.js?v=20260926-cohost-auth-fix"></script>
   </body>
 </html>

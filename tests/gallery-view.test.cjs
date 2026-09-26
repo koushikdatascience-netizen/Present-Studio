@@ -10,6 +10,7 @@ const styles = fs.readFileSync(path.join(root, "frontend", "css", "styles.css"),
 
 test("controller exposes one accessible gallery toggle", () => {
   assert.match(html, /data-live-gallery-toggle[^>]+aria-pressed="false"/);
+  assert.match(html, /controller-gallery-bar[\s\S]*data-live-gallery-label>Gallery view/);
   assert.match(html, /data-live-gallery-expand/);
   assert.match(html, /data-live-gallery-restore/);
 });
@@ -22,6 +23,7 @@ test("gallery uses the participant panel as a responsive full-stage view", () =>
 
 test("gallery restores the stage when a screen share becomes active", () => {
   assert.match(liveMedia, /function setGalleryView\(active, announce = false\)/);
+  assert.match(liveMedia, /galleryLabel\.textContent = galleryViewActive \? "Restore preview" : "Gallery view"/);
   assert.match(liveMedia, /if \(visible && galleryViewActive\) setGalleryView\(false\)/);
   assert.match(liveMedia, /galleryToggle\?\.addEventListener\("click", \(\) => setGalleryView\(!galleryViewActive, true\)\)/);
 });
