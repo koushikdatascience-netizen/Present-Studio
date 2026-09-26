@@ -36,9 +36,11 @@ test("public audience requests omit a logged-in owner's credentials", async () =
 
   await api.resolveShareLink("viewer-token", { publicAccess: true });
   await api.getPresentation("pres_test", "viewer-token", { publicAccess: true });
+  await api.getLiveSession("pres_test", { publicAccess: true });
+  await api.setLiveSlide("pres_test", "slide-1", "presenter-token", { publicAccess: true });
   await api.getLiveMediaToken("pres_test", { shareToken: "viewer-token" }, { publicAccess: true });
 
-  assert.equal(requests.length, 3);
+  assert.equal(requests.length, 5);
   for (const request of requests) {
     assert.equal(request.options.credentials, "omit");
     assert.equal(request.options.headers.Authorization, undefined);

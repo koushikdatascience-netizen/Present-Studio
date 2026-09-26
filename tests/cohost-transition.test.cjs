@@ -7,6 +7,7 @@ const vm = require("node:vm");
 const liveMediaSource = fs.readFileSync(path.join(__dirname, "../frontend/js/live-media.js"), "utf8");
 const presentSource = fs.readFileSync(path.join(__dirname, "../frontend/js/present.js"), "utf8");
 const apiSource = fs.readFileSync(path.join(__dirname, "../frontend/js/api.js"), "utf8");
+const controllerSource = fs.readFileSync(path.join(__dirname, "../frontend/js/controller.js"), "utf8");
 
 function returnStateHarness(value) {
   const values = new Map([["presentStudio.cohostReturnState.presentation-1", value]]);
@@ -57,4 +58,13 @@ test("demotion uses a meeting-scoped resume credential and rejoins automatically
   assert.match(presentSource, /admissionBypass: presenter \|\| Boolean\(participantResumeToken\)/);
   assert.match(presentSource, /cohostReturnState\.autoRejoin \|\| participantResumeToken/);
   assert.match(apiSource, /resume=\$\{encodeURIComponent\(resumeToken\)\}/);
+});
+
+test("temporary co-host controller never falls into owner session-expiry login", () => {
+  assert.match(controllerSource, /const authToken = isCohost \? ""/);
+  assert.match(controllerSource, /const cohostRequestOptions = isCohost \? \{ publicAccess: true \} : \{\}/);
+  assert.match(controllerSource, /api\.getPresentation\(presentationId, shareToken, cohostRequestOptions\)/);
+  assert.match(controllerSource, /api\.getLiveSession\(presentationId, cohostRequestOptions\)/);
+  assert.match(controllerSource, /!isCohost && api\.getMeetingForPresentation/);
+  assert.match(controllerSource, /requestOptions: cohostRequestOptions/);
 });

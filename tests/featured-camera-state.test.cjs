@@ -70,3 +70,9 @@ test("audience page includes a featured camera stage", () => {
   assert.match(html, /data-live-featured-camera-viewer/);
   assert.match(html, /data-live-featured-camera-media/);
 });
+
+test("controller can feature its own active camera on the main stage", () => {
+  assert.match(liveMediaSource, /function createFeatureCameraButton\(participant\)/);
+  assert.match(liveMediaSource, /isController && isLocal && videoPublication\?\.track/);
+  assert.match(liveMediaSource, /participantActions\.append\(createFeatureCameraButton\(participant\)\)/);
+});

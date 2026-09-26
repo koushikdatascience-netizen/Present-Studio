@@ -6,7 +6,8 @@
   const cohostGuestId = params.get("cohostGuestId") || "";
   const cohostName = params.get("cohostName") || "";
   const isCohost = params.get("cohost") === "1" && Boolean(cohostGuestId);
-  const authToken = localStorage.getItem("presentStudio.accessToken") || "";
+  const authToken = isCohost ? "" : (localStorage.getItem("presentStudio.accessToken") || "");
+  const cohostRequestOptions = isCohost ? { publicAccess: true } : {};
   const socket = window.io ? window.io() : null;
   const $ = (selector) => document.querySelector(selector);
   let presentation;
@@ -1624,7 +1625,7 @@
   async function persistSlide(target) {
     if (target.kind !== "slide") return;
     try {
-      await api.setLiveSlide(presentationId, target.slideId, shareToken);
+      await api.setLiveSlide(presentationId, target.slideId, shareToken, cohostRequestOptions);
     } catch (error) {
       toast(error.message || "Could not update the live screen.");
     }
@@ -1721,9 +1722,9 @@
   try {
     if (!window.fabric) throw new Error("The slide preview library could not be loaded.");
     const [result, live, meetingPlan] = await Promise.all([
-      api.getPresentation(presentationId, shareToken),
-      api.getLiveSession(presentationId).catch(() => ({ activeSlideId: "" })),
-      api.getMeetingForPresentation ? api.getMeetingForPresentation(presentationId).catch(() => null) : Promise.resolve(null)
+      api.getPresentation(presentationId, shareToken, cohostRequestOptions),
+      api.getLiveSession(presentationId, cohostRequestOptions).catch(() => ({ activeSlideId: "" })),
+      !isCohost && api.getMeetingForPresentation ? api.getMeetingForPresentation(presentationId).catch(() => null) : Promise.resolve(null)
     ]);
     if (result.permission !== "presenter") throw new Error("A trusted presenter link is required for this controller.");
     presentation = result.presentation;
@@ -1742,6 +1743,7 @@
       shareToken,
       authToken,
       socket,
+      requestOptions: cohostRequestOptions,
       displayName: resolvedPresenterName,
       cohostGuestId,
       fullscreenTarget: $("#controllerLiveMedia").querySelector(".interactive-main-stage"),

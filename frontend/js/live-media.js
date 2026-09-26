@@ -1190,6 +1190,44 @@
       if (featuredCameraLabel) featuredCameraLabel.textContent = (participant.name || "Guest") + " camera";
       featuredCameraViewer.hidden = false;
     }
+
+    function createParticipantActionToggle(tile, participant) {
+      const actionToggle = document.createElement("button");
+      actionToggle.type = "button";
+      actionToggle.className = "live-participant-action-toggle";
+      actionToggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg>';
+      actionToggle.setAttribute("aria-label", `Show actions for ${participant.name || "participant"}`);
+      actionToggle.setAttribute("aria-expanded", "false");
+      actionToggle.addEventListener("click", event => {
+        event.stopPropagation();
+        const open = !tile.classList.contains("is-actions-open");
+        tile.classList.toggle("is-actions-open", open);
+        actionToggle.setAttribute("aria-expanded", String(open));
+      });
+      return actionToggle;
+    }
+
+    function createFeatureCameraButton(participant) {
+      const feature = document.createElement("button");
+      feature.type = "button";
+      feature.className = "live-participant-feature";
+      feature.dataset.liveFeatureCamera = String(participant.identity);
+      feature.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10v10H4zM14 10l6-3v10l-6-3z"></path></svg>';
+      const featuring = selectedCameraIdentity === String(participant.identity);
+      feature.setAttribute("aria-pressed", String(featuring));
+      feature.setAttribute("aria-label", featuring ? "Stop featuring " + (participant.name || "participant") + " camera" : "Feature " + (participant.name || "participant") + " camera");
+      feature.title = feature.getAttribute("aria-label");
+      feature.addEventListener("click", event => {
+        event.stopPropagation();
+        const identity = String(participant.identity);
+        selectedCameraIdentity = selectedCameraIdentity === identity ? "" : identity;
+        publishControllerState();
+        renderFeaturedCamera();
+        renderParticipants();
+      });
+      return feature;
+    }
+
     function addParticipantTile(participant, isLocal = false) {
       const tile = document.createElement("article");
       tile.className = "live-media-tile";
@@ -1227,18 +1265,7 @@
       if (isController && !isLocal) {
         const participantActions = document.createElement("div");
         participantActions.className = "live-participant-actions";
-        const actionToggle = document.createElement("button");
-        actionToggle.type = "button";
-        actionToggle.className = "live-participant-action-toggle";
-        actionToggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg>';
-        actionToggle.setAttribute("aria-label", `Show actions for ${participant.name || "participant"}`);
-        actionToggle.setAttribute("aria-expanded", "false");
-        actionToggle.addEventListener("click", event => {
-          event.stopPropagation();
-          const open = !tile.classList.contains("is-actions-open");
-          tile.classList.toggle("is-actions-open", open);
-          actionToggle.setAttribute("aria-expanded", String(open));
-        });
+        const actionToggle = createParticipantActionToggle(tile, participant);
         caption.append(actionToggle);
         const mute = document.createElement("button");
         const muted = !micAudible;
@@ -1271,24 +1298,7 @@
         });
         participantActions.append(mute);
         if (videoPublication?.track && !videoPublication.isMuted) {
-          const feature = document.createElement("button");
-          feature.type = "button";
-          feature.className = "live-participant-feature";
-          feature.dataset.liveFeatureCamera = String(participant.identity);
-          feature.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10v10H4zM14 10l6-3v10l-6-3z"></path></svg>';
-          const featuring = selectedCameraIdentity === String(participant.identity);
-          feature.setAttribute("aria-pressed", String(featuring));
-          feature.setAttribute("aria-label", featuring ? "Stop featuring " + (participant.name || "participant") + " camera" : "Feature " + (participant.name || "participant") + " camera");
-          feature.title = feature.getAttribute("aria-label");
-          feature.addEventListener("click", event => {
-            event.stopPropagation();
-            const identity = String(participant.identity);
-            selectedCameraIdentity = selectedCameraIdentity === identity ? "" : identity;
-            publishControllerState();
-            renderFeaturedCamera();
-            renderParticipants();
-          });
-          participantActions.append(feature);
+          participantActions.append(createFeatureCameraButton(participant));
         }
         const registryItem = participantRegistry.get(String(participant.identity));
         if (registryItem?.clientId) {
@@ -1335,6 +1345,12 @@
           participantActions.append(remove);
         }
         caption.append(participantActions);
+      }
+      if (isController && isLocal && videoPublication?.track && !videoPublication.isMuted) {
+        const participantActions = document.createElement("div");
+        participantActions.className = "live-participant-actions";
+        participantActions.append(createFeatureCameraButton(participant));
+        caption.append(createParticipantActionToggle(tile, participant), participantActions);
       }
       tile.append(media, caption);
       return tile;
