@@ -25,6 +25,9 @@
     const panelRestore = root.querySelector("[data-live-panel-restore]");
     const moreToggle = root.querySelector("[data-live-more-toggle]");
     const moreMenu = root.querySelector("[data-live-more-menu]");
+    const audienceToolsPopover = root.querySelector("[data-live-audience-tools-popover]");
+    const audienceToolsClose = root.querySelector("[data-live-audience-tools-close]");
+    const audienceToolsTrigger = root.querySelector("[data-live-more-action='audiences']");
     const restoreCount = root.querySelector("[data-live-restore-count]");
     const sheetHandle = root.querySelector("[data-live-sheet-handle]");
     const meetingSidebar = root.querySelector(".live-meeting-sidebar");
@@ -1847,11 +1850,31 @@
 
     function setMoreMenuOpen(open) {
       if (!moreToggle || !moreMenu) return;
+      if (open) setAudienceToolsOpen(false);
       moreMenu.hidden = !open;
       moreToggle.setAttribute("aria-expanded", String(open));
     }
 
+    function setAudienceToolsOpen(open, moveFocus = false) {
+      if (!audienceToolsPopover) return;
+      const expanded = Boolean(open);
+      audienceToolsPopover.hidden = !expanded;
+      audienceToolsTrigger?.setAttribute("aria-expanded", String(expanded));
+      if (expanded) {
+        setSidebarTab("people");
+        setAudienceSidebarHidden(false);
+        if (moveFocus) peopleSearch?.focus();
+      } else if (moveFocus) {
+        moreToggle?.focus();
+      }
+    }
+
     function activateMoreAction(action) {
+      if (action === "audiences") {
+        setMoreMenuOpen(false);
+        setAudienceToolsOpen(true, true);
+        return;
+      }
       if (action === "panel") panelToggle?.click();
       else if (action === "fullscreen") fullscreenButton?.click();
       else if (action === "settings") {
@@ -2464,12 +2487,19 @@
       const button = event.target.closest("[data-live-more-action]");
       if (button) activateMoreAction(button.dataset.liveMoreAction);
     });
+    audienceToolsClose?.addEventListener("click", () => setAudienceToolsOpen(false, true));
     document.addEventListener("click", event => {
-      if (moreMenu?.hidden !== false || moreMenu.contains(event.target) || moreToggle?.contains(event.target)) return;
-      setMoreMenuOpen(false);
+      if (moreMenu?.hidden === false && !moreMenu.contains(event.target) && !moreToggle?.contains(event.target)) setMoreMenuOpen(false);
+      if (
+        audienceToolsPopover?.hidden === false &&
+        !audienceToolsPopover.contains(event.target) &&
+        !audienceToolsTrigger?.contains(event.target)
+      ) setAudienceToolsOpen(false);
     });
     document.addEventListener("keydown", event => {
-      if (event.key === "Escape") setMoreMenuOpen(false);
+      if (event.key !== "Escape") return;
+      if (audienceToolsPopover?.hidden === false) setAudienceToolsOpen(false, true);
+      else setMoreMenuOpen(false);
     });
     if (isController) {
       document.addEventListener("pointerdown", unlockAdmissionAlarm, { capture: true, passive: true });

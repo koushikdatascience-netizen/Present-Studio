@@ -4142,6 +4142,102 @@ button.present-back {
   .live-participant-group-grid { gap: 6px; }
 }
 
+.live-audience-tools-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 10040;
+  width: min(286px, calc(100vw - 20px));
+  overflow: hidden;
+  border: 1px solid #49483f;
+  border-radius: 13px;
+  background: rgba(28,28,24,.99);
+  box-shadow: 0 20px 54px rgba(0,0,0,.42);
+}
+.live-audience-tools-popover[hidden] { display: none !important; }
+.live-audience-tools-popover > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px 8px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.live-audience-tools-popover > header div { display: grid; gap: 1px; }
+.live-audience-tools-popover > header small {
+  color: #9d9a91;
+  font-size: .5rem;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.live-audience-tools-popover > header strong {
+  color: #f7f5ed;
+  font-size: .78rem;
+}
+.live-audience-tools-popover > header button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0;
+  background: rgba(255,255,255,.08);
+  color: #f7f5ed;
+  font-size: 1.15rem;
+  cursor: pointer;
+}
+.live-audience-tools-popover .live-people-tools {
+  gap: 9px;
+  border: 0;
+  padding: 10px 12px 12px;
+  background: transparent;
+}
+.live-audience-tools-popover .live-people-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  overflow: visible;
+  padding: 0;
+}
+.live-audience-tools-popover .live-people-filters button {
+  width: 100%;
+  justify-content: space-between;
+  min-height: 31px;
+  border-radius: 8px;
+}
+.live-audience-tools-popover .live-people-filters button:last-child { grid-column: 1 / -1; }
+.live-more-menu [data-live-more-action="audiences"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.live-more-menu [data-live-more-action="audiences"] > span:first-child {
+  width: 17px;
+  font-size: 1rem;
+  text-align: center;
+}
+.live-more-menu [data-live-more-action="audiences"][aria-expanded="true"] {
+  background: #363329 !important;
+  color: #ffd54a !important;
+}
+.live-controller-page[data-controller-theme="light"] .live-audience-tools-popover,
+.present-page[data-audience-theme="light"] .live-audience-tools-popover {
+  border-color: #d9dde2;
+  background: rgba(255,255,255,.99);
+  box-shadow: 0 20px 48px rgba(36,43,52,.22);
+}
+.live-controller-page[data-controller-theme="light"] .live-audience-tools-popover > header,
+.present-page[data-audience-theme="light"] .live-audience-tools-popover > header { border-bottom-color: #e3e6ea; }
+.live-controller-page[data-controller-theme="light"] .live-audience-tools-popover > header small,
+.present-page[data-audience-theme="light"] .live-audience-tools-popover > header small { color: #777f89; }
+.live-controller-page[data-controller-theme="light"] .live-audience-tools-popover > header strong,
+.present-page[data-audience-theme="light"] .live-audience-tools-popover > header strong { color: #252b34; }
+.live-controller-page[data-controller-theme="light"] .live-audience-tools-popover > header button,
+.present-page[data-audience-theme="light"] .live-audience-tools-popover > header button {
+  background: #eef0f3;
+  color: #3d4550;
+}
+
 
 /* Rich meeting chat: safe links, attachments, paste/drop feedback. */
 .live-chat-message p {

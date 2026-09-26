@@ -25,6 +25,8 @@ test("participant directory provides stable groups, search, and status filters",
   const audienceHtml = fs.readFileSync(path.join(__dirname, "../frontend/present.html"), "utf8");
   for (const html of [controllerHtml, audienceHtml]) {
     assert.match(html, /data-live-people-search/);
+    assert.match(html, /data-live-more-action="audiences"/);
+    assert.match(html, /data-live-audience-tools-popover/);
     for (const filter of ["all", "speaking", "hands", "unmuted", "camera"]) {
       assert.match(html, new RegExp(`data-live-people-filter="${filter}"`));
     }
@@ -35,4 +37,5 @@ test("participant directory provides stable groups, search, and status filters",
   assert.match(liveMedia, /participantSearchQuery/);
   assert.match(liveMedia, /speakerReleaseTimers/);
   assert.match(liveMedia, /}, 3500\)/);
+  assert.match(liveMedia, /function setAudienceToolsOpen\(open, moveFocus = false\)/);
 });
