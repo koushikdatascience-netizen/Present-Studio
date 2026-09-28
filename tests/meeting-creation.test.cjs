@@ -42,3 +42,11 @@ test("dashboard presents meetings as a responsive grid with confirmed deletion",
   assert.match(dashboard, /window\.confirm\([\s\S]*The audience link will stop working immediately/);
   assert.match(dashboard, /await api\.deleteMeeting\(meeting\.id\)/);
 });
+
+test("meeting setup uses compact yellow actions instead of black buttons", () => {
+  assert.match(dashboardStyles, /\.meeting-create-dialog\s*\{[^}]*width:\s*min\(650px/);
+  assert.match(dashboardStyles, /\.cta-primary\s*\{\s*background:\s*var\(--yellow-strong\)/);
+  assert.match(dashboardStyles, /\.cta-secondary\s*\{\s*background:\s*#fff8d7/);
+  assert.match(dashboardStyles, /\.meeting-card-actions a\s*\{[^}]*background:\s*var\(--yellow-strong\)/);
+  assert.doesNotMatch(dashboardStyles, /\.cta-primary\s*\{[^}]*background:\s*#101010/);
+});
