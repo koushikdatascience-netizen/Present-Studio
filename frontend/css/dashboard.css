@@ -13,8 +13,8 @@ html { height: auto; min-height: 100%; overflow-x: auto; overflow-y: auto; }
 .dashboard-subtitle { margin: 10px 0 0; color: #666; font-size: 16px; }
 .dashboard-new-button { min-width: 214px; min-height: 48px; justify-content: center; padding: 0 22px; font-size: 15px; font-weight: 750; }
 .dashboard-create-actions { display: flex; align-items: center; gap: 10px; }
-.dashboard-meeting-button { border: 1px solid #101010; color: #101010; background: #fff; }
-.dashboard-meeting-button:hover { color: #fff; background: #101010; }
+.dashboard-meeting-button { border-color: transparent; color: #101010; background: var(--yellow-strong); }
+.dashboard-meeting-button:hover { border-color: transparent; color: #101010; background: #ffd849; }
 .dashboard-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 25px; }
 .stat-card { display: flex; align-items: center; gap: 22px; min-height: 108px; padding: 22px 25px; border: 1px solid #d7d7d3; border-radius: 5px; background: #fff; box-shadow: 0 2px 7px rgba(16,16,16,.04); }
 .stat-icon { display: grid; place-items: center; flex: 0 0 52px; width: 52px; height: 52px; border-radius: 4px; background: #fff0aa; font-size: 25px; }
@@ -22,19 +22,23 @@ html { height: auto; min-height: 100%; overflow-x: auto; overflow-y: auto; }
 .stat-card strong { font-size: 34px; font-weight: 780; letter-spacing: -.7px; line-height: 1; }
 .dashboard-recent { margin-top: 36px; }
 .dashboard-meetings { margin-top: 36px; }
-.meeting-grid { display: grid; gap: 12px; margin-top: 18px; }
-.meeting-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 17px; min-height: 106px; padding: 16px 18px; border: 1px solid #d6d6d3; border-radius: 7px; background: #fff; box-shadow: 0 2px 7px rgba(16,16,16,.04); }
+.meeting-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 20px; }
+.meeting-card { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; align-items: start; gap: 17px; min-height: 190px; padding: 18px; border: 1px solid #d6d6d3; border-radius: 7px; background: #fff; box-shadow: 0 2px 7px rgba(16,16,16,.04); transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.meeting-card:hover { border-color: #999; box-shadow: 0 8px 22px rgba(16,16,16,.08); transform: translateY(-2px); }
 .meeting-card.is-ended { opacity: .62; }
 .meeting-card-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 50%; color: #101010; background: #ffdf55; font-size: 21px; }
-.meeting-card-content > div { display: flex; align-items: center; gap: 8px; }
+.meeting-card-content { min-width: 0; }
+.meeting-card-content > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .meeting-status, .meeting-privacy { display: inline-flex; align-items: center; gap: 5px; color: #565656; font-size: 10px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; }
 .meeting-status { border-radius: 999px; padding: 4px 7px; color: #493800; background: #fff0aa; }
-.meeting-card-content h3 { margin: 8px 0 5px; font-size: 17px; }
-.meeting-card-content p { margin: 0; color: #646464; font-size: 13px; }
-.meeting-card-actions { display: flex; align-items: center; gap: 7px; }
+.meeting-card-content h3 { overflow: hidden; margin: 12px 0 7px; font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.meeting-card-content p { margin: 0; color: #646464; font-size: 13px; line-height: 1.45; }
+.meeting-card-actions { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 7px; padding-top: 15px; border-top: 1px solid #e1e1de; }
 .meeting-card-actions button, .meeting-card-actions a { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #d2d2cf; border-radius: 4px; padding: 0 12px; color: #101010; background: #fff; font: 700 12px Arial, sans-serif; }
 .meeting-card-actions a { color: #fff; border-color: #101010; background: #101010; }
+.meeting-card-actions [data-delete-meeting] { color: #8f2c26; }
 .meeting-card-actions :is(button,a):hover:not(:disabled) { border-color: #d3aa0d; }
+.meeting-card-actions [data-delete-meeting]:hover:not(:disabled) { border-color: #b83b32; color: #fff; background: #b83b32; }
 .meeting-card-actions :is(button,a)[aria-disabled="true"], .meeting-card-actions button:disabled { opacity: .45; pointer-events: none; }
 .recent-heading-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; }
 .recent-heading-row h2 { margin: 0; font-size: 25px; font-weight: 760; letter-spacing: -.4px; }
@@ -113,7 +117,7 @@ html { height: auto; min-height: 100%; overflow-x: auto; overflow-y: auto; }
 .meeting-access-code span { font-size: 12px; font-weight: 700; }
 .meeting-access-code strong { font: 900 24px/1 var(--mono, monospace); letter-spacing: 5px; }
 .meeting-access-code button { min-height: 34px; }
-@media (max-width: 1100px) { .dashboard-main { width: calc(100vw - 42px); padding-top: 30px; } .dashboard-stats, .presentation-grid { gap: 15px; } .dashboard-cta { gap: 12px; padding: 20px; } }
+@media (max-width: 1100px) { .dashboard-main { width: calc(100vw - 42px); padding-top: 30px; } .dashboard-stats, .presentation-grid { gap: 15px; } .meeting-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; } .dashboard-cta { gap: 12px; padding: 20px; } }
 .dashboard-logo {
     width: 105px;
     height: 32px;
@@ -149,9 +153,9 @@ html { height: auto; min-height: 100%; overflow-x: auto; overflow-y: auto; }
   .stat-card strong { font-size: 28px; }
   .dashboard-recent { margin-top: 27px; }
   .dashboard-meetings { margin-top: 27px; }
-  .meeting-card { grid-template-columns: auto minmax(0,1fr); }
-  .meeting-card-actions { grid-column: 1 / -1; }
-  .meeting-card-actions > * { flex: 1; }
+  .meeting-grid { grid-template-columns: 1fr; gap: 14px; }
+  .meeting-card { min-height: 180px; }
+  .meeting-card-actions { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
   .recent-heading-row { align-items: stretch; flex-direction: column; gap: 13px; }
   .recent-controls { display: grid; grid-template-columns: minmax(0, 1fr) 42px 42px; width: 100%; }
   .dashboard-search, .dashboard-search input { width: 100%; min-width: 0; }

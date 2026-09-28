@@ -7,6 +7,7 @@ const dashboardHtml = fs.readFileSync(path.join(__dirname, "../frontend/dashboar
 const dashboard = fs.readFileSync(path.join(__dirname, "../frontend/js/dashboard.js"), "utf8");
 const api = fs.readFileSync(path.join(__dirname, "../frontend/js/api.js"), "utf8");
 const controller = fs.readFileSync(path.join(__dirname, "../frontend/js/controller.js"), "utf8");
+const dashboardStyles = fs.readFileSync(path.join(__dirname, "../frontend/css/dashboard.css"), "utf8");
 
 test("dashboard exposes the complete instant and scheduled meeting workflow", () => {
   assert.match(dashboardHtml, /id="createMeeting"/);
@@ -29,4 +30,15 @@ test("meeting creation sends scheduling and privacy choices to the dedicated API
 test("timed owner meetings automatically close at their configured end", () => {
   assert.match(controller, /function scheduleMeetingExpiry\(meeting\)/);
   assert.match(controller, /socket\?\.emit\("meeting_close", credentials\(\)\)/);
+});
+
+test("dashboard presents meetings as a responsive grid with confirmed deletion", () => {
+  assert.match(dashboardHtml, /class="[^"]*is-primary[^"]*" id="createMeeting"/);
+  assert.match(dashboardStyles, /\.meeting-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,/);
+  assert.match(dashboardStyles, /@media \(max-width:\s*1100px\)[\s\S]*\.meeting-grid\s*\{\s*grid-template-columns:\s*repeat\(2,/);
+  assert.match(dashboardStyles, /@media \(max-width:\s*760px\)[\s\S]*\.meeting-grid\s*\{\s*grid-template-columns:\s*1fr/);
+  assert.match(api, /deleteMeeting:\s*\(id\).*method:\s*"DELETE"/);
+  assert.match(dashboard, /data-delete-meeting/);
+  assert.match(dashboard, /window\.confirm\([\s\S]*The audience link will stop working immediately/);
+  assert.match(dashboard, /await api\.deleteMeeting\(meeting\.id\)/);
 });
