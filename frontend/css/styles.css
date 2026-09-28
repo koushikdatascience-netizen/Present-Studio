@@ -4,7 +4,13 @@
    Used by: index.html, login.html, dashboard.html, builder.html, present.html
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600;700;800;900&display=swap');
+@font-face {
+  font-family: 'Outfit';
+  src: url('/assets/fonts/outfit.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
 
 :root {
   --bg:      #FDF7E3;
@@ -22,8 +28,8 @@
   --red-txt:   #e05252;
   --red-bg:    #FDEDED;
 
-  --mono: 'Space Mono', monospace;
-  --sans: 'DM Sans', system-ui, sans-serif;
+  --mono: 'Outfit', system-ui, sans-serif;
+  --sans: 'Outfit', system-ui, sans-serif;
   --dur: 220ms;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 
