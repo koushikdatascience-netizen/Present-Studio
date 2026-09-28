@@ -378,6 +378,44 @@ async def meeting_admission_request(sid, data):
             await sm._emit_lobby_state(presentation_id)
             return
 
+        # Public standalone meetings do not use the waiting room.
+        if managed_meeting and managed_meeting.access_type == "public":
+            grant = _upsert_grant(
+                db,
+                presentation_id,
+                live.meeting_instance_id,
+                guest_id,
+                name,
+                status="approved",
+                role="audience",
+            )
+
+            sm.waiting_participants.get(
+                presentation_id, {}
+            ).pop(guest_id, None)
+
+            sm.active_participants.setdefault(
+                presentation_id, {}
+            )[guest_id] = {
+                "clientId": guest_id,
+                "sid": sid,
+                "name": name,
+            }
+
+            grant_id = grant.id
+            db.commit()
+
+            await _emit_decision(
+                sid,
+                presentation_id,
+                guest_id,
+                True,
+                grant_id,
+            )
+
+            await sm._emit_lobby_state(presentation_id)
+            return
+
         if not sm.controller_sids.get(presentation_id) and not managed_meeting:
             grant = _upsert_grant(
                 db,
@@ -466,7 +504,29 @@ async def meeting_participant_joined(sid, data):
             if live and live.is_live and live.meeting_instance_id
             else None
         )
-        if not grant or grant.status != "approved" or grant.role not in {"audience", "cohost"}:
+        # Public standalone users can join directly without first entering
+        # the lobby. Create their approved grant when LiveKit reports them.
+        if not grant and live and live.is_live and live.meeting_instance_id:
+            managed_meeting = db.query(Meeting).filter(
+                Meeting.presentation_id == presentation_id
+            ).first()
+
+            if managed_meeting and managed_meeting.access_type == "public":
+                grant = _upsert_grant(
+                    db,
+                    presentation_id,
+                    live.meeting_instance_id,
+                    guest_id,
+                    name,
+                    status="approved",
+                    role="audience",
+                )
+
+        if (
+            not grant
+            or grant.status != "approved"
+            or grant.role not in {"audience", "cohost"}
+        ):
             return
         item = sm.active_participants.setdefault(presentation_id, {}).setdefault(
             guest_id,

@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import LiveSession, Meeting, Presentation, ShareLink, Slide, User
+from ..models import LiveSession, Meeting, Presentation, ShareLink, Slide, User, MeetingParticipantGrant, PresentationMember
 from ..schemas import MeetingCreate, MeetingOut
 from ..security import current_user, hash_password, new_id, new_share_token
+from ..socket_manager import sio
 from .presentations import public_share_base_url
 
 
@@ -123,6 +124,81 @@ def create_meeting(payload: MeetingCreate, request: Request, user: User = Depend
         presenter_user_id=user.id,
         is_live=True,
     )
-    db.add_all([presentation, slide, share, meeting, live])
+    # Persist parent records first so PostgreSQL foreign keys are satisfied.
+    db.add(presentation)
+    db.flush()
+
+    db.add_all([slide, share])
+    db.flush()
+
+    db.add_all([meeting, live])
     db.commit()
     return serialize_meeting(meeting, presentation, share, request, access_code)
+
+
+@router.delete("/{meeting_id}")
+async def delete_meeting(
+    meeting_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str | bool]:
+    meeting = db.get(Meeting, meeting_id)
+
+    if not meeting or meeting.owner_id != user.id:
+        raise HTTPException(
+            status_code=404,
+            detail="Meeting not found",
+        )
+
+    presentation_id = meeting.presentation_id
+
+    try:
+        # Remove participant grants first.
+        db.query(MeetingParticipantGrant).filter(
+            MeetingParticipantGrant.presentation_id == presentation_id
+        ).delete(synchronize_session=False)
+
+        # Meeting references both presentation and audience share.
+        # Delete it before deleting the ShareLink.
+        db.delete(meeting)
+        db.flush()
+
+        db.query(PresentationMember).filter(
+            PresentationMember.presentation_id == presentation_id
+        ).delete(synchronize_session=False)
+
+        # LiveSession can reference the generated slide.
+        db.query(LiveSession).filter(
+            LiveSession.presentation_id == presentation_id
+        ).delete(synchronize_session=False)
+
+        db.query(ShareLink).filter(
+            ShareLink.presentation_id == presentation_id
+        ).delete(synchronize_session=False)
+
+        db.query(Slide).filter(
+            Slide.presentation_id == presentation_id
+        ).delete(synchronize_session=False)
+
+        presentation = db.get(Presentation, presentation_id)
+        if presentation:
+            db.delete(presentation)
+
+        db.commit()
+
+    except Exception:
+        db.rollback()
+        raise
+
+    # Immediately invalidate/close any currently-open audience pages.
+    await sio.emit(
+        "presentation_deleted",
+        {"presentationId": presentation_id},
+        room=presentation_id,
+    )
+
+    return {
+        "ok": True,
+        "meetingId": meeting_id,
+        "presentationId": presentation_id,
+    }

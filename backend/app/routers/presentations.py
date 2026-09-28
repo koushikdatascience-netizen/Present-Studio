@@ -282,7 +282,15 @@ def resolve_shared_presentation(token: str, db: Session = Depends(get_db)) -> Sh
     if not share or (expires_at and expires_at <= datetime.now(timezone.utc)):
         raise HTTPException(status_code=404, detail="This audience link is invalid or has expired")
     enforce_meeting_join_window(db, share.presentation_id)
-    return ShareLinkResolveOut(presentationId=share.presentation_id)
+    meeting = db.query(Meeting).filter(
+        Meeting.presentation_id == share.presentation_id
+    ).first()
+
+    return ShareLinkResolveOut(
+        presentationId=share.presentation_id,
+        standaloneMeeting=bool(meeting),
+        meetingAccessType=meeting.access_type if meeting else None,
+    )
 
 
 @router.post("")

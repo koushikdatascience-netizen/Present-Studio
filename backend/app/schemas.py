@@ -92,6 +92,8 @@ class ShareLinkOut(BaseModel):
 
 class ShareLinkResolveOut(BaseModel):
     presentationId: str
+    standaloneMeeting: bool = False
+    meetingAccessType: Literal["public", "private"] | None = None
 
 
 class LiveMediaTokenRequest(BaseModel):
