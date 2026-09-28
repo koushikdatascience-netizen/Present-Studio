@@ -141,10 +141,40 @@ function renderMeetings(meetings) {
     return `<article class="meeting-card ${ended ? "is-ended" : ""}">
       <div class="meeting-card-icon"><i class="bi bi-camera-video"></i></div>
       <div class="meeting-card-content"><div><span class="meeting-status">${escapeHtml(meetingStatusLabel(meeting))}</span><span class="meeting-privacy"><i class="bi ${meeting.accessType === "private" ? "bi-lock" : "bi-globe2"}"></i>${escapeHtml(meeting.accessType)}</span></div><h3>${escapeHtml(meeting.title)}</h3><p>${escapeHtml(meetingTimeLabel(meeting))}</p></div>
-      <div class="meeting-card-actions"><button type="button" data-copy-audience="${escapeHtml(meeting.audienceUrl)}" ${ended ? "disabled" : ""}><i class="bi bi-link-45deg"></i><span>Copy link</span></button><a href="${escapeHtml(meeting.controllerUrl)}" ${ended ? 'aria-disabled="true" tabindex="-1"' : ""}><i class="bi bi-box-arrow-up-right"></i><span>Owner controls</span></a></div>
+      <div class="meeting-card-actions"><button type="button" data-copy-audience="${escapeHtml(meeting.audienceUrl)}" ${ended ? "disabled" : ""}><i class="bi bi-link-45deg"></i><span>Copy link</span></button><a href="${escapeHtml(meeting.controllerUrl)}" ${ended ? 'aria-disabled="true" tabindex="-1"' : ""}><i class="bi bi-box-arrow-up-right"></i><span>Owner controls</span></a><button type="button" data-delete-meeting="${escapeHtml(meeting.id)}" title="Delete meeting"><i class="bi bi-trash"></i><span>Delete</span></button></div>
     </article>`;
   }).join("");
   meetingGrid.querySelectorAll("[data-copy-audience]").forEach(button => button.addEventListener("click", () => copyText(button.dataset.copyAudience, "Audience link copied.")));
+
+  meetingGrid.querySelectorAll("[data-delete-meeting]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const meeting = dashboardMeetings.find(
+        item => item.id === button.dataset.deleteMeeting
+      );
+
+      if (!meeting) return;
+
+      if (!window.confirm(
+        `Delete “${meeting.title || "Meeting"}”? The audience link will stop working immediately.`
+      )) return;
+
+      button.disabled = true;
+
+      try {
+        await api.deleteMeeting(meeting.id);
+
+        dashboardMeetings = dashboardMeetings.filter(
+          item => item.id !== meeting.id
+        );
+
+        renderMeetings(dashboardMeetings);
+        showToast("Meeting deleted.");
+      } catch (error) {
+        button.disabled = false;
+        showToast(error.message || "Could not delete meeting.");
+      }
+    });
+  });
 }
 
 async function loadDashboard() {

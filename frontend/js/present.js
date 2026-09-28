@@ -438,11 +438,18 @@ function setupSocket() {
   socket.on("session_ended", () => { setAutoplay(false); liveMediaSession?.leave(); showError("This live session has ended."); });
   if (socket.connected) joinRoom();
 }
+let standaloneMeeting = false;
+let standaloneMeetingAccessType = "";
+
 async function loadPresentationAccess() {
   const audienceRequest = audienceJoinLink || participantResumeToken ? { publicAccess: true } : {};
   if (!presentationId && shareToken) {
     const resolved = await api.resolveShareLink(shareToken, audienceRequest);
     presentationId = resolved.presentationId;
+    standaloneMeeting = Boolean(resolved.standaloneMeeting);
+    standaloneMeetingAccessType = String(
+      resolved.meetingAccessType || ""
+    ).toLowerCase();
   }
   if (!presentationId) presentationId = "pres_demo";
   if (!shareToken) return api.getPresentation(presentationId, "", audienceRequest, participantResumeToken);
@@ -482,11 +489,21 @@ async function init() {
   if (!presentation.slides.length) throw new Error("This presentation has no slides.");
   const live = await api.getLiveSession(presentation.id);
   const presenter = permission === "presenter";
+
+  const publicStandaloneMeeting = Boolean(
+    audienceJoinLink
+    && standaloneMeeting
+    && standaloneMeetingAccessType === "public"
+  );
   audioEnabled = true;
   document.body.classList.toggle("audience-live-view", !presenter);
   document.title = presenter ? `${presentation.title} — Presenter` : `${presentation.title} — Live presentation`;
   const welcomePresentation = document.querySelector("[data-live-welcome-presentation]");
-  if (welcomePresentation) welcomePresentation.textContent = `You’re watching “${presentation.title}” live. Enter your name${screenCodeRequired ? " and meeting code" : ""} to request a place in the interactive room.`;
+  if (welcomePresentation) {
+    welcomePresentation.textContent = publicStandaloneMeeting
+      ? `You’re joining “${presentation.title}”. Enter your name to join the meeting.`
+      : `You’re watching “${presentation.title}” live. Enter your name${screenCodeRequired ? " and meeting code" : ""} to request a place in the interactive room.`;
+  }
   const screenCodeField = document.querySelector("[data-screen-code-field]");
   if (screenCodeField) screenCodeField.hidden = presenter || !screenCodeRequired;
   const cohostReturnState = presenter ? {} : takeCohostReturnState(presentationId);
@@ -513,7 +530,7 @@ async function init() {
   applyPresentationState(live, true);
   liveMediaSession = window.SnapKeyLiveMedia?.create({
     root: $("presentLiveMedia"), presentationId, shareToken, resumeToken: participantResumeToken, authToken: audienceJoinLink || participantResumeToken ? "" : authToken, screenAccessCode, socket,
-    admissionBypass: presenter || Boolean(participantResumeToken),
+    admissionBypass: presenter || publicStandaloneMeeting || Boolean(participantResumeToken),
     displayName: cohostReturnState.displayName || result.resumeDisplayName || api.getCachedSession()?.name || "", fullscreenTarget: presenter ? null : $("presentLiveMedia").querySelector(".audience-meeting-stage"), fullscreenOnJoin: false,
     onEnableAudio: enablePresentationAudio,
     onValidateAdmission: validateMeetingAccessCode,
