@@ -4351,7 +4351,7 @@ button.present-back {
   color: #ffd54a !important;
 }
 
-/* Maximize the existing People panel without changing its content or layout. */
+/* Maximize the existing People panel and adapt its participant grid to the viewport. */
 .live-panel-maximize {
   position: relative;
   overflow: visible !important;
@@ -4423,4 +4423,68 @@ button.present-back {
   opacity: 1;
   box-shadow: none;
   transform: none;
+}
+
+/* Count-based gallery sizing applies only to the maximized People panel. */
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized .live-media-tiles,
+.audience-live-view .present-live-media.is-connected.is-people-panel-maximized .live-media-tiles {
+  overflow-y: auto;
+  padding: 8px 16px 16px;
+}
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized .live-participant-group,
+.audience-live-view .present-live-media.is-connected.is-people-panel-maximized .live-participant-group {
+  width: 100%;
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized .live-participant-group-grid,
+.audience-live-view .present-live-media.is-connected.is-people-panel-maximized .live-participant-group-grid {
+  width: 100%;
+  max-width: var(--live-gallery-max-width, 1380px);
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--live-gallery-columns, 1), minmax(0, 1fr));
+  grid-auto-rows: max-content;
+  align-content: center;
+  gap: 10px;
+  margin: 0 auto;
+  padding: 8px 0;
+}
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized .live-media-tile,
+.audience-live-view .present-live-media.is-connected.is-people-panel-maximized .live-media-tile {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized .live-media-tile-video,
+.audience-live-view .present-live-media.is-connected.is-people-panel-maximized .live-media-tile-video {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+}
+.is-people-panel-maximized[data-gallery-layout="1x1"] { --live-gallery-max-width: 720px; }
+.is-people-panel-maximized[data-gallery-layout="2x1"] { --live-gallery-max-width: 1180px; }
+.is-people-panel-maximized[data-gallery-layout="2x2"] { --live-gallery-max-width: 1040px; }
+.is-people-panel-maximized[data-gallery-layout="3x2"] { --live-gallery-max-width: 1260px; }
+.is-people-panel-maximized[data-gallery-layout="3x3"] { --live-gallery-max-width: 1020px; }
+.is-people-panel-maximized[data-gallery-layout="4x3"] { --live-gallery-max-width: 1380px; }
+.is-people-panel-maximized[data-gallery-layout="4x4"] { --live-gallery-max-width: 1000px; }
+
+@media (max-width: 680px) {
+  .live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized .live-media-tiles,
+  .audience-live-view .present-live-media.is-connected.is-people-panel-maximized .live-media-tiles {
+    padding: 6px 8px 12px;
+  }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized .live-participant-group-grid,
+  .audience-live-view .present-live-media.is-connected.is-people-panel-maximized .live-participant-group-grid {
+    max-width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    gap: 7px;
+    padding-top: 6px;
+  }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized[data-gallery-layout="1x1"] .live-participant-group-grid,
+  .audience-live-view .present-live-media.is-connected.is-people-panel-maximized[data-gallery-layout="1x1"] .live-participant-group-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

@@ -32,3 +32,13 @@ test("maximize toggles back to the unchanged sidebar and does not retain gallery
   assert.match(liveMedia, /panelMaximizeButton\?\.addEventListener\("click", \(\) => setPeoplePanelMaximized\(!peoplePanelMaximized, true\)\)/);
   assert.doesNotMatch(liveMedia, /setGalleryView|galleryViewActive/);
 });
+
+test("maximized People panel uses count-based adaptive grid dimensions", () => {
+  assert.match(liveMedia, /function syncAdaptiveGalleryDimensions\(participantCount\)/);
+  assert.match(liveMedia, /count > 9[\s\S]*columns = 4;[\s\S]*rows = 3;/);
+  assert.match(liveMedia, /count > 12[\s\S]*columns = 4;[\s\S]*rows = 4;/);
+  assert.match(liveMedia, /root\.dataset\.galleryLayout = `\$\{columns\}x\$\{rows\}`/);
+  assert.match(styles, /\.is-people-panel-maximized[\s\S]*grid-template-columns:\s*repeat\(var\(--live-gallery-columns/);
+  assert.match(styles, /data-gallery-layout="4x3"[\s\S]*--live-gallery-max-width:\s*1380px/);
+  assert.match(styles, /data-gallery-layout="4x4"[\s\S]*--live-gallery-max-width:\s*1000px/);
+});

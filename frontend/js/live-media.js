@@ -1721,6 +1721,36 @@
       });
     }
 
+    function syncAdaptiveGalleryDimensions(participantCount) {
+      const count = Math.max(0, Number(participantCount) || 0);
+      let columns = 1;
+      let rows = 1;
+      if (count > 16) {
+        columns = 5;
+        rows = Math.ceil(count / columns);
+      } else if (count > 12) {
+        columns = 4;
+        rows = 4;
+      } else if (count > 9) {
+        columns = 4;
+        rows = 3;
+      } else if (count > 6) {
+        columns = 3;
+        rows = 3;
+      } else if (count > 4) {
+        columns = 3;
+        rows = 2;
+      } else if (count > 2) {
+        columns = 2;
+        rows = 2;
+      } else if (count > 1) {
+        columns = 2;
+      }
+      root.style.setProperty("--live-gallery-columns", String(columns));
+      root.style.setProperty("--live-gallery-rows", String(rows));
+      root.dataset.galleryLayout = `${columns}x${rows}`;
+    }
+
     function renderParticipants() {
       ensureParticipantDirectory();
       if (!room) {
@@ -1730,6 +1760,7 @@
         count.textContent = "0 connected";
         if (restoreCount) restoreCount.textContent = "0";
         root.dataset.gallerySize = "single";
+        syncAdaptiveGalleryDimensions(0);
         return;
       }
       if (isController && mutedParticipants.size) {
@@ -1806,6 +1837,7 @@
       });
       peopleEmpty.hidden = visibleCount !== 0;
       root.dataset.gallerySize = visibleCount <= 1 ? "single" : visibleCount <= 2 ? "pair" : visibleCount <= 4 ? "quad" : visibleCount <= 9 ? "medium" : "large";
+      syncAdaptiveGalleryDimensions(visibleCount);
       renderScreenShares();
       const total = room.remoteParticipants.size + 1;
       count.textContent = `${total} connected`;
