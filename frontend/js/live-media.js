@@ -1238,6 +1238,50 @@
       return feature;
     }
 
+    function participantMicAudible(participant) {
+      return publications(participant).some(publication =>
+        isSource(publication, "Microphone") && !publication.isMuted
+      ) && !mutedParticipants.has(String(participant.identity));
+    }
+
+    function syncParticipantMuteButton(button, participant, micAudible) {
+      if (!button) return;
+      const muted = !micAudible;
+      const presenterParticipant = isPresenterParticipant(participant);
+      button.disabled = presenterParticipant;
+      const mutedState = String(muted);
+      if (button.dataset.mutedState !== mutedState) {
+        button.dataset.mutedState = mutedState;
+        button.innerHTML = muted
+          ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 11.7 5.2M12 18v3M9 21h6M3 3l18 18"></path></svg>'
+          : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path></svg>';
+      }
+      const muteLabel = presenterParticipant
+        ? "Presenters cannot be muted"
+        : muted ? `Ask ${participant.name || "participant"} to unmute their microphone` : `Mute ${participant.name || "participant"}`;
+      button.setAttribute("aria-label", muteLabel);
+      button.title = muteLabel;
+      button.setAttribute("aria-pressed", String(muted));
+    }
+
+    function syncParticipantTileStatus(tile, participant, facts) {
+      const state = tile.querySelector("[data-live-participant-state]");
+      if (state) state.textContent = `${facts.presenter ? "Presenter" : "Audience"} · ${facts.micOn ? "Mic on" : "Muted"}`;
+      const caption = tile.querySelector("footer");
+      let hand = tile.querySelector("[data-live-raised-hand]");
+      if (facts.raised && !hand && caption) {
+        hand = document.createElement("span");
+        hand.className = "live-raised-hand";
+        hand.dataset.liveRaisedHand = "";
+        hand.textContent = "✋ Hand raised";
+        caption.append(hand);
+      } else if (!facts.raised && hand) {
+        hand.remove();
+      }
+      tile.classList.toggle("has-raised-hand", facts.raised);
+      syncParticipantMuteButton(tile.querySelector(".live-participant-mute"), participant, facts.micOn);
+    }
+
     function addParticipantTile(participant, isLocal = false) {
       const tile = document.createElement("article");
       tile.className = "live-media-tile";
@@ -1260,14 +1304,15 @@
       const label = document.createElement("strong");
       label.textContent = `${participant.name || "Guest"}${isLocal ? " (You)" : ""}`;
       const state = document.createElement("span");
-      const micOn = publications(participant).some(publication => isSource(publication, "Microphone") && !publication.isMuted);
-      const micAudible = micOn && !mutedParticipants.has(participant.identity);
+      state.dataset.liveParticipantState = "";
+      const micAudible = participantMicAudible(participant);
       state.textContent = `${participantRole(participant) === "presenter" ? "Presenter" : "Audience"} · ${micAudible ? "Mic on" : "Muted"}`;
       caption.append(label, state);
       const raised = raisedHands.get(participant.identity);
       if (raised) {
         const hand = document.createElement("span");
         hand.className = "live-raised-hand";
+        hand.dataset.liveRaisedHand = "";
         hand.textContent = "✋ Hand raised";
         caption.append(hand);
         tile.classList.add("has-raised-hand");
@@ -1278,23 +1323,14 @@
         const actionToggle = createParticipantActionToggle(tile, participant);
         caption.append(actionToggle);
         const mute = document.createElement("button");
-        const muted = !micAudible;
         mute.type = "button";
         mute.className = "live-participant-mute";
-        mute.innerHTML = muted
-          ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 11.7 5.2M12 18v3M9 21h6M3 3l18 18"></path></svg>'
-          : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path></svg>';
         const presenterParticipant = isPresenterParticipant(participant);
-        mute.disabled = presenterParticipant;
-        const muteLabel = presenterParticipant
-          ? "Presenters cannot be muted"
-          : muted ? `Ask ${participant.name || "participant"} to unmute their microphone` : `Mute ${participant.name || "participant"}`;
-        mute.setAttribute("aria-label", muteLabel);
-        mute.title = muteLabel;
-        mute.setAttribute("aria-pressed", String(muted));
+        syncParticipantMuteButton(mute, participant, micAudible);
         mute.addEventListener("click", event => {
           event.stopPropagation();
           if (presenterParticipant) return;
+          const muted = !participantMicAudible(participant);
           if (muted) mutedParticipants.delete(participant.identity); else mutedParticipants.add(participant.identity);
           recomputeMeetingMuted();
           applyRemoteAudioState();
@@ -1589,7 +1625,7 @@
 
     function participantRenderSignature(participant, isLocal) {
       const publicationState = publications(participant).filter(publication =>
-        isSource(publication, "Camera") || isSource(publication, "Microphone")
+        isSource(publication, "Camera")
       ).map(publication => [
         publication.trackSid || publication.sid || publication.track?.sid || publication.track?.mediaStreamTrack?.id || "track",
         publication.source || "",
@@ -1598,7 +1634,6 @@
       ].join(":")).sort().join("|");
       const registryItem = participantRegistry.get(String(participant.identity));
       return [participant.identity, participant.name, participant.metadata, isLocal, publicationState,
-        raisedHands.has(participant.identity), mutedParticipants.has(participant.identity),
         registryItem?.clientId || "", registryItem?.role || ""].join("::");
     }
 
@@ -1730,6 +1765,7 @@
         }
         syncParticipantAudio(participant, isLocal);
         const facts = participantDirectoryFacts(participant, isLocal);
+        syncParticipantTileStatus(tile, participant, facts);
         tile.classList.toggle("is-speaking", facts.isActivelySpeaking);
         tile.classList.toggle("is-unmuted", facts.micOn);
         tile.classList.toggle("is-muted", !facts.micOn);

@@ -17,7 +17,9 @@ test("participant audio tracks survive camera and screen-share UI updates", () =
   assert.match(liveMedia, /audioMount\.append\(audio\)/);
   assert.doesNotMatch(liveMedia, /tile\.append\(audio\)/);
   assert.doesNotMatch(liveMedia, /meetingMuted, mutedParticipants\.has\(participant\.identity\),\s*selectedCameraIdentity/);
-  assert.match(liveMedia, /isSource\(publication, "Camera"\) \|\| isSource\(publication, "Microphone"\)/);
+  assert.match(liveMedia, /function syncParticipantTileStatus\(tile, participant, facts\)/);
+  assert.match(liveMedia, /const publicationState = publications\(participant\)\.filter\(publication =>\s*isSource\(publication, "Camera"\)/);
+  assert.doesNotMatch(liveMedia, /const publicationState = publications\(participant\)\.filter\(publication =>\s*isSource\(publication, "Camera"\) \|\| isSource\(publication, "Microphone"\)/);
 });
 
 test("participant directory provides stable priority ordering, search, and status filters", () => {
