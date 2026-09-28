@@ -36,6 +36,7 @@
     createPresentation: (title) => request("/api/presentations", { method: "POST", body: JSON.stringify({ title }) }), savePresentation: (deck) => request(`/api/presentations/${encodeURIComponent(deck.id)}`, { method: "PUT", body: JSON.stringify(deck) }), deletePresentation: (id) => request(`/api/presentations/${encodeURIComponent(id)}`, { method: "DELETE" }),
     listMeetings: () => request("/api/meetings"),
     createMeeting: (meeting) => request("/api/meetings", { method: "POST", body: JSON.stringify(meeting) }),
+    deleteMeeting: (id) => request(`/api/meetings/${encodeURIComponent(id)}`, { method: "DELETE" }),
     getMeetingForPresentation: (id) => request(`/api/meetings/by-presentation/${encodeURIComponent(id)}`),
     getCurrentShareLink: (id) => request(`/api/presentations/${encodeURIComponent(id)}/share/current`),
     createShareLink: (id, permission = "viewer", screenAccessCode = "") => request(`/api/presentations/${encodeURIComponent(id)}/share`, { method: "POST", body: JSON.stringify({ permission, ...(screenAccessCode ? { screenAccessCode } : {}) }) }), getLiveSession: (id, options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/live`, options), setLiveSlide: (id, slideId, token = "", options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/live/slide${token ? `?token=${encodeURIComponent(token)}` : ""}`, { method: "POST", body: JSON.stringify({ slideId }), ...options }), endLiveSession: (id) => request(`/api/presentations/${encodeURIComponent(id)}/live/end`, { method: "POST" }),
