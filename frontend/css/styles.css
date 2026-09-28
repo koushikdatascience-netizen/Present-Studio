@@ -4345,118 +4345,76 @@ button.present-back {
   color: #ffd54a !important;
 }
 
-/* Controller gallery view: reuse the participant directory as a full meeting stage. */
-.interactive-workspace .live-gallery-toggle svg {
+/* Maximize the existing People panel without changing its content or layout. */
+.live-panel-maximize {
+  position: relative;
+  overflow: visible !important;
+}
+.live-panel-maximize svg {
+  display: block;
   width: 17px;
   height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.controller-gallery-bar {
-  display: flex;
-  justify-content: flex-end;
-  padding: 7px 8px;
-  border-bottom: 1px solid rgba(255,255,255,.1);
-  background: #171714;
+.live-panel-maximize svg[hidden] { display: none; }
+.live-panel-maximize::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 80;
+  width: max-content;
+  max-width: 190px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #171713;
+  color: #fff;
+  box-shadow: 0 7px 20px rgba(0,0,0,.3);
+  font: 700 .58rem/1.2 var(--mono);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-3px);
+  transition: opacity .14s ease, transform .14s ease;
+  white-space: nowrap;
 }
-.interactive-workspace .controller-gallery-bar .live-gallery-toggle {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid #49483f;
-  border-radius: 8px;
-  padding: 6px 11px;
-  background: #292925;
-  color: #f5f2e8;
-  font-size: .62rem;
-  font-weight: 800;
-  cursor: pointer;
+.live-panel-maximize:hover::after,
+.live-panel-maximize:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
 }
-.interactive-workspace .controller-gallery-bar .live-gallery-toggle:hover:not(:disabled),
-.interactive-workspace .controller-gallery-bar .live-gallery-toggle:focus-visible {
-  border-color: #d3aa0d;
-  color: #ffd54a;
+.live-panel-maximize:hover:not(:disabled),
+.live-panel-maximize:focus-visible,
+.live-panel-maximize[aria-pressed="true"] {
+  border-color: #d3aa0d !important;
+  color: #ffd54a !important;
   outline: none;
 }
-.interactive-workspace .live-gallery-toggle svg[hidden] { display: none; }
-.interactive-workspace .live-gallery-toggle[aria-pressed="true"] {
-  border-color: #d3aa0d;
-  background: #ffd54a;
-  color: #171713;
-}
-.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-gallery-view {
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized,
+.audience-live-view .present-live-media.is-connected.is-people-panel-maximized {
   grid-template-columns: minmax(0, 1fr);
 }
-.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-gallery-view .interactive-main-stage {
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized .interactive-main-stage,
+.audience-live-view .present-live-media.is-connected.is-people-panel-maximized .audience-meeting-stage {
   display: none;
 }
-.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-gallery-view .interactive-session-sidebar {
+.live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized .interactive-session-sidebar,
+.audience-live-view .present-live-media.is-connected.is-people-panel-maximized .audience-meeting-sidebar {
   position: relative;
   inset: auto;
-  z-index: 10;
+  z-index: 20;
   grid-column: 1 / -1;
   grid-row: 1;
   width: 100%;
-  height: auto;
+  height: 100%;
+  min-height: 0;
   visibility: visible;
   border: 0;
   border-radius: 0;
   opacity: 1;
   box-shadow: none;
   transform: none;
-}
-.interactive-workspace.is-gallery-view .live-sidebar-tabs { display: none; }
-.interactive-workspace .controller-people-panel { grid-template-rows: auto auto minmax(0, 1fr); }
-.interactive-workspace.is-gallery-view .controller-people-panel { min-height: 0; }
-.interactive-workspace.is-gallery-view .interactive-participant-grid {
-  padding: clamp(12px, 2vw, 28px);
-}
-.interactive-workspace.is-gallery-view .live-participant-group {
-  max-width: 1500px;
-  margin: 0 auto 12px;
-}
-.interactive-workspace.is-gallery-view .live-participant-group-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 320px));
-  justify-content: center;
-  gap: clamp(10px, 1.35vw, 18px);
-}
-.interactive-workspace.is-gallery-view[data-gallery-size="single"] .live-participant-group-grid {
-  grid-template-columns: minmax(260px, 720px);
-  justify-content: center;
-}
-.interactive-workspace.is-gallery-view[data-gallery-size="pair"] .live-participant-group-grid {
-  grid-template-columns: repeat(2, minmax(240px, 560px));
-  justify-content: center;
-}
-.interactive-workspace.is-gallery-view .interactive-participant-grid .live-media-tile {
-  overflow: hidden;
-  border-radius: 14px;
-  box-shadow: 0 12px 32px rgba(0,0,0,.24);
-}
-.interactive-workspace.is-gallery-view .interactive-participant-grid .live-media-tile-video {
-  aspect-ratio: 16 / 9;
-}
-.live-controller-page[data-controller-theme="light"] .interactive-workspace.is-gallery-view .live-gallery-toggle[aria-pressed="true"] {
-  border-color: #d3aa0d;
-  background: #ffd54a;
-  color: #171713;
-}
-.live-controller-page[data-controller-theme="light"] .controller-gallery-bar {
-  border-bottom-color: #e4e7eb;
-  background: #f7f8fa;
-}
-.live-controller-page[data-controller-theme="light"] .interactive-workspace .controller-gallery-bar .live-gallery-toggle {
-  border-color: #d8dde3;
-  background: #fff;
-  color: #303640;
-}
-@media (max-width: 680px) {
-  .interactive-workspace.is-gallery-view .live-participant-group-grid,
-  .interactive-workspace.is-gallery-view[data-gallery-size="pair"] .live-participant-group-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .interactive-workspace.is-gallery-view[data-gallery-size="single"] .live-participant-group-grid { grid-template-columns: 1fr; }
-  .interactive-workspace.is-gallery-view .interactive-participant-grid { padding: 8px; }
 }
