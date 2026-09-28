@@ -1605,11 +1605,7 @@
     function ensureParticipantDirectory() {
       if (participantGroups.size) return;
       const definitions = [
-        ["speaking", "Speaking now"],
-        ["hands", "Raised hands"],
-        ["presenters", "Presenters"],
-        ["unmuted", "Mic on"],
-        ["audience", "Audience"]
+        ["people", "Participants"]
       ];
       definitions.forEach(([key, label]) => {
         const section = document.createElement("section");
@@ -1645,11 +1641,13 @@
       const cameraOn = participantPublications.some(publication =>
         isSource(publication, "Camera") && publication.track && !publication.isMuted
       );
+      const screenSharing = participantPublications.some(publication =>
+        isSource(publication, "ScreenShare") && publication.track && !publication.isMuted
+      );
       const isActivelySpeaking = activeSpeakerIdentities.has(identity);
       const speaking = isActivelySpeaking || recentSpeakerIdentities.has(identity);
       const raised = raisedHands.has(identity);
-      const presenter = participantRole(participant) === "presenter";
-      const group = speaking ? "speaking" : raised ? "hands" : presenter ? "presenters" : micOn ? "unmuted" : "audience";
+      const presenter = isPresenterParticipant(participant);
       return {
         identity,
         name: String(participant.name || "Guest"),
@@ -1660,7 +1658,8 @@
         speaking,
         raised,
         presenter,
-        group
+        screenSharing,
+        group: "people"
       };
     }
 
@@ -1758,7 +1757,12 @@
       let visibleCount = 0;
       participantGroups.forEach((group, key) => {
         const entries = groupedEntries.get(key) || [];
-        entries.sort((left, right) => Number(right.facts.isLocal) - Number(left.facts.isLocal) || left.facts.name.localeCompare(right.facts.name));
+        entries.sort((left, right) =>
+          Number(right.facts.presenter) - Number(left.facts.presenter) ||
+          Number(right.facts.screenSharing) - Number(left.facts.screenSharing) ||
+          left.facts.name.localeCompare(right.facts.name, undefined, { sensitivity: "base" }) ||
+          left.facts.identity.localeCompare(right.facts.identity)
+        );
         entries.forEach((entry, index) => {
           const currentAtIndex = group.grid.children[index];
           if (currentAtIndex !== entry.tile) group.grid.insertBefore(entry.tile, currentAtIndex || null);

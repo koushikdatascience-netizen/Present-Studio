@@ -4097,8 +4097,6 @@ button.present-back {
   border-color: #42c986 !important;
   box-shadow: 0 0 0 2px rgba(66,201,134,.2), 0 8px 18px rgba(0,0,0,.2) !important;
 }
-.live-media-tile.is-unmuted:not(.is-speaking) { border-color: rgba(66,201,134,.55) !important; }
-.live-media-tile.is-unmuted footer > span:first-of-type { color: #83dfae; }
 .live-controller-page[data-controller-theme="light"] .live-people-tools,
 .present-page[data-audience-theme="light"] .live-people-tools,
 .live-controller-page[data-controller-theme="light"] .live-media-panel .live-media-tiles,

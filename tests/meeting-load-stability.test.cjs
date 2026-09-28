@@ -20,7 +20,7 @@ test("participant audio tracks survive camera and screen-share UI updates", () =
   assert.match(liveMedia, /isSource\(publication, "Camera"\) \|\| isSource\(publication, "Microphone"\)/);
 });
 
-test("participant directory provides stable groups, search, and status filters", () => {
+test("participant directory provides stable priority ordering, search, and status filters", () => {
   const controllerHtml = fs.readFileSync(path.join(__dirname, "../frontend/controller.html"), "utf8");
   const audienceHtml = fs.readFileSync(path.join(__dirname, "../frontend/present.html"), "utf8");
   for (const html of [controllerHtml, audienceHtml]) {
@@ -31,9 +31,12 @@ test("participant directory provides stable groups, search, and status filters",
       assert.match(html, new RegExp(`data-live-people-filter="${filter}"`));
     }
   }
-  assert.match(liveMedia, /\["speaking", "Speaking now"\]/);
-  assert.match(liveMedia, /\["presenters", "Presenters"\]/);
-  assert.match(liveMedia, /\["audience", "Audience"\]/);
+  assert.match(liveMedia, /\["people", "Participants"\]/);
+  assert.match(liveMedia, /Number\(right\.facts\.presenter\) - Number\(left\.facts\.presenter\)/);
+  assert.match(liveMedia, /Number\(right\.facts\.screenSharing\) - Number\(left\.facts\.screenSharing\)/);
+  assert.match(liveMedia, /left\.facts\.name\.localeCompare\(right\.facts\.name/);
+  assert.doesNotMatch(liveMedia, /\["speaking", "Speaking now"\]/);
+  assert.doesNotMatch(liveMedia, /\["unmuted", "Mic on"\]/);
   assert.match(liveMedia, /participantSearchQuery/);
   assert.match(liveMedia, /speakerReleaseTimers/);
   assert.match(liveMedia, /}, 3500\)/);
