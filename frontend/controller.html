@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio — Live Controller</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20260928-adaptive-grid">
+    <link rel="stylesheet" href="/css/styles.css?v=20260930-whiteboard-toolbar">
   </head>
   <body class="live-controller-page" data-controller-mode="control" data-controller-theme="light">
     <main class="live-controller-shell">
@@ -37,19 +37,32 @@
                     <div class="controller-preview-annotation-text" id="previewAnnotationText" aria-live="polite"></div>
                   </div>
                   <div class="controller-fullscreen-tools" id="previewFullscreenTools" role="toolbar" aria-label="Fullscreen presentation tools">
-                    <button type="button" data-preview-whiteboard aria-label="Open whiteboard" title="Open whiteboard" aria-pressed="false">▱</button>
-                    <button type="button" data-preview-tool="highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
-                    <button type="button" data-preview-tool="text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
-                    <button type="button" data-preview-tool="line" aria-label="Draw line" title="Line" aria-pressed="false">╱</button>
-                    <button type="button" data-preview-tool="arrow" aria-label="Draw arrow" title="Arrow" aria-pressed="false">➜</button>
-                    <button type="button" data-preview-tool="rectangle" aria-label="Draw rectangle" title="Rectangle" aria-pressed="false">□</button>
-                    <button type="button" data-preview-tool="circle" aria-label="Draw circle" title="Circle" aria-pressed="false">○</button>
-                    <button type="button" data-preview-tool="pan" aria-label="Grab and move" title="Grab and move" aria-pressed="false">✥</button>
-                    <button type="button" id="previewFullscreenNotes" aria-label="Open notes for the current slide" title="Open slide notes">▤</button>
-                    <label class="controller-preview-tool-field" title="Highlighter color"><span>Color</span><input id="previewToolColor" type="color" value="#ffdc2d" aria-label="Highlighter color"></label>
-                    <label class="controller-preview-tool-field" title="Highlighter size"><span>Size</span><select id="previewToolSize" aria-label="Highlighter size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
-                    <button type="button" id="previewZoomOut" aria-label="Zoom out" title="Zoom out">−</button><span id="previewZoomValue" aria-live="polite">100%</span><button type="button" id="previewZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
-                    <button type="button" id="previewResetView" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button><button type="button" id="previewClearAnnotations" aria-label="Clear annotations" title="Clear annotations">⌫</button><button type="button" id="previewExitFullscreen" class="fullscreen-exit-tool" aria-label="Exit preview fullscreen" title="Exit fullscreen">×</button>
+                    <div class="controller-tool-group controller-tool-group-mode" role="group" aria-label="Board mode">
+                      <button type="button" class="is-whiteboard-toggle" data-preview-whiteboard data-tooltip="Whiteboard" aria-label="Open whiteboard" title="Open whiteboard" aria-pressed="false">▱</button>
+                    </div>
+                    <div class="controller-tool-group" role="group" aria-label="Drawing tools">
+                      <button type="button" data-preview-tool="highlighter" data-tooltip="Highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
+                      <button type="button" data-preview-tool="text" data-tooltip="Text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
+                      <button type="button" data-preview-tool="line" data-tooltip="Line" aria-label="Draw line" title="Line" aria-pressed="false">╱</button>
+                      <button type="button" data-preview-tool="arrow" data-tooltip="Arrow" aria-label="Draw arrow" title="Arrow" aria-pressed="false">➜</button>
+                      <button type="button" data-preview-tool="rectangle" data-tooltip="Rectangle" aria-label="Draw rectangle" title="Rectangle" aria-pressed="false">□</button>
+                      <button type="button" data-preview-tool="circle" data-tooltip="Circle" aria-label="Draw circle" title="Circle" aria-pressed="false">○</button>
+                      <button type="button" data-preview-tool="pan" data-tooltip="Pan canvas" aria-label="Grab and move" title="Grab and move" aria-pressed="false">✥</button>
+                    </div>
+                    <div class="controller-tool-group" role="group" aria-label="Presentation tools">
+                      <button type="button" id="previewFullscreenNotes" data-tooltip="Slide notes" aria-label="Open notes for the current slide" title="Open slide notes">▤</button>
+                    </div>
+                    <div class="controller-tool-group controller-tool-style-group" role="group" aria-label="Drawing style">
+                      <label class="controller-preview-tool-field" title="Drawing color"><span>Color</span><input id="previewToolColor" type="color" value="#ffdc2d" aria-label="Drawing color"></label>
+                      <label class="controller-preview-tool-field" title="Stroke size"><span>Size</span><select id="previewToolSize" aria-label="Stroke size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
+                    </div>
+                    <div class="controller-tool-group controller-tool-view-group" role="group" aria-label="Canvas view">
+                      <button type="button" id="previewZoomOut" data-tooltip="Zoom out" aria-label="Zoom out" title="Zoom out">−</button><span id="previewZoomValue" aria-label="Current zoom" aria-live="polite">100%</span><button type="button" id="previewZoomIn" data-tooltip="Zoom in" aria-label="Zoom in" title="Zoom in">+</button>
+                      <button type="button" id="previewResetView" data-tooltip="Reset view" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button>
+                    </div>
+                    <div class="controller-tool-group controller-tool-action-group" role="group" aria-label="Whiteboard actions">
+                      <button type="button" id="previewClearAnnotations" data-tooltip="Clear annotations" aria-label="Clear annotations" title="Clear annotations">⌫</button><button type="button" id="previewExitFullscreen" class="fullscreen-exit-tool" data-tooltip="Exit fullscreen" aria-label="Exit preview fullscreen" title="Exit fullscreen">×</button>
+                    </div>
                   </div>
                   <span class="controller-whiteboard-cursor" id="previewWhiteboardCursor" aria-hidden="true" hidden></span>
                   <form class="controller-preview-text-editor" id="previewTextEditor" hidden><label for="previewTextInput">Add text to the live screen</label><input id="previewTextInput" type="text" maxlength="180" autocomplete="off" placeholder="Type your text"><div><button type="button" id="previewTextCancel">Cancel</button><button type="submit" class="is-primary">Add text</button></div></form>
@@ -117,17 +130,26 @@
           <section class="live-screen-share interactive-screen-share" data-live-screen-share-viewer hidden><div class="live-screen-share-heading"><strong data-live-screen-share-label>Shared screen</strong><span data-live-screen-share-mode>Choose the screen shown to everyone</span></div><div class="live-screen-share-media" data-live-screen-share-media></div></section>
           <section class="live-featured-camera" data-live-featured-camera-viewer hidden aria-label="Featured participant camera"><header><strong data-live-featured-camera-label>Featured camera</strong><button type="button" data-live-featured-camera-close aria-label="Close featured camera" title="Close featured camera">×</button></header><div data-live-featured-camera-media></div></section>
           <div class="controller-fullscreen-tools interactive-fullscreen-tools" id="interactiveFullscreenTools" role="toolbar" aria-label="Interactive fullscreen drawing tools">
-            <button type="button" data-preview-tool="highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
-            <button type="button" data-preview-tool="text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
-            <button type="button" data-preview-tool="line" aria-label="Draw line" title="Line" aria-pressed="false">╱</button>
-            <button type="button" data-preview-tool="arrow" aria-label="Draw arrow" title="Arrow" aria-pressed="false">➜</button>
-            <button type="button" data-preview-tool="rectangle" aria-label="Draw rectangle" title="Rectangle" aria-pressed="false">□</button>
-            <button type="button" data-preview-tool="circle" aria-label="Draw circle" title="Circle" aria-pressed="false">○</button>
-            <button type="button" data-preview-tool="pan" aria-label="Grab and move" title="Grab and move" aria-pressed="false">✥</button>
-            <label class="controller-preview-tool-field" title="Highlighter color"><span>Color</span><input id="interactiveToolColor" type="color" value="#ffdc2d" aria-label="Highlighter color"></label>
-            <label class="controller-preview-tool-field" title="Highlighter size"><span>Size</span><select id="interactiveToolSize" aria-label="Highlighter size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
-            <button type="button" id="interactiveZoomOut" aria-label="Zoom out" title="Zoom out">−</button><span id="interactiveZoomValue" aria-live="polite">100%</span><button type="button" id="interactiveZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
-            <button type="button" id="interactiveResetView" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button><button type="button" id="interactiveClearAnnotations" aria-label="Clear annotations" title="Clear annotations">⌫</button>
+            <div class="controller-tool-group" role="group" aria-label="Drawing tools">
+              <button type="button" data-preview-tool="highlighter" data-tooltip="Highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
+              <button type="button" data-preview-tool="text" data-tooltip="Text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
+              <button type="button" data-preview-tool="line" data-tooltip="Line" aria-label="Draw line" title="Line" aria-pressed="false">╱</button>
+              <button type="button" data-preview-tool="arrow" data-tooltip="Arrow" aria-label="Draw arrow" title="Arrow" aria-pressed="false">➜</button>
+              <button type="button" data-preview-tool="rectangle" data-tooltip="Rectangle" aria-label="Draw rectangle" title="Rectangle" aria-pressed="false">□</button>
+              <button type="button" data-preview-tool="circle" data-tooltip="Circle" aria-label="Draw circle" title="Circle" aria-pressed="false">○</button>
+              <button type="button" data-preview-tool="pan" data-tooltip="Pan canvas" aria-label="Grab and move" title="Grab and move" aria-pressed="false">✥</button>
+            </div>
+            <div class="controller-tool-group controller-tool-style-group" role="group" aria-label="Drawing style">
+              <label class="controller-preview-tool-field" title="Drawing color"><span>Color</span><input id="interactiveToolColor" type="color" value="#ffdc2d" aria-label="Drawing color"></label>
+              <label class="controller-preview-tool-field" title="Stroke size"><span>Size</span><select id="interactiveToolSize" aria-label="Stroke size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
+            </div>
+            <div class="controller-tool-group controller-tool-view-group" role="group" aria-label="Canvas view">
+              <button type="button" id="interactiveZoomOut" data-tooltip="Zoom out" aria-label="Zoom out" title="Zoom out">−</button><span id="interactiveZoomValue" aria-label="Current zoom" aria-live="polite">100%</span><button type="button" id="interactiveZoomIn" data-tooltip="Zoom in" aria-label="Zoom in" title="Zoom in">+</button>
+              <button type="button" id="interactiveResetView" data-tooltip="Reset view" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button>
+            </div>
+            <div class="controller-tool-group controller-tool-action-group" role="group" aria-label="Whiteboard actions">
+              <button type="button" id="interactiveClearAnnotations" data-tooltip="Clear annotations" aria-label="Clear annotations" title="Clear annotations">⌫</button>
+            </div>
           </div>
           <span class="controller-whiteboard-cursor" id="interactiveWhiteboardCursor" aria-hidden="true" hidden></span>
           <form class="controller-preview-text-editor" id="interactiveTextEditor" hidden><label for="interactiveTextInput">Add text to the live screen</label><input id="interactiveTextInput" type="text" maxlength="180" autocomplete="off" placeholder="Type your text"><div><button type="button" id="interactiveTextCancel">Cancel</button><button type="submit" class="is-primary">Add text</button></div></form>

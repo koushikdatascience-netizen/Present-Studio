@@ -63,6 +63,16 @@ test("both controller workspaces expose the whiteboard tools and brush cursor", 
   assert.match(html, /id="interactiveWhiteboardCursor"/);
 });
 
+test("fullscreen whiteboard controls are grouped and clearly described", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../frontend/controller.html"), "utf8");
+  for (const label of ["Drawing tools", "Drawing style", "Canvas view", "Whiteboard actions"]) {
+    assert.match(html, new RegExp(`role="group" aria-label="${label}"`));
+  }
+  for (const tooltip of ["Highlighter", "Text", "Line", "Arrow", "Rectangle", "Circle", "Pan canvas", "Zoom out", "Zoom in", "Reset view", "Clear annotations"]) {
+    assert.match(html, new RegExp(`data-tooltip="${tooltip}"`));
+  }
+});
+
 test("preview whiteboard is separate from the persisted black-screen state", () => {
   const controllerSource = fs.readFileSync(path.join(__dirname, "../frontend/js/controller.js"), "utf8");
   const start = controllerSource.indexOf("function setPreviewWhiteboard");
