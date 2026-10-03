@@ -53,7 +53,7 @@ function bindAudienceSettings() {
 function textObject(item) { return new fabric.Textbox(item.text || "", { left: (item.x || 0) * 12.8, top: (item.y || 0) * 7.2, width: (item.width || 40) * 12.8, fontSize: item.fontSize || 42, fontWeight: item.fontWeight || "500", fontStyle: item.fontStyle || "normal", fontFamily: item.fontFamily || "Arial", fill: item.color || "#171717", textAlign: item.textAlign || "left", selectable: false, evented: false }); }
 function mediaItems(slide) {
   const config = playback();
-  const legacy = (slide.canvas?.elements || []).filter(item => ["image", "video"].includes(item.type));
+  const legacy = (slide.canvas?.elements || []).filter(item => ["image", "video", "youtube"].includes(item.type));
   const fabricVideos = (slide.canvas?.fabric?.objects || []).filter(item => item.mediaType === "video").map(item => ({
     type: "video", src: item.src, full_bleed: item.full_bleed,
     x: ((item.left || 0) / 1280) * 100, y: ((item.top || 0) / 720) * 100,
@@ -306,8 +306,8 @@ function renderSlide() {
 }
 
 function fabricMediaById(slide, mediaId, kind) {
-  return (slide.canvas?.fabric?.objects || []).find((item, index) => item.mediaType === kind && String(item.id || index) === String(mediaId))
-    || (slide.canvas?.elements || []).find((item, index) => item.type === kind && String(item.id || index) === String(mediaId));
+  return (slide.canvas?.fabric?.objects || []).find((item, index) => (item.mediaType === kind || kind === "video" && item.mediaType === "youtube") && String(item.id || index) === String(mediaId))
+    || (slide.canvas?.elements || []).find((item, index) => (item.type === kind || kind === "video" && item.type === "youtube") && String(item.id || index) === String(mediaId));
 }
 
 function renderDirectOutput(slide, state) {
@@ -329,17 +329,20 @@ function renderDirectOutput(slide, state) {
     layer.append(audio);
     startPresentationMedia(audio);
   } else if (item?.src) {
-    const node = document.createElement(state.kind === "video" ? "video" : "img");
-    node.src = item.src;
+    const youtube = item.type === "youtube" || item.mediaType === "youtube";
+    const node = youtube ? window.SnapKeyYouTube.frame(item) : document.createElement(state.kind === "video" ? "video" : "img");
+    if (!node) return;
+    if (!youtube) node.src = item.src;
     node.className = "slide-media full-bleed";
     Object.assign(node.style, { left: "0", top: "0", width: "100%", height: "100%", objectFit: item.fit || "contain" });
-    if (state.kind === "video") {
+    if (state.kind === "video" && !youtube) {
       node.dataset.authoredMuted = String(item.muted === true);
       Object.assign(node, { autoplay: true, muted: mediaMuted(item.muted === true), loop: item.loop !== false, playsInline: true });
       node.volume = presentationVolume(node);
     }
     layer.append(node);
-    if (state.kind === "video") startPresentationMedia(node);
+    if (state.kind === "video" && !youtube) startPresentationMedia(node);
+    if (youtube) window.SnapKeyYouTube.sync(node, { volume: presentationVolume({ tagName: "VIDEO" }), muted: mediaMuted(), playing: state.playing });
     if (state.kind === "image" && item.audioSrc) {
       const audio = document.createElement("audio");
       audio.src = item.audioSrc;

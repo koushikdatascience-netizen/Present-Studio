@@ -70,7 +70,7 @@
     const state = iframe._youtubeState;
     if (!player || !state || typeof player.setVolume !== "function") return;
     player.setVolume(Math.round(Math.max(0, Math.min(1, Number(state.volume) || 0)) * 100));
-    if (state.muted) player.mute(); else player.unMute();
+    if (state.muted || iframe._tabSpeakerMuted) player.mute(); else player.unMute();
     if (Number.isFinite(Number(state.position)) && state.position !== undefined && typeof player.seekTo === "function") {
       const position = Math.max(0, Number(state.position));
       if (typeof player.getCurrentTime !== "function" || Math.abs(player.getCurrentTime() - position) > 1.5) player.seekTo(position, true);

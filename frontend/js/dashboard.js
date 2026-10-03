@@ -234,20 +234,22 @@ function meetingMediaElement(asset) {
   };
 }
 
-async function attachRoomMediaToMeeting(meeting, file) {
-  if (!file) return true;
-  if (!/^(image|video)\//.test(file.type || "")) {
+async function attachRoomMediaToMeeting(meeting, file, youtubeId = "") {
+  if (!file && !youtubeId) return true;
+  if (file && !/^(image|video)\//.test(file.type || "")) {
     throw new Error("Choose an image or video file for the room visual.");
   }
-  if (file.size > 100 * 1024 * 1024) {
+  if (file && file.size > 100 * 1024 * 1024) {
     throw new Error("Room image or video must be 100 MB or smaller.");
   }
-  const { asset } = await api.uploadMedia(file);
+  const asset = youtubeId ? { url: `https://www.youtube.com/watch?v=${youtubeId}`, mimeType: "video/youtube" } : (await api.uploadMedia(file)).asset;
   const { presentation } = await api.getPresentation(meeting.presentationId);
   const slides = Array.isArray(presentation.slides) ? presentation.slides : [];
   const firstSlide = slides[0];
   if (!firstSlide) return true;
-  const canvas = { ...(firstSlide.canvas || {}), background: "#101010", elements: [meetingMediaElement(asset)] };
+  const element = meetingMediaElement(asset);
+  if (youtubeId) Object.assign(element, { type: "youtube", youtubeId });
+  const canvas = { ...(firstSlide.canvas || {}), background: "#101010", elements: [element] };
   const updated = {
     ...presentation,
     slides: slides.map((slide, index) => index === 0 ? { ...slide, canvas } : slide)
@@ -258,6 +260,7 @@ async function attachRoomMediaToMeeting(meeting, file) {
 
 function resetMeetingDialog() {
   meetingForm?.reset();
+  document.querySelector("#meetingYouTubePreview").hidden = true;
   privateMeetingNoticeSeen = false;
   const now = new Date();
   const start = new Date(now.getTime() + 30 * 60000);
@@ -315,6 +318,12 @@ meetingRoomMediaInput?.addEventListener("change", () => {
   if (!meetingRoomMediaName) return;
   meetingRoomMediaName.textContent = file ? `${file.name} · will appear on the meeting screen` : "Optional branded visual for the meeting screen.";
 });
+document.querySelector("#meetingYouTubeUrl")?.addEventListener("input", event => {
+  const id = window.SnapKeyYouTube.parse(event.target.value);
+  const preview = document.querySelector("#meetingYouTubePreview");
+  preview.hidden = !id;
+  if (id) preview.src = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+});
 meetingForm?.addEventListener("submit", async event => {
   event.preventDefault();
   const submit = document.querySelector("#meetingSubmit");
@@ -326,6 +335,13 @@ meetingForm?.addEventListener("submit", async event => {
   const meetingStart = scheduledStart || now;
   const scheduledEnd = durationMode === "timed" ? readLocalDateTime("#meetingScheduledEnd") : null;
   const roomMediaFile = meetingRoomMediaInput?.files?.[0] || null;
+  const youtubeUrl = document.querySelector("#meetingYouTubeUrl").value.trim();
+  const youtubeId = youtubeUrl ? window.SnapKeyYouTube.parse(youtubeUrl) : "";
+  if (youtubeUrl && !youtubeId || youtubeUrl && roomMediaFile) {
+    error.textContent = youtubeUrl && roomMediaFile ? "Choose either an uploaded file or a YouTube video." : "Enter a valid YouTube video link.";
+    error.hidden = false;
+    return;
+  }
   if (timingMode === "scheduled" && (!scheduledStart || scheduledStart <= now)) {
     error.textContent = "Choose a future start date and time.";
     error.hidden = false;
@@ -356,11 +372,13 @@ meetingForm?.addEventListener("submit", async event => {
       scheduledEnd: scheduledEnd?.toISOString() || null
     });
     let mediaAttached = false;
-    if (roomMediaFile) {
+    if (roomMediaFile || youtubeId) {
       if (submitLabel) submitLabel.textContent = "Adding media";
       try {
-        await attachRoomMediaToMeeting(meeting, roomMediaFile);
+        await attachRoomMediaToMeeting(meeting, roomMediaFile, youtubeId);
         mediaAttached = true;
+        const refreshed = await api.listMeetings();
+        Object.assign(meeting, refreshed.meetings.find(item => item.id === meeting.id) || {});
       } catch (mediaError) {
         showToast(mediaError.message || "Meeting created, but the room media could not be added.");
       }

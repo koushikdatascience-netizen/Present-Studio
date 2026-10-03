@@ -1478,7 +1478,7 @@
     } else {
       const elements = data.elements || [];
       elements.filter(item => item.type === "text").forEach(item => previewCanvas.add(legacyPreviewText(item)));
-      elements.filter(item => ["image", "video"].includes(item.type)).forEach(item => addPositionedPreviewMedia(item));
+      elements.filter(item => ["image", "video", "youtube"].includes(item.type)).forEach(item => addPositionedPreviewMedia(item));
       finish();
     }
     if (data.audio?.src) addPreviewAudio(data.audio.src);
@@ -1500,6 +1500,14 @@
       return;
     }
     if (!target.src) return showPreviewPlaceholder(target.title);
+    if (target.youtubeId) {
+      const frame = window.SnapKeyYouTube.frame(target);
+      frame.className = "controller-preview-direct";
+      mediaLayer.append(frame);
+      window.SnapKeyYouTube.sync(frame, { volume: videoVolume, muted: !previewAudioEnabled });
+      updatePreviewMediaState();
+      return;
+    }
     const node = document.createElement(target.kind === "video" ? "video" : "img");
     node.src = target.src;
     node.className = "controller-preview-direct";
@@ -1512,16 +1520,18 @@
   function collectTargets() {
     const result = [];
     presentation.slides.forEach((slide, slideIndex) => {
-      const objects = [...(slide.canvas?.fabric?.objects || []), ...(slide.canvas?.elements || []).filter(item => ["image", "video"].includes(item.type)).map(item => ({ ...item, mediaType: item.type }))];
+      const objects = [...(slide.canvas?.fabric?.objects || []), ...(slide.canvas?.elements || []).filter(item => ["image", "video", "youtube"].includes(item.type)).map(item => ({ ...item, mediaType: item.type }))];
       const firstImage = objects.find(object => object.mediaType === "image");
       result.push({ id: `slide:${slide.id}`, kind: "slide", slideId: slide.id, mediaId: "", title: slide.title || `Slide ${slideIndex + 1}`, src: firstImage?.src || "", audioSrc: "" });
       const track = slide.canvas?.audio;
       if (track?.src) result.push({ id: `audio:${slide.id}:${track.id || "track"}`, kind: "audio", slideId: slide.id, mediaId: track.id || "track", title: track.name || `${slide.title || `Slide ${slideIndex + 1}`} · Music`, src: track.src, audioSrc: track.src });
       objects.forEach((object, mediaIndex) => {
-        if (!object.mediaType || !["image", "video"].includes(object.mediaType) || !object.src) return;
+        if (!object.mediaType || !["image", "video", "youtube"].includes(object.mediaType) || !object.src) return;
+        const kind = object.mediaType === "youtube" ? "video" : object.mediaType;
         result.push({
-          id: `${object.mediaType}:${slide.id}:${object.id || mediaIndex}`,
-          kind: object.mediaType,
+          id: `${kind}:${slide.id}:${object.id || mediaIndex}`,
+          kind,
+          youtubeId: object.mediaType === "youtube" ? window.SnapKeyYouTube.idFor(object) : "",
           slideId: slide.id,
           mediaId: object.id || String(mediaIndex),
           title: object.audioName || `${slide.title || `Slide ${slideIndex + 1}`} · ${object.mediaType === "image" ? "Image" : "Video"} ${mediaIndex + 1}`,
@@ -1550,7 +1560,7 @@
       : target.kind === "audio"
         ? '<span class="controller-slide-number">♫</span>'
         : target.src
-          ? (target.kind === "video" ? `<video src="${escapeHtml(target.src)}" muted preload="metadata"></video><span class="controller-play-mark">▶</span>` : `<img src="${escapeHtml(target.src)}" alt="">`)
+          ? (target.youtubeId ? `<img src="https://i.ytimg.com/vi/${escapeHtml(target.youtubeId)}/hqdefault.jpg" alt="YouTube video"><span class="controller-play-mark">▶</span>` : target.kind === "video" ? `<video src="${escapeHtml(target.src)}" muted preload="metadata"></video><span class="controller-play-mark">▶</span>` : `<img src="${escapeHtml(target.src)}" alt="">`)
           : `<span class="controller-slide-number">${escapeHtml(target.title.slice(0, 2))}</span>`;
     const card = `<button class="controller-target-card" type="button" data-target-id="${escapeHtml(target.id)}"><span class="controller-target-thumb">${visual}</span><span><strong>${escapeHtml(target.title)}</strong><small>${target.kind}${target.audioSrc ? " · linked audio" : ""}</small></span></button>`;
     if (target.kind !== "slide") return card;

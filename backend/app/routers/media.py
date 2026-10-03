@@ -8,7 +8,8 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
+from botocore.exceptions import ClientError
 from starlette.concurrency import run_in_threadpool
 from ..config import get_settings
 from ..database import get_db
@@ -76,6 +77,30 @@ def serve_media_thumbnail(asset_id: str, db: Session = Depends(get_db)):
     except Exception:
         return RedirectResponse("/assets/snapkey.png", status_code=307)
     return RedirectResponse(storage.presigned_get(key), status_code=307, headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/{asset_id}/preview")
+def serve_media_preview(asset_id: str, db: Session = Depends(get_db)):
+    asset = db.get(MediaAsset, asset_id)
+    if not asset or not asset.mime_type.startswith(("image/", "video/")) or asset.url != f"/api/media/{asset_id}/content":
+        raise HTTPException(status_code=404, detail="Preview not found")
+    storage = s3_storage()
+    key = storage.media_key(asset.owner_id, asset.id)
+    if asset.mime_type.startswith("video/"):
+        key += ".jpg"
+    try:
+        result = storage.client.get_object(Bucket=storage.bucket, Key=key)
+    except ClientError as exc:
+        raise HTTPException(status_code=404, detail="Preview not found") from exc
+    body = result["Body"]
+
+    def chunks():
+        try:
+            yield from body.iter_chunks(chunk_size=65536)
+        finally:
+            body.close()
+
+    return StreamingResponse(chunks(), media_type=result.get("ContentType", "image/jpeg"), headers={"Content-Length": str(result["ContentLength"]), "Cache-Control": "public, max-age=3600"})
 
 
 @router.get("/meeting-content/{presentation_id}/{object_id}")

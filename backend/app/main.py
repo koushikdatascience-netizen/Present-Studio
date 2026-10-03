@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from html import escape
 from urllib.parse import urljoin, urlsplit
+import re
 from .socket_manager import sio
 from . import meeting_v2
 from .routers import admin, auth, media, meetings, presentations
@@ -177,14 +178,20 @@ def audience_join(token: str, request: Request, db: Session = Depends(get_db)) -
                 for slide in slides:
                     scene = slide.canvas or {}
                     items = list(scene.get("elements") or []) + list((scene.get("fabric") or {}).get("objects") or [])
-                    visual = next((item for item in items if (item.get("mediaType") or item.get("type")) in {"image", "video"} and item.get("src")), None)
+                    visual = next((item for item in items if (item.get("mediaType") or item.get("type")) in {"image", "video", "youtube"} and item.get("src")), None)
                     if not visual:
                         continue
                     candidate = visual["src"]
-                    if (visual.get("mediaType") or visual.get("type")) == "video":
-                        if candidate.startswith("/api/media/") and candidate.endswith("/content"):
-                            candidate = candidate.removesuffix("/content") + "/thumbnail"
-                        elif "res.cloudinary.com" in candidate:
+                    kind = visual.get("mediaType") or visual.get("type")
+                    if kind == "youtube":
+                        video_id = str(visual.get("youtubeId", ""))
+                        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+                            continue
+                        candidate = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+                    elif candidate.startswith("/api/media/") and candidate.endswith("/content"):
+                        candidate = candidate.removesuffix("/content") + "/preview"
+                    elif kind == "video":
+                        if "res.cloudinary.com" in candidate:
                             candidate = candidate.rsplit(".", 1)[0] + ".jpg"
                         else:
                             continue
@@ -193,9 +200,13 @@ def audience_join(token: str, request: Request, db: Session = Depends(get_db)) -
                         image = absolute
                         break
     canonical = f"{base}/join/{token}"
+    revision = request.query_params.get("preview", "")
+    if re.fullmatch(r"[a-f0-9]{12}", revision):
+        canonical += f"?preview={revision}"
     tags = {"og:type": "website", "og:site_name": "SnapKey Studio", "og:title": title, "og:description": description, "og:url": canonical, "og:image": image, "og:image:alt": title}
     metadata = "\n".join(f'<meta property="{key}" content="{escape(value, quote=True)}">' for key, value in tags.items())
     metadata += f'\n<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="{escape(image, quote=True)}">'
+    metadata += f'\n<meta name="description" content="{escape(description, quote=True)}">'
     page = (settings.frontend_dir / "present.html").read_text(encoding="utf-8")
     page = page.replace("<title>Present Studio - Present</title>", f"<title>{escape(title)}</title>")
     return HTMLResponse(page.replace("</head>", metadata + "\n</head>"), headers={"Cache-Control": "no-cache"})

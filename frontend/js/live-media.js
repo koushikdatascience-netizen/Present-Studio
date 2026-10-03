@@ -882,6 +882,10 @@
     }
 
     function applyRemoteAudioState() {
+      presentationSource.media?.querySelectorAll("iframe[data-youtube-id]").forEach(frame => {
+        frame._tabSpeakerMuted = tabSpeakerMuted;
+        window.SnapKeyYouTube.sync(frame);
+      });
       root.querySelectorAll("audio[data-live-audio-participant]").forEach(audio => {
         audio.muted = tabSpeakerMuted || participantAudioMuted(audio.dataset.liveAudioParticipant);
       });
@@ -988,7 +992,15 @@
       const clones = [...presentationMedia.children];
       sourceNodes.forEach((source, index) => {
         const clone = clones[index];
-        if (!clone || source.tagName !== "VIDEO") return;
+        if (!clone) return;
+        if (source.tagName === "IFRAME" && source.dataset.youtubeId) {
+          const player = source._youtubePlayer;
+          const playing = typeof player?.getPlayerState === "function" ? player.getPlayerState() === 1 : source._youtubeState?.playing;
+          const position = typeof player?.getCurrentTime === "function" ? player.getCurrentTime() : source._youtubeState?.position;
+          window.SnapKeyYouTube.sync(clone, { muted: true, volume: 0, playing, position });
+          return;
+        }
+        if (source.tagName !== "VIDEO") return;
         const sourceTime = Number(source.currentTime);
         if (Number.isFinite(sourceTime) && Math.abs(Number(clone.currentTime) - sourceTime) > .65) {
           try { clone.currentTime = sourceTime; } catch {}
@@ -1002,6 +1014,10 @@
       if (!presentationViewer || !presentationCanvas) return;
       const sourceCanvas = presentationSource.canvas;
       const sourceNodes = presentationVisualNodes();
+      sourceNodes.filter(node => node.tagName === "IFRAME" && node.dataset.youtubeId).forEach(frame => {
+        frame._tabSpeakerMuted = tabSpeakerMuted;
+        window.SnapKeyYouTube.sync(frame);
+      });
       const canvasVisible = Boolean(sourceCanvas && !sourceCanvas.hidden);
       const context = presentationCanvas.getContext("2d");
       context.clearRect(0, 0, presentationCanvas.width, presentationCanvas.height);

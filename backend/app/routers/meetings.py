@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 import secrets
+import hashlib
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -34,6 +36,9 @@ def meeting_status(meeting: Meeting, now: datetime | None = None) -> str:
 
 def serialize_meeting(meeting: Meeting, presentation: Presentation, share: ShareLink, request: Request, access_code: str | None = None) -> MeetingOut:
     base = public_share_base_url(request)
+    scenes = [slide.canvas for slide in presentation.slides]
+    has_media = any(scene.get("elements") or (scene.get("fabric") or {}).get("objects") for scene in scenes if scene)
+    revision = hashlib.sha256(json.dumps(scenes, sort_keys=True).encode()).hexdigest()[:12] if has_media else ""
     return MeetingOut(
         id=meeting.id,
         presentationId=presentation.id,
@@ -44,7 +49,7 @@ def serialize_meeting(meeting: Meeting, presentation: Presentation, share: Share
         scheduledStart=aware(meeting.scheduled_start).isoformat(),
         scheduledEnd=aware(meeting.scheduled_end).isoformat() if meeting.scheduled_end else None,
         status=meeting_status(meeting),
-        audienceUrl=f"{base}/join/{share.token}",
+        audienceUrl=f"{base}/join/{share.token}" + (f"?preview={revision}" if revision else ""),
         controllerUrl=f"{base}/controller.html?id={presentation.id}",
         accessCode=access_code,
     )
