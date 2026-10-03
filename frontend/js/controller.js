@@ -1512,7 +1512,7 @@
   function collectTargets() {
     const result = [];
     presentation.slides.forEach((slide, slideIndex) => {
-      const objects = slide.canvas?.fabric?.objects || [];
+      const objects = [...(slide.canvas?.fabric?.objects || []), ...(slide.canvas?.elements || []).filter(item => ["image", "video"].includes(item.type)).map(item => ({ ...item, mediaType: item.type }))];
       const firstImage = objects.find(object => object.mediaType === "image");
       result.push({ id: `slide:${slide.id}`, kind: "slide", slideId: slide.id, mediaId: "", title: slide.title || `Slide ${slideIndex + 1}`, src: firstImage?.src || "", audioSrc: "" });
       const track = slide.canvas?.audio;

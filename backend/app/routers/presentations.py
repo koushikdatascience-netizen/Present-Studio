@@ -559,7 +559,9 @@ def create_live_media_token(
                 raise HTTPException(status_code=403, detail="Screen access code is required")
     if not permission:
         raise HTTPException(status_code=403, detail="A valid presentation session is required")
-    if permission == "viewer" and meeting_admission_required(presentation_id) and not meeting_client_is_admitted(presentation_id, payload.clientId):
+    managed_meeting = db.query(Meeting).filter(Meeting.presentation_id == presentation_id).first()
+    public_meeting = bool(managed_meeting and managed_meeting.access_type == "public")
+    if permission == "viewer" and not public_meeting and meeting_admission_required(presentation_id) and not meeting_client_is_admitted(presentation_id, payload.clientId):
         raise HTTPException(status_code=403, detail="Waiting for presenter approval")
 
     participant_name = " ".join((payload.displayName or default_name).strip().split())[:80] or default_name

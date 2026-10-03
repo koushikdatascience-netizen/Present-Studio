@@ -62,6 +62,13 @@ def test_create_public_instant_meeting_returns_passwordless_audience_link():
         )
         meetings = client.get("/api/meetings", headers=headers)
         access = client.get(f"/api/presentations/{response.json()['presentationId']}/screen-access?token={response.json()['audienceUrl'].rsplit('/', 1)[-1]}")
+        settings = get_settings()
+        client.cookies.clear()
+        with patch.object(settings, "livekit_url", "wss://example.livekit.cloud"), patch.object(settings, "livekit_api_key", "key"), patch.object(settings, "livekit_api_secret", "secret"), patch("app.routers.presentations.create_livekit_join_token", return_value="signed-token"), patch("app.routers.presentations.meeting_admission_required", return_value=True), patch("app.routers.presentations.meeting_client_is_admitted", return_value=False):
+            media_access = client.post(
+                f"/api/presentations/{response.json()['presentationId']}/live/media-token",
+                json={"displayName": "Public Guest", "clientId": "public-guest", "shareToken": response.json()['audienceUrl'].rsplit('/', 1)[-1]},
+            )
     assert response.status_code == 200
     assert response.json()["accessCode"] is None
     assert "/join/" in response.json()["audienceUrl"]
@@ -70,6 +77,8 @@ def test_create_public_instant_meeting_returns_passwordless_audience_link():
     assert any(item["id"] == response.json()["id"] for item in meetings.json()["meetings"])
     assert access.status_code == 200
     assert access.json() == {"requiresCode": False}
+    assert media_access.status_code == 200
+    assert media_access.json()["permission"] == "viewer"
 
 
 def test_create_private_scheduled_timed_meeting_generates_code_and_range():

@@ -107,10 +107,10 @@ function renderMedia(slide) {
     if (!node) return;
     if (item.type !== "youtube") node.src = item.src;
     node.className = `slide-media ${item.full_bleed ? "full-bleed" : ""}`;
-    node.style.left = `${item.x || 0}%`;
-    node.style.top = `${item.y || 0}%`;
-    node.style.width = `${item.width || 100}%`;
-    node.style.height = `${item.height || 100}%`;
+    node.style.left = `${item.full_bleed ? 0 : item.x || 0}%`;
+    node.style.top = `${item.full_bleed ? 0 : item.y || 0}%`;
+    node.style.width = `${item.full_bleed ? 100 : item.width || 100}%`;
+    node.style.height = `${item.full_bleed ? 100 : item.height || 100}%`;
     node.style.objectFit = item.fit || "contain";
     if (item.type === "video") {
       node.dataset.authoredMuted = String(item.muted === true);
@@ -306,7 +306,8 @@ function renderSlide() {
 }
 
 function fabricMediaById(slide, mediaId, kind) {
-  return (slide.canvas?.fabric?.objects || []).find((item, index) => item.mediaType === kind && String(item.id || index) === String(mediaId));
+  return (slide.canvas?.fabric?.objects || []).find((item, index) => item.mediaType === kind && String(item.id || index) === String(mediaId))
+    || (slide.canvas?.elements || []).find((item, index) => item.type === kind && String(item.id || index) === String(mediaId));
 }
 
 function renderDirectOutput(slide, state) {
