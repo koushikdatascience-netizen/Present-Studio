@@ -105,10 +105,13 @@
     $("#previewTitle").textContent = outputBlanked ? "Screen cleared" : target?.title || "Screen ready";
   }
 
-  function recordingMimeType() {
+  function recordingMimeType(hasAudio = true) {
     return [
-      "video/webm;codecs=vp9,opus",
-      "video/webm;codecs=vp8,opus",
+      hasAudio ? "video/mp4;codecs=avc1.424028,mp4a.40.2" : "video/mp4;codecs=avc1.424028",
+      hasAudio ? "video/mp4;codecs=avc1,mp4a.40.2" : "video/mp4;codecs=avc1",
+      "video/mp4",
+      hasAudio ? "video/webm;codecs=vp8,opus" : "video/webm;codecs=vp8",
+      hasAudio ? "video/webm;codecs=vp9,opus" : "video/webm;codecs=vp9",
       "video/webm"
     ].find(type => window.MediaRecorder?.isTypeSupported?.(type)) || "";
   }
@@ -120,7 +123,7 @@
       .trim()
       .slice(0, 80) || "meeting-recording";
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    return `${safeTitle}-${stamp}.${mimeType.includes("mp4") ? "mp4" : "webm"}`;
+    return `${safeTitle}-${stamp}.${String(mimeType).toLowerCase().includes("mp4") ? "mp4" : "webm"}`;
   }
 
   function formatRecordingTime(milliseconds) {
@@ -263,12 +266,14 @@
     }
   }
 
-  function downloadRecording(blob) {
+  function downloadRecording(blob, mimeType = blob.type) {
     releaseRecordingDownloadUrl(true);
-    localRecordingDownloadUrl = URL.createObjectURL(blob);
+    // OPFS File MIME types can be empty or inferred from the temporary filename.
+    const downloadBlob = blob.slice(0, blob.size, mimeType || blob.type || "video/webm");
+    localRecordingDownloadUrl = URL.createObjectURL(downloadBlob);
     const link = document.createElement("a");
     link.href = localRecordingDownloadUrl;
-    link.download = recordingFilename(blob.type);
+    link.download = recordingFilename(downloadBlob.type);
     link.hidden = true;
     document.body.append(link);
     link.click();
@@ -364,7 +369,7 @@
         }
       }
       const recordingStream = new MediaStream([...displayStream.getVideoTracks(), ...(mixedAudioTrack ? [mixedAudioTrack] : audioTracks)]);
-      const mimeType = recordingMimeType();
+      const mimeType = recordingMimeType(recordingStream.getAudioTracks().length > 0);
       const recorder = new MediaRecorder(recordingStream, {
         ...(mimeType ? { mimeType } : {}),
         videoBitsPerSecond: 6_000_000,
