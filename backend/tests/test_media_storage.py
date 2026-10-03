@@ -29,7 +29,7 @@ def test_s3_upload_stable_url_and_meeting_preview(mime, kind):
             asset = upload.json()["asset"]
             assert asset["url"] == f"/api/media/{asset['id']}/content"
             cloud_upload.assert_not_called()
-            assert storage.upload_bytes.call_count == (2 if kind == "video" else 1)
+            assert storage.upload_bytes.call_count == 2
             content = client.get(asset["url"], follow_redirects=False)
             assert content.status_code == 307
             assert "signature=test" in content.headers["location"]

@@ -27,6 +27,15 @@ def s3_storage():
     return get_s3_storage()
 
 
+def create_media_poster(storage, key, content):
+    with tempfile.TemporaryDirectory() as directory:
+        source = Path(directory) / "source"
+        poster = Path(directory) / "poster.jpg"
+        source.write_bytes(content)
+        subprocess.run(["ffmpeg", "-nostdin", "-y", "-i", str(source), "-frames:v", "1", "-vf", "scale=1200:-2", "-q:v", "5", str(poster)], check=True, capture_output=True, timeout=30)
+        storage.upload_bytes(content=poster.read_bytes(), key=f"{key}.jpg", content_type="image/jpeg")
+
+
 def store_upload(content, content_type, filename, *, asset_id=None, owner_id=None, presentation_id=None):
     settings = get_settings()
     if settings.storage_provider.lower() == "s3":
@@ -38,17 +47,12 @@ def store_upload(content, content_type, filename, *, asset_id=None, owner_id=Non
         except Exception as exc:
             logger.error("S3 upload failed (%s)", type(exc).__name__)
             raise HTTPException(status_code=502, detail="Object storage upload failed. Please try again.") from exc
-        if asset_id and content_type.startswith("video/"):
+        if asset_id and content_type.startswith(("image/", "video/")):
             # Social apps require an image poster, not a video URL, for link cards.
             try:
-                with tempfile.TemporaryDirectory() as directory:
-                    source = Path(directory) / "source"
-                    poster = Path(directory) / "poster.jpg"
-                    source.write_bytes(content)
-                    subprocess.run(["ffmpeg", "-nostdin", "-y", "-i", str(source), "-frames:v", "1", "-vf", "scale=1200:-2", str(poster)], check=True, capture_output=True, timeout=30)
-                    storage.upload_bytes(content=poster.read_bytes(), key=f"{key}.jpg", content_type="image/jpeg")
+                create_media_poster(storage, key, content)
             except Exception:
-                logger.warning("Video poster generation failed for %s", asset_id)
+                logger.warning("Media poster generation failed for %s", asset_id)
         return f"/api/media/{asset_id}/content" if asset_id else f"/api/media/meeting-content/{presentation_id}/{object_id}"
     configure_cloudinary()
     resource_type = "image" if content_type.startswith("image/") else "video" if content_type.startswith(("video/", "audio/")) else "raw"
@@ -86,12 +90,23 @@ def serve_media_preview(asset_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Preview not found")
     storage = s3_storage()
     key = storage.media_key(asset.owner_id, asset.id)
-    if asset.mime_type.startswith("video/"):
-        key += ".jpg"
     try:
-        result = storage.client.get_object(Bucket=storage.bucket, Key=key)
+        result = storage.client.get_object(Bucket=storage.bucket, Key=key + ".jpg")
     except ClientError as exc:
-        raise HTTPException(status_code=404, detail="Preview not found") from exc
+        if exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 404:
+            raise HTTPException(status_code=502, detail="Preview storage unavailable") from exc
+        try:
+            original = storage.client.get_object(Bucket=storage.bucket, Key=key)
+            try:
+                if original["ContentLength"] > 100 * 1024 * 1024:
+                    raise HTTPException(status_code=413, detail="Preview source too large")
+                content = original["Body"].read()
+            finally:
+                original["Body"].close()
+            create_media_poster(storage, key, content)
+            result = storage.client.get_object(Bucket=storage.bucket, Key=key + ".jpg")
+        except Exception as poster_error:
+            raise HTTPException(status_code=404, detail="Preview not available") from poster_error
     body = result["Body"]
 
     def chunks():
