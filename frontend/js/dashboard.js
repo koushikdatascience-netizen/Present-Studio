@@ -2,8 +2,10 @@ const api = window.PresentStudioApi;
 const grid = document.querySelector("#presentationGrid");
 const createButton = document.querySelector("#createPresentation");
 const createMeetingButton = document.querySelector("#createMeeting");
+const createMeetingLinks = [createMeetingButton, ...document.querySelectorAll("[data-create-meeting-link]")].filter(Boolean);
 const meetingGrid = document.querySelector("#meetingGrid");
 const meetingDialog = document.querySelector("#meetingCreateDialog");
+const privateMeetingDialog = document.querySelector("#privateMeetingDialog");
 const meetingForm = document.querySelector("#meetingCreateForm");
 const toast = document.querySelector("#toast");
 const profileButton = document.querySelector("#profileButton");
@@ -13,6 +15,7 @@ const searchInput = document.querySelector("#presentationSearch");
 let toastTimer = null;
 let dashboardPresentations = [];
 let dashboardMeetings = [];
+let privateMeetingNoticeSeen = false;
 function showToast(message) {
   if (!toast) return;
   toast.textContent = message;
@@ -35,7 +38,10 @@ function getAccent(deck, index) {
 
 function updateDashboardStats(presentations) {
   document.querySelector("#presentationCount").textContent = String(presentations.length).padStart(2, "0");
-  document.querySelector("#recentCount").textContent = String(presentations.filter(deck => deck.updatedAt && Date.now() - new Date(deck.updatedAt).getTime() < 30 * 86400000).length).padStart(2, "0");
+  const recentDeck = presentations.find(deck => deck.updatedAt);
+  document.querySelector("#recentCount").textContent = recentDeck?.updatedAt
+    ? new Date(recentDeck.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+    : "Draft";
   document.querySelector("#slideTotal").textContent = String(presentations.reduce((total, deck) => total + (deck.slides?.length || 0), 0)).padStart(2, "0");
 }
 
@@ -46,8 +52,15 @@ function filteredPresentations() {
 
 function renderDecks(presentations) {
   if (!grid) return;
+  const createTile = `
+    <button class="presentation-create-card" type="button" data-create-presentation-card>
+      <span><i class="bi bi-plus-lg" aria-hidden="true"></i></span>
+      <strong>Create new presentation</strong>
+    </button>
+  `;
   if (!presentations.length) {
-    grid.innerHTML = `<p class="dashboard-status">No presentations yet. Use “New Presentation” to start your first deck.</p>`;
+    grid.innerHTML = createTile;
+    grid.querySelector("[data-create-presentation-card]")?.addEventListener("click", () => createButton?.click());
     return;
   }
 
@@ -71,8 +84,9 @@ function renderDecks(presentations) {
         </div>
       </article>
     `;
-  }).join("");
+  }).join("") + createTile;
 
+  grid.querySelector("[data-create-presentation-card]")?.addEventListener("click", () => createButton?.click());
   grid.querySelectorAll("[data-open]").forEach((button) => {
     button.addEventListener("click", () => {
       window.location.href = `/builder.html?id=${encodeURIComponent(button.dataset.open)}`;
@@ -195,6 +209,7 @@ function localDateTimeValue(date) {
 
 function resetMeetingDialog() {
   meetingForm?.reset();
+  privateMeetingNoticeSeen = false;
   const now = new Date();
   const start = new Date(now.getTime() + 30 * 60000);
   start.setMinutes(Math.ceil(start.getMinutes() / 15) * 15, 0, 0);
@@ -214,10 +229,13 @@ function resetMeetingDialog() {
 function syncMeetingFields() {
   const timing = meetingForm?.elements.timingMode?.value || "instant";
   const duration = meetingForm?.elements.durationMode?.value || "unlimited";
+  const accessType = meetingForm?.elements.accessType?.value || "public";
   const startField = document.querySelector("[data-scheduled-start]");
   const endField = document.querySelector("[data-scheduled-end]");
+  const privateNotice = document.querySelector("[data-private-meeting-notice]");
   startField.hidden = timing !== "scheduled";
   endField.hidden = duration !== "timed";
+  if (privateNotice) privateNotice.hidden = accessType !== "private";
   startField.querySelector("input").required = timing === "scheduled";
   endField.querySelector("input").required = duration === "timed";
 }
@@ -226,11 +244,19 @@ function closeMeetingDialog() {
   meetingDialog?.close();
 }
 
-createMeetingButton?.addEventListener("click", () => {
+createMeetingLinks.forEach(button => button.addEventListener("click", () => {
   resetMeetingDialog();
   meetingDialog.showModal();
-});
+}));
 meetingForm?.addEventListener("change", syncMeetingFields);
+meetingForm?.querySelectorAll('input[name="accessType"]').forEach(input => input.addEventListener("change", () => {
+  if (input.value !== "private" || !input.checked || privateMeetingNoticeSeen || !privateMeetingDialog) return;
+  privateMeetingNoticeSeen = true;
+  if (typeof privateMeetingDialog.showModal === "function") privateMeetingDialog.showModal();
+  else showToast("Encrypted private meeting: only permitted participants will be allowed to enter.");
+}));
+document.querySelector("#privateMeetingAcknowledge")?.addEventListener("click", () => privateMeetingDialog?.close());
+privateMeetingDialog?.addEventListener("click", event => { if (event.target === privateMeetingDialog) privateMeetingDialog.close(); });
 document.querySelector("#meetingDialogClose")?.addEventListener("click", closeMeetingDialog);
 document.querySelector("#meetingCancel")?.addEventListener("click", closeMeetingDialog);
 meetingDialog?.addEventListener("click", event => { if (event.target === meetingDialog) closeMeetingDialog(); });
