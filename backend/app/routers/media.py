@@ -3,6 +3,13 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 import cloudinary
 import cloudinary.uploader
+import logging
+import subprocess
+import tempfile
+import uuid
+from pathlib import Path
+from fastapi.responses import RedirectResponse
+from starlette.concurrency import run_in_threadpool
 from ..config import get_settings
 from ..database import get_db
 from ..models import LiveSession, MediaAsset, MeetingParticipantGrant, Presentation, User
@@ -11,6 +18,72 @@ from ..security import can_edit_presentation, can_present_with_credentials, curr
 
 
 router = APIRouter(prefix="/api/media", tags=["media"])
+logger = logging.getLogger(__name__)
+
+
+def s3_storage():
+    from ..services.s3_storage import get_s3_storage
+    return get_s3_storage()
+
+
+def store_upload(content, content_type, filename, *, asset_id=None, owner_id=None, presentation_id=None):
+    settings = get_settings()
+    if settings.storage_provider.lower() == "s3":
+        storage = s3_storage()
+        object_id = asset_id or uuid.uuid4().hex
+        key = storage.media_key(owner_id, asset_id) if asset_id else storage.meeting_key(presentation_id, object_id)
+        try:
+            storage.upload_bytes(content=content, key=key, content_type=content_type)
+        except Exception as exc:
+            logger.error("S3 upload failed (%s)", type(exc).__name__)
+            raise HTTPException(status_code=502, detail="Object storage upload failed. Please try again.") from exc
+        if asset_id and content_type.startswith("video/"):
+            # Social apps require an image poster, not a video URL, for link cards.
+            try:
+                with tempfile.TemporaryDirectory() as directory:
+                    source = Path(directory) / "source"
+                    poster = Path(directory) / "poster.jpg"
+                    source.write_bytes(content)
+                    subprocess.run(["ffmpeg", "-nostdin", "-y", "-i", str(source), "-frames:v", "1", "-vf", "scale=1200:-2", str(poster)], check=True, capture_output=True, timeout=30)
+                    storage.upload_bytes(content=poster.read_bytes(), key=f"{key}.jpg", content_type="image/jpeg")
+            except Exception:
+                logger.warning("Video poster generation failed for %s", asset_id)
+        return f"/api/media/{asset_id}/content" if asset_id else f"/api/media/meeting-content/{presentation_id}/{object_id}"
+    configure_cloudinary()
+    resource_type = "image" if content_type.startswith("image/") else "video" if content_type.startswith(("video/", "audio/")) else "raw"
+    result = cloudinary.uploader.upload(content, folder=settings.cloudinary_folder, resource_type=resource_type, filename=filename)
+    return result["secure_url"]
+
+
+@router.get("/{asset_id}/content", name="serve_media_asset")
+def serve_media_asset(asset_id: str, db: Session = Depends(get_db)):
+    asset = db.get(MediaAsset, asset_id)
+    if not asset or asset.url != f"/api/media/{asset_id}/content":
+        raise HTTPException(status_code=404, detail="Media not found")
+    storage = s3_storage()
+    return RedirectResponse(storage.presigned_get(storage.media_key(asset.owner_id, asset.id)), status_code=307, headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/{asset_id}/thumbnail")
+def serve_media_thumbnail(asset_id: str, db: Session = Depends(get_db)):
+    asset = db.get(MediaAsset, asset_id)
+    if not asset or not asset.mime_type.startswith("video/") or asset.url != f"/api/media/{asset_id}/content":
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    storage = s3_storage()
+    key = f"{storage.media_key(asset.owner_id, asset.id)}.jpg"
+    try:
+        storage.client.head_object(Bucket=storage.bucket, Key=key)
+    except Exception:
+        return RedirectResponse("/assets/snapkey.png", status_code=307)
+    return RedirectResponse(storage.presigned_get(key), status_code=307, headers={"Cache-Control": "private, no-store"})
+
+
+@router.get("/meeting-content/{presentation_id}/{object_id}")
+def serve_meeting_attachment(presentation_id: str, object_id: str):
+    if len(object_id) != 32 or any(char not in "0123456789abcdef" for char in object_id):
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    storage = s3_storage()
+    return RedirectResponse(storage.presigned_get(storage.meeting_key(presentation_id, object_id)), status_code=307, headers={"Cache-Control": "private, no-store"})
 
 
 def configure_cloudinary() -> None:
@@ -58,28 +131,33 @@ async def upload_media(
             detail=f"Media storage limit reached. {remaining} bytes remaining; this upload requires {len(content)} bytes.",
         )
 
-    configure_cloudinary()
-    settings = get_settings()
     content_type = file.content_type or ""
     if not content_type.startswith(("image/", "video/", "audio/")):
         raise HTTPException(status_code=415, detail="Only image, video, and audio files are supported")
-    resource_type = "image" if content_type.startswith("image/") else "video"
-    result = cloudinary.uploader.upload(
-        content,
-        folder=settings.cloudinary_folder,
-        resource_type=resource_type,
-        filename=file.filename,
-    )
+    if not content:
+        raise HTTPException(status_code=400, detail="Choose a file to upload")
+    asset_id = new_id("asset")
+    url = await run_in_threadpool(store_upload, content, content_type, file.filename, asset_id=asset_id, owner_id=user.id)
     asset = MediaAsset(
-        id=new_id("asset"),
+        id=asset_id,
         owner_id=user.id,
         name=file.filename or "upload",
         mime_type=file.content_type or "application/octet-stream",
-        url=result["secure_url"],
+        url=url,
         size=len(content),
     )
     db.add(asset)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        if get_settings().storage_provider.lower() == "s3":
+            try:
+                storage = s3_storage()
+                storage.delete(storage.media_key(user.id, asset_id))
+            except Exception:
+                logger.warning("Unable to clean up failed media upload %s", asset_id)
+        raise
     return {
         "asset": MediaAssetOut(
             id=asset.id,
@@ -132,29 +210,13 @@ async def upload_meeting_file(
     if len(content) > 100 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Maximum upload size is 100 MB")
 
-    configure_cloudinary()
-    settings = get_settings()
     content_type = file.content_type or "application/octet-stream"
-    if content_type.startswith("image/"):
-        resource_type = "image"
-    elif content_type.startswith(("video/", "audio/")):
-        resource_type = "video"
-    else:
-        resource_type = "raw"
-
-    result = cloudinary.uploader.upload(
-        content,
-        folder=f"{settings.cloudinary_folder}/meeting-chat/{presentation_id}",
-        resource_type=resource_type,
-        filename=file.filename or "attachment",
-        use_filename=True,
-        unique_filename=True,
-    )
+    url = await run_in_threadpool(store_upload, content, content_type, file.filename or "attachment", presentation_id=presentation_id)
     return {
         "attachment": {
             "name": (file.filename or "attachment")[:180],
             "mimeType": content_type[:120],
             "size": len(content),
-            "url": result["secure_url"],
+            "url": url,
         }
     }

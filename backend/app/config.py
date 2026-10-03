@@ -18,6 +18,7 @@ class Settings(BaseModel):
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = int(os.getenv("ACCESS_TOKEN_MINUTES", "1440"))
     public_base_url: str = os.getenv("PUBLIC_BASE_URL", "https://studio.snapkey.in")
+    storage_provider: str = os.getenv("STORAGE_PROVIDER", "s3" if os.getenv("S3_BUCKET_NAME") else "cloudinary")
     cloudinary_cloud_name: str = os.getenv("CLOUDINARY_CLOUD_NAME", "ylhzrgso")
     cloudinary_api_key: str | None = os.getenv("CLOUDINARY_API_KEY")
     cloudinary_api_secret: str | None = os.getenv("CLOUDINARY_API_SECRET")

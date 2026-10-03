@@ -1664,7 +1664,8 @@ button.present-back {
   color: #171713;
   box-shadow: 0 0 0 2px rgba(255,213,74,.13);
 }
-.live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="false"] .live-control-icon::after {
+.live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="false"] .live-control-icon::after,
+.live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="true"] .live-control-icon::after {
   content: "";
   position: absolute;
   width: 25px;
