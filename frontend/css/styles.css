@@ -943,6 +943,10 @@ button.present-back {
 .controller-preview-placeholder[hidden] { display: none; }
 .controller-preview-whiteboard { position: absolute; z-index: 3; inset: 0; background-color: #fff; background-image: radial-gradient(circle, rgba(34,42,52,.12) 1px, transparent 1px); background-size: 24px 24px; }
 .controller-preview-whiteboard[hidden] { display: none; }
+.controller-preview-stage.is-whiteboard { touch-action: none; }
+.controller-preview-stage.is-whiteboard .controller-fullscreen-tools { opacity: 1; visibility: visible; pointer-events: auto; }
+.controller-preview-stage.is-whiteboard:not(:fullscreen) { margin-bottom: 76px; overflow: visible; }
+.controller-preview-stage.is-whiteboard:not(:fullscreen) .controller-fullscreen-tools { position: absolute; z-index: 80; display: flex; left: 0; right: 0; bottom: -70px; max-width: 100%; padding: 6px; gap: 6px; border-radius: 6px; overflow-x: auto; flex-wrap: nowrap; justify-content: flex-start; background: #17181b; transform: none; }
 .controller-preview-annotation-canvas, .controller-preview-annotation-text { position: absolute; z-index: 4; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .controller-preview-annotation-text { overflow: hidden; }
 .controller-preview-annotation-text span { position: absolute; max-width: 55%; padding: .18em .32em; background: rgba(0,0,0,.45); color: var(--annotation-color, #ffd54a); font: 800 var(--annotation-size, 34px) var(--sans); line-height: 1.12; overflow-wrap: anywhere; transform: translate(-50%, -50%); }

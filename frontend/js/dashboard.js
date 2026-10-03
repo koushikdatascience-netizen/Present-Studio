@@ -18,6 +18,61 @@ let toastTimer = null;
 let dashboardPresentations = [];
 let dashboardMeetings = [];
 let privateMeetingNoticeSeen = false;
+let dashboardThumbnailCanvases = [];
+
+function renderDashboardThumbnails(presentations) {
+  if (!window.fabric) return;
+  grid.querySelectorAll('[data-deck-thumbnail]').forEach(element => {
+    const deck = presentations.find(item => item.id === element.dataset.deckThumbnail);
+    const data = deck?.slides?.[0]?.canvas || {};
+    const thumbnail = new fabric.StaticCanvas(element, { width: 1280, height: 720, renderOnAddRemove: false });
+    const objectOrder = new WeakMap();
+    dashboardThumbnailCanvases.push(thumbnail);
+    const render = () => {
+      if (!dashboardThumbnailCanvases.includes(thumbnail)) return;
+      if (!data.fabric) thumbnail.getObjects().slice().sort((a, b) => objectOrder.get(a) - objectOrder.get(b)).forEach((object, index) => thumbnail.moveTo(object, index));
+      thumbnail.backgroundColor = data.background || '#fff';
+      thumbnail.renderAll();
+    };
+    const media = [];
+    if (data.fabric) {
+      const scene = JSON.parse(JSON.stringify(data.fabric));
+      media.push(...(scene.objects || []).filter(object => ['video', 'youtube'].includes(object.mediaType)));
+      scene.objects = (scene.objects || []).filter(object => !['video', 'youtube', 'audio', 'screen-share'].includes(object.mediaType));
+      thumbnail.loadFromJSON(scene, render);
+    } else {
+      (data.elements || []).forEach((object, index) => {
+        if (object.type === 'image' && object.src) {
+          fabric.Image.fromURL(object.src, image => {
+            if (!image || !dashboardThumbnailCanvases.includes(thumbnail)) return;
+            const width = Number(object.width || 100) * 12.8;
+            const height = Number(object.height || 100) * 7.2;
+            const scale = object.fit === 'contain' ? Math.min(width / image.width, height / image.height) : null;
+            image.set({ left: Number(object.x || 0) * 12.8 + (scale ? (width - image.width * scale) / 2 : 0), top: Number(object.y || 0) * 7.2 + (scale ? (height - image.height * scale) / 2 : 0), scaleX: scale || width / image.width, scaleY: scale || height / image.height, selectable: false });
+            objectOrder.set(image, index);
+            thumbnail.add(image);
+            render();
+          });
+        } else if (['text', 'textbox'].includes(object.type)) {
+          const text = new fabric.Textbox(object.text || '', { left: Number(object.x || 0) * 12.8, top: Number(object.y || 0) * 7.2, width: Number(object.width || 80) * 12.8, fontSize: Number(object.fontSize || 32), fill: object.color || '#171717', fontFamily: object.fontFamily || 'Arial', textAlign: object.textAlign || 'left' });
+          objectOrder.set(text, index);
+          thumbnail.add(text);
+        } else if (['video', 'youtube'].includes(object.type)) media.push({ ...object, legacy: true });
+      });
+      render();
+    }
+    media.forEach(object => {
+      const youtubeId = window.SnapKeyYouTube?.idFor(object);
+      const node = document.createElement(youtubeId || object.poster ? 'img' : 'video');
+      node.className = 'dashboard-slide-media';
+      if (node.tagName === 'IMG') { node.src = youtubeId ? `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg` : object.poster; node.alt = ''; }
+      else { node.src = object.src || ''; node.muted = true; node.preload = 'metadata'; node.playsInline = true; node.addEventListener('loadedmetadata', () => { try { node.currentTime = Math.min(0.1, node.duration / 2); } catch {} }, { once: true }); }
+      const legacy = object.legacy;
+      Object.assign(node.style, { left: `${legacy ? Number(object.x || 0) : Number(object.left || 0) / 12.8}%`, top: `${legacy ? Number(object.y || 0) : Number(object.top || 0) / 7.2}%`, width: `${legacy ? Number(object.width || 100) : Number(object.width || 1280) * Number(object.scaleX || 1) / 12.8}%`, height: `${legacy ? Number(object.height || 100) : Number(object.height || 720) * Number(object.scaleY || 1) / 7.2}%`, objectFit: object.fit === 'contain' ? 'contain' : 'cover' });
+      element.parentElement.append(node);
+    });
+  });
+}
 function showToast(message) {
   if (!toast) return;
   toast.textContent = message;
@@ -54,6 +109,8 @@ function filteredPresentations() {
 
 function renderDecks(presentations) {
   if (!grid) return;
+  dashboardThumbnailCanvases.forEach(canvas => canvas.dispose());
+  dashboardThumbnailCanvases = [];
   const createTile = `
     <button class="presentation-create-card" type="button" data-create-presentation-card>
       <span><i class="bi bi-plus-lg" aria-hidden="true"></i></span>
@@ -72,12 +129,14 @@ function renderDecks(presentations) {
     const slideLabel = `${slides} slide${slides === 1 ? "" : "s"}`;
     const updated = deck.updatedAt ? new Date(deck.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "Draft";
     const accent = getAccent(deck, index);
+    const firstCanvas = deck.slides?.[0]?.canvas;
+    const hasPreview = Boolean(firstCanvas && ((firstCanvas.fabric?.objects || []).length || (firstCanvas.elements || []).length || firstCanvas.background));
     return `
       <article class="presentation-card">
-        <button class="presentation-preview" data-accent="${accent}" type="button" data-open="${escapeHtml(deck.id)}" aria-label="Open ${title}">
-          <span class="preview-kicker">PRESENT STUDIO</span>
+        <button class="presentation-preview${hasPreview ? ' has-slide-preview' : ''}" data-accent="${accent}" type="button" data-open="${escapeHtml(deck.id)}" aria-label="Open ${title}">
+          ${hasPreview ? `<span class="dashboard-slide-thumbnail"><canvas data-deck-thumbnail="${escapeHtml(deck.id)}" aria-label="First slide preview"></canvas></span>` : `<span class="preview-kicker">PRESENT STUDIO</span>
           <span class="preview-number">${String(index + 1).padStart(2, "0")}</span>
-          <span class="preview-title">${title}</span>
+          <span class="preview-title">${title}</span>`}
         </button>
         <div class="presentation-card-footer">
           <button type="button" class="card-delete" data-delete="${escapeHtml(deck.id)}" aria-label="Delete ${title}" title="Delete presentation"><i class="bi bi-trash"></i></button>
@@ -87,6 +146,7 @@ function renderDecks(presentations) {
       </article>
     `;
   }).join("") + createTile;
+  renderDashboardThumbnails(presentations);
 
   grid.querySelector("[data-create-presentation-card]")?.addEventListener("click", () => createButton?.click());
   grid.querySelectorAll("[data-open]").forEach((button) => {

@@ -35,6 +35,11 @@ html { min-height: 100%; height: auto; overflow-x: hidden; overflow-y: auto; bac
 .presentation-card { min-width: 0; overflow: hidden; border: 1px solid #deded9; border-radius: 8px; background: #fff; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
 .presentation-card:hover { border-color: #bdbdb5; box-shadow: 0 12px 28px rgba(20,20,16,.08); transform: translateY(-2px); }
 .presentation-preview { position: relative; display: block; width: 100%; min-height: 224px; overflow: hidden; padding: 28px 24px; border: 0; border-bottom: 1px solid #deded9; color: #111; background: #fff2a6; text-align: left; cursor: pointer; }
+.dashboard-page .presentation-preview.has-slide-preview { min-height: 0; aspect-ratio: 16 / 9; padding: 0; }
+.presentation-preview.has-slide-preview::after { display: none; }
+.dashboard-slide-thumbnail { position: absolute; inset: 0; overflow: hidden; background: #fff; pointer-events: none; }
+.dashboard-slide-thumbnail > canvas { width: 100% !important; height: 100% !important; }
+.dashboard-slide-media { position: absolute; pointer-events: none; }
 .presentation-preview::after { position: absolute; right: -58px; bottom: -88px; width: 205px; height: 205px; border: 2px solid rgba(17,17,17,.11); content: ""; transform: rotate(45deg); }
 .presentation-preview[data-accent="warm"] { background: #fff1a8; }
 .presentation-preview[data-accent="cream"] { background: #f7f6ef; }

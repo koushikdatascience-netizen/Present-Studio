@@ -385,10 +385,16 @@
     const slide = slideById(state.slideId);
     if (!slide) return;
     currentState = state;
-    if (state.kind === "blank") {
+    if (["blank", "whiteboard"].includes(state.kind)) {
       control("stop");
+      if (state.kind === "whiteboard") {
+        canvas.clear();
+        canvas.backgroundColor = '#fff';
+        canvas.renderAll();
+        canvasWrap.hidden = false;
+      }
       stage.dataset.slideId = slide.id;
-      stage.dataset.kind = "blank";
+      stage.dataset.kind = state.kind;
       stage.dataset.mediaId = "";
       return;
     }

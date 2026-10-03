@@ -188,7 +188,7 @@ async def controller_state(sid, data):
     media_id = data.get("mediaId")
     auth_token = data.get("authToken") or ""
     share_token = data.get("shareToken") or ""
-    if not presentation_id or not slide_id or kind not in {"slide", "image", "video", "audio", "blank"}:
+    if not presentation_id or not slide_id or kind not in {"slide", "image", "video", "audio", "blank", "whiteboard"}:
         return
     try:
         position = max(0.0, min(float(data.get("position") or 0), 86400.0))

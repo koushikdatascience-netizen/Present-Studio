@@ -802,6 +802,41 @@
       ensureTabSpeakerControl();
     }
 
+    function arrangeMobileControllerActions() {
+      if (!isController || !moreMenu || !window.matchMedia) return;
+      const dock = root.querySelector(".live-media-actions");
+      const actions = document.createElement("div");
+      actions.className = "live-mobile-menu-actions";
+      actions.setAttribute("role", "group");
+      actions.setAttribute("aria-label", "Host actions");
+      moreMenu.append(actions);
+      const controls = [...dock.querySelectorAll("#controllerRecordButton, [data-live-mute-all], [data-live-close], [data-live-enable-audio], .is-join-sound")].map(button => {
+        const anchor = document.createComment("desktop host action");
+        button.before(anchor);
+        return { button, anchor, role: button.getAttribute("role") };
+      });
+      const mobile = window.matchMedia("(max-width: 640px), (max-width: 960px) and (max-height: 500px)");
+      const arrange = () => {
+        setMoreMenuOpen(false);
+        controls.forEach(({ button, anchor, role }) => {
+          button.classList.toggle("is-mobile-menu-control", mobile.matches);
+          if (mobile.matches) {
+            button.setAttribute("role", "menuitem");
+            actions.append(button);
+          } else {
+            if (role) button.setAttribute("role", role); else button.removeAttribute("role");
+            anchor.after(button);
+          }
+        });
+        actions.hidden = !mobile.matches;
+      };
+      mobile.addEventListener("change", arrange);
+      actions.addEventListener("click", event => {
+        if (event.target.closest("button:not(:disabled)")) setMoreMenuOpen(false);
+      });
+      arrange();
+    }
+
     function playParticipantJoinSound(participant) {
       if (!joinNotificationArmed || !joinSoundEnabled) return;
       if (participant?.identity === currentIdentity()) return;
@@ -2836,6 +2871,7 @@
     });
 
     if (isController) ensureJoinSoundControl();
+    arrangeMobileControllerActions();
     ensureTabSpeakerControl();
     ensureParticipantDirectory();
     updatePeopleFilters([]);

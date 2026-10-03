@@ -393,14 +393,16 @@ function applyPresentationState(rawState, forceRender = false) {
   liveState = state;
   currentSlideIndex = found;
   const frame = $("presentFrame");
-  if (state.kind === "blank") {
+  if (["blank", "whiteboard"].includes(state.kind)) {
     clearInterval(mediaTimer);
     $("presentMedia").replaceChildren();
     canvas.clear();
-    $("presentCanvas").hidden = true;
-    frame.dataset.kind = "blank";
+    $("presentCanvas").hidden = state.kind !== 'whiteboard';
+    canvas.backgroundColor = state.kind === 'whiteboard' ? '#fff' : '#000';
+    canvas.renderAll();
+    frame.dataset.kind = state.kind;
     frame.dataset.mediaId = "";
-    currentOutputLabel = "Black screen";
+    currentOutputLabel = state.kind === 'whiteboard' ? 'Whiteboard' : 'Black screen';
     return;
   }
   const changed = forceRender || frame.dataset.slideId !== state.slideId || (frame.dataset.kind || "slide") !== state.kind || String(frame.dataset.mediaId || "") !== String(state.mediaId || "");

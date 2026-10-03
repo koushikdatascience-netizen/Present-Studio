@@ -67,7 +67,8 @@
   }
   function annotationPayload(type, payload = {}) { socket?.emit("annotation_event", { ...credentials(), type, payload }); }
 
-  function setPreviewWhiteboard(active) {
+  function setPreviewWhiteboard(active, send = true) {
+    const changed = previewWhiteboardActive !== Boolean(active);
     previewWhiteboardActive = Boolean(active);
     const surface = $("#previewWhiteboardSurface");
     surface.hidden = !previewWhiteboardActive;
@@ -84,6 +85,18 @@
     launchButton.setAttribute("aria-pressed", String(previewWhiteboardActive));
     launchButton.setAttribute("aria-label", previewWhiteboardActive ? "Close Whiteboard" : "Open Whiteboard");
     launchButton.dataset.tooltip = previewWhiteboardActive ? "Close Whiteboard" : "Whiteboard";
+    if (changed && previewWhiteboardActive) {
+      outputBlanked = false;
+      stopLoop(false);
+      previewMediaElements().forEach(media => media.pause());
+      $('#controllerPreviewMedia').querySelectorAll('iframe[data-youtube-id]').forEach(frame => window.SnapKeyYouTube.sync(frame, { playing: false }));
+      clearPreviewToolAnnotations(send);
+      previewToolZoom = 1;
+      previewToolPan = { x: 0, y: 0 };
+      applyPreviewToolViewport(send);
+    }
+    if (changed && !previewWhiteboardActive) clearPreviewToolAnnotations(send);
+    if (changed && send) emitControllerState();
     if (previewWhiteboardActive) {
       $("#previewTitle").textContent = "Whiteboard";
       return;
@@ -511,7 +524,12 @@
     const status = $("#connectionStatus");
     const settingsButton = $("#controllerSettingsButton");
     const links = nextMode === "interactive" ? $("#interactiveWorkspaceLinks") : $("#controllerWorkspaceLinks");
-    links.append(modeSwitch, settingsButton, editorLink, status);
+    if (window.matchMedia("(max-width: 640px), (max-width: 960px) and (max-height: 500px)").matches) {
+      $(".live-controller-header").append(modeSwitch);
+      $(".live-controller-actions").append(status, settingsButton, editorLink);
+    } else {
+      links.append(modeSwitch, settingsButton, editorLink, status);
+    }
     document.querySelectorAll("[data-controller-mode-view]").forEach(view => { view.hidden = view.dataset.controllerModeView !== nextMode; });
     document.querySelectorAll("[data-controller-mode-target]").forEach(button => {
       const active = button.dataset.controllerModeTarget === nextMode;
@@ -580,6 +598,7 @@
     setControllerSidebarHidden(sidebarHidden, false);
     setLibraryPanel(initialPanel, false);
     setControllerMode(initialMode, false);
+    window.matchMedia("(max-width: 640px), (max-width: 960px) and (max-height: 500px)").addEventListener("change", () => setControllerMode(document.body.dataset.controllerMode, false));
   }
 
   function setPreviewDockMinimized(minimized) {
@@ -895,7 +914,7 @@
     stage.addEventListener("pointerdown", showPreviewToolbar, { passive: true });
     stage.addEventListener("touchstart", showPreviewToolbar, { passive: true });
     stage.addEventListener("pointermove", event => {
-      if (document.fullscreenElement !== stage) return;
+      if (document.fullscreenElement !== stage && !previewWhiteboardActive) return;
       showPreviewToolbar();
       const visualBounds = $("#controllerPreviewVisual").getBoundingClientRect();
       updateWhiteboardCursor($("#previewWhiteboardCursor"), event, visualBounds, color(), size());
@@ -920,7 +939,7 @@
       drawPreviewToolPath([previous, point], previewHighlighterColor(), size());
     });
     stage.addEventListener("pointerdown", event => {
-      if (document.fullscreenElement !== stage || event.button !== 0 || event.target.closest("#previewFullscreenTools, #previewTextEditor")) return;
+      if ((document.fullscreenElement !== stage && !previewWhiteboardActive) || event.button !== 0 || event.target.closest("#previewFullscreenTools, #previewTextEditor")) return;
       const point = previewToolPoint(event);
       if (previewTool !== "pan" && !point) return;
       if (previewTool === "text") {
@@ -1265,10 +1284,10 @@
     return {
       ...credentials(),
       slideId: target.slideId,
-      kind: outputBlanked ? "blank" : target.kind,
-      mediaId: outputBlanked ? null : (target.mediaId || null),
+      kind: previewWhiteboardActive ? "whiteboard" : outputBlanked ? "blank" : target.kind,
+      mediaId: outputBlanked || previewWhiteboardActive ? null : (target.mediaId || null),
       position: media && media.readyState >= 1 ? Number(media.currentTime) || 0 : fallbackPosition,
-      playing: !outputBlanked && (media && media.readyState >= 1 ? !media.paused && !media.ended : Boolean(restoredMediaState?.playing)),
+      playing: !outputBlanked && !previewWhiteboardActive && (media && media.readyState >= 1 ? !media.paused && !media.ended : Boolean(restoredMediaState?.playing)),
       muted: audienceAudioMuted,
       videoVolume,
       audioVolume
@@ -1295,17 +1314,21 @@
     const target = targetForLiveState(state);
     if (!target) return;
     const nextBlanked = state.kind === "blank";
-    const selectionChanged = activeTargetId !== target.id || outputBlanked !== nextBlanked;
+    const selectionChanged = activeTargetId !== target.id || outputBlanked !== nextBlanked || previewWhiteboardActive !== (state.kind === "whiteboard");
     activeTargetId = target.id;
     outputBlanked = nextBlanked;
     restoredMediaState = { ...state, slideId: state.slideId || state.activeSlideId };
     document.querySelectorAll(".controller-target-card").forEach(card => card.classList.toggle("active", card.dataset.targetId === activeTargetId));
     if (selectionChanged) {
-      setPreviewWhiteboard(false);
+      setPreviewWhiteboard(false, false);
       renderTargetPreview(target);
     }
     if (outputBlanked) {
       if (selectionChanged) showPreviewPlaceholder("Black screen");
+      return;
+    }
+    if (state.kind === "whiteboard") {
+      setPreviewWhiteboard(true, false);
       return;
     }
     applyRestoredMediaState(restoredMediaState);
@@ -1547,7 +1570,7 @@
   function targetForLiveState(state) {
     const slideId = state?.slideId || state?.activeSlideId;
     if (!slideId) return null;
-    if (state?.kind && !["slide", "blank"].includes(state.kind)) {
+    if (state?.kind && !["slide", "blank", "whiteboard"].includes(state.kind)) {
       const mediaTarget = targets.find(target => target.slideId === slideId && target.kind === state.kind && String(target.mediaId) === String(state.mediaId));
       if (mediaTarget) return mediaTarget;
     }
@@ -1643,7 +1666,7 @@
 
   function selectTarget(target) {
     if (!target) return;
-    setPreviewWhiteboard(false);
+    setPreviewWhiteboard(false, false);
     activeTargetId = target.id;
     restoredMediaState = null;
     outputBlanked = false;
@@ -1786,7 +1809,8 @@
       document.querySelector(`[data-target-id="${CSS.escape(activeTargetId)}"]`)?.classList.add("active");
       outputBlanked = live.kind === "blank";
       renderTargetPreview(initialTarget);
-      if (outputBlanked) showPreviewPlaceholder("Black screen");
+      if (live.kind === "whiteboard") setPreviewWhiteboard(true, false);
+      else if (outputBlanked) showPreviewPlaceholder("Black screen");
       else applyRestoredMediaState({ ...live, slideId: live.activeSlideId });
     }
     $("#startImageLoop").onclick = () => startLoop("image", "#imageLoopList");
@@ -1800,7 +1824,7 @@
       stopLoop(false);
       outputBlanked = true;
       restoredMediaState = null;
-      setPreviewWhiteboard(false);
+      setPreviewWhiteboard(false, false);
       showPreviewPlaceholder("Black screen");
       emitControllerState();
       socket?.emit("media_control", { ...credentials(), action: "stop", position: 0, legacyOnly: true });
