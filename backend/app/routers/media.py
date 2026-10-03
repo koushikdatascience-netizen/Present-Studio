@@ -7,8 +7,10 @@ import logging
 import subprocess
 import tempfile
 import uuid
+import re
+import httpx
 from pathlib import Path
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, Response, FileResponse
 from botocore.exceptions import ClientError
 from starlette.concurrency import run_in_threadpool
 from ..config import get_settings
@@ -34,6 +36,19 @@ def create_media_poster(storage, key, content):
         source.write_bytes(content)
         subprocess.run(["ffmpeg", "-nostdin", "-y", "-i", str(source), "-frames:v", "1", "-vf", "scale=1200:-2", "-q:v", "5", str(poster)], check=True, capture_output=True, timeout=30)
         storage.upload_bytes(content=poster.read_bytes(), key=f"{key}.jpg", content_type="image/jpeg")
+
+
+@router.get("/youtube/{video_id}/preview")
+def serve_youtube_preview(video_id: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+        raise HTTPException(status_code=404, detail="Video thumbnail not found")
+    try:
+        result = httpx.get(f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg", timeout=10)
+        if result.status_code == 200 and result.headers.get("content-type", "").startswith("image/") and len(result.content) <= 1024 * 1024:
+            return Response(result.content, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
+    except httpx.HTTPError:
+        logger.warning("YouTube thumbnail unavailable")
+    return FileResponse(get_settings().frontend_dir / "assets" / "snapkey.png")
 
 
 def store_upload(content, content_type, filename, *, asset_id=None, owner_id=None, presentation_id=None):

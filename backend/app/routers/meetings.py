@@ -38,7 +38,7 @@ def serialize_meeting(meeting: Meeting, presentation: Presentation, share: Share
     base = public_share_base_url(request)
     scenes = [slide.canvas for slide in presentation.slides]
     has_media = any(scene.get("elements") or (scene.get("fabric") or {}).get("objects") for scene in scenes if scene)
-    revision = hashlib.sha256(("preview-v2:" + json.dumps(scenes, sort_keys=True)).encode()).hexdigest()[:12] if has_media else ""
+    revision = hashlib.sha256(("preview-v3:" + json.dumps(scenes, sort_keys=True)).encode()).hexdigest()[:12] if has_media else ""
     return MeetingOut(
         id=meeting.id,
         presentationId=presentation.id,

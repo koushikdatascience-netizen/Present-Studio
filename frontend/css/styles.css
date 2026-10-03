@@ -4506,15 +4506,15 @@ button.present-back {
 .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] .live-control-icon,
 .live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] .live-control-icon,
 .present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] .live-control-icon {
-  border-color: #1f9f5a !important;
-  background: #1f9f5a !important;
-  color: #fff !important;
-  box-shadow: 0 0 0 3px rgba(31,159,90,.18) !important;
+  border-color: #d3aa0d !important;
+  background: #ffd54a !important;
+  color: #171713 !important;
+  box-shadow: 0 0 0 3px rgba(255,213,74,.18) !important;
 }
 .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] > [data-live-control-label],
 .live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] > [data-live-control-label],
 .present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] > [data-live-control-label] {
-  color: #7ee0a7 !important;
+  color: #ffd54a !important;
 }
 .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="false"]:not(:disabled) .live-control-icon,
 .live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="false"]:not(:disabled) .live-control-icon,
@@ -4531,9 +4531,9 @@ button.present-back {
 .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="false"] .live-control-icon,
 .live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="false"] .live-control-icon,
 .present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="false"] .live-control-icon {
-  border-color: rgba(31,159,90,.72) !important;
-  background: #193329 !important;
-  color: #7ee0a7 !important;
+  border-color: #d3aa0d !important;
+  background: #ffd54a !important;
+  color: #171713 !important;
 }
 .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="true"] .live-control-icon,
 .live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="true"] .live-control-icon,

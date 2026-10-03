@@ -173,11 +173,13 @@ def audience_join(token: str, request: Request, db: Session = Depends(get_db)) -
         if presentation:
             title = f"{presentation.title} | SnapKey Studio"
             description = "Private meeting. Entry is limited to permitted participants." if private else "You're invited. Join this live meeting on SnapKey Studio."
-            if not private:
+            if not private or meeting:
                 slides = db.query(Slide).filter(Slide.presentation_id == presentation.id).order_by(Slide.order).all()
                 for slide in slides:
                     scene = slide.canvas or {}
                     items = list(scene.get("elements") or []) + list((scene.get("fabric") or {}).get("objects") or [])
+                    if private:
+                        items = [item for item in items if str(item.get("id", "")).startswith("meeting_media_")]
                     visual = next((item for item in items if (item.get("mediaType") or item.get("type")) in {"image", "video", "youtube"} and item.get("src")), None)
                     if not visual:
                         continue
@@ -187,7 +189,7 @@ def audience_join(token: str, request: Request, db: Session = Depends(get_db)) -
                         video_id = str(visual.get("youtubeId", ""))
                         if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
                             continue
-                        candidate = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+                        candidate = f"/api/media/youtube/{video_id}/preview"
                     elif candidate.startswith("/api/media/") and candidate.endswith("/content"):
                         candidate = candidate.removesuffix("/content") + "/preview"
                     elif kind == "video":

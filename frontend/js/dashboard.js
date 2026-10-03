@@ -378,7 +378,9 @@ meetingForm?.addEventListener("submit", async event => {
         await attachRoomMediaToMeeting(meeting, roomMediaFile, youtubeId);
         mediaAttached = true;
         const refreshed = await api.listMeetings();
+        const accessCode = meeting.accessCode;
         Object.assign(meeting, refreshed.meetings.find(item => item.id === meeting.id) || {});
+        meeting.accessCode = accessCode;
       } catch (mediaError) {
         showToast(mediaError.message || "Meeting created, but the room media could not be added.");
       }

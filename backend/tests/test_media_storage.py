@@ -12,7 +12,8 @@ from app.models import Slide
 
 
 @pytest.mark.parametrize("mime,kind", [("image/png", "image"), ("video/mp4", "video")])
-def test_s3_upload_stable_url_and_meeting_preview(mime, kind):
+@pytest.mark.parametrize("access_type", ["public", "private"])
+def test_s3_upload_stable_url_and_meeting_preview(mime, kind, access_type):
     storage = MagicMock()
     storage.media_key.side_effect = lambda owner, asset: f"media/{owner}/{asset}"
     storage.presigned_get.return_value = "https://bucket.example/media?signature=test"
@@ -45,10 +46,10 @@ def test_s3_upload_stable_url_and_meeting_preview(mime, kind):
                 thumbnail = client.get(f"/api/media/{asset['id']}/thumbnail", follow_redirects=False)
                 assert thumbnail.status_code == 307
 
-        meeting = client.post("/api/meetings", headers=headers, json={"title": 'Team <Launch> & Review', "accessType": "public"}).json()
+        meeting = client.post("/api/meetings", headers=headers, json={"title": 'Team <Launch> & Review', "accessType": access_type}).json()
         with SessionLocal() as db:
             slide = db.query(Slide).filter(Slide.presentation_id == meeting["presentationId"]).first()
-            slide.canvas = {"elements": [{"type": kind, "src": asset["url"], "full_bleed": True}]}
+            slide.canvas = {"elements": [{"id": "meeting_media_test", "type": kind, "src": asset["url"], "full_bleed": True}]}
             db.commit()
         page = client.get(meeting["audienceUrl"]).text
         assert 'property="og:title" content="Team &lt;Launch&gt; &amp; Review | SnapKey Studio"' in page
@@ -68,18 +69,35 @@ def test_s3_failure_returns_clear_upload_error():
         assert response.json()["detail"] == "Object storage upload failed. Please try again."
 
 
-def test_youtube_meeting_preview_and_media_link_revision():
+@pytest.mark.parametrize("access_type", ["public", "private"])
+def test_youtube_meeting_preview_and_media_link_revision(access_type):
     with TestClient(fastapi_app) as client:
         signup = client.post("/api/auth/signup", json={"name": "YouTube Owner", "email": f"youtube-{uuid4().hex}@example.com", "password": "securepass123"})
         headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
-        meeting = client.post("/api/meetings", headers=headers, json={"title": "Video meeting", "accessType": "public"}).json()
+        meeting = client.post("/api/meetings", headers=headers, json={"title": "Video meeting", "accessType": access_type, "timingMode": "instant", "durationMode": "unlimited"}).json()
         with SessionLocal() as db:
             slide = db.query(Slide).filter(Slide.presentation_id == meeting["presentationId"]).first()
-            slide.canvas = {"elements": [{"type": "youtube", "youtubeId": "dQw4w9WgXcQ", "src": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}]}
+            slide.canvas = {"elements": [{"id": "meeting_media_test", "type": "youtube", "youtubeId": "dQw4w9WgXcQ", "src": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}]}
             db.commit()
         updated = next(item for item in client.get("/api/meetings", headers=headers).json()["meetings"] if item["id"] == meeting["id"])
         assert "?preview=" in updated["audienceUrl"]
         assert updated["audienceUrl"] != meeting["audienceUrl"]
         page = client.get(updated["audienceUrl"]).text
-        assert 'property="og:image" content="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"' in page
+        assert 'property="og:image" content="https://testserver/api/media/youtube/dQw4w9WgXcQ/preview"' in page
         assert f'property="og:url" content="{updated["audienceUrl"]}"' in page
+        if access_type == "private":
+            assert len(meeting["accessCode"]) == 4
+            assert meeting["accessCode"].isdigit()
+            access = client.post(f"/api/presentations/{meeting['presentationId']}/screen-access", json={"token": meeting["audienceUrl"].rsplit("/", 1)[-1], "screenAccessCode": meeting["accessCode"]})
+            assert access.status_code == 200
+
+
+def test_youtube_thumbnail_is_served_directly():
+    response = MagicMock(status_code=200, content=b"thumbnail", headers={"content-type": "image/jpeg"})
+    with TestClient(fastapi_app) as client, patch("app.routers.media.httpx.get", return_value=response) as fetch:
+        preview = client.get("/api/media/youtube/dQw4w9WgXcQ/preview", follow_redirects=False)
+        assert preview.status_code == 200
+        assert preview.content == b"thumbnail"
+        assert preview.headers["content-type"] == "image/jpeg"
+        assert "location" not in preview.headers
+        fetch.assert_called_once_with("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", timeout=10)
