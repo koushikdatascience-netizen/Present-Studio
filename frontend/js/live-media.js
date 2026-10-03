@@ -901,17 +901,20 @@
       syncTabSpeakerButton();
     }
 
-    function publishControllerState() {
+    function publishControllerState(overrides = {}) {
       if (!isController || !options.socket) return;
-      options.socket.emit("meeting_control", {
+      const payload = {
         presentationId: options.presentationId,
         authToken: options.authToken || "",
         shareToken: options.shareToken || "",
-        featuredShareIdentity: controllerShareIdentity,
         featuredCameraIdentity: selectedCameraIdentity,
         meetingMuted,
         mutedParticipants: [...mutedParticipants]
-      });
+      };
+      if (Object.prototype.hasOwnProperty.call(overrides, "featuredShareIdentity")) {
+        payload.featuredShareIdentity = overrides.featuredShareIdentity;
+      }
+      options.socket.emit("meeting_control", payload);
     }
 
     function applyControllerState(message) {
@@ -1421,6 +1424,11 @@
         if (!key) return;
         activeKeys.add(key);
         let audio = existing.get(key);
+        if (audio && (audio._liveTrack !== publication.track || !audio.isConnected)) {
+          try { audio._liveTrack?.detach?.(audio); } catch {}
+          audio.remove();
+          audio = null;
+        }
         if (!audio) {
           audio = publication.track.attach();
           Object.assign(audio, { autoplay: true, hidden: true });
@@ -1437,6 +1445,11 @@
         }
         audio.dataset.liveAudioParticipant = identity;
         audio.muted = tabSpeakerMuted || participantAudioMuted(identity);
+        audio.play?.().catch(error => {
+          if (error?.name !== "NotAllowedError") return;
+          audioPlaybackBlocked = true;
+          syncAudioRecovery();
+        });
       });
       existing.forEach((audio, key) => {
         if (activeKeys.has(key)) return;
@@ -1479,7 +1492,7 @@
       const availableIdentities = new Set(activeShares.map(item => item.participant.identity));
       if (isController && controllerShareIdentity && !availableIdentities.has(controllerShareIdentity)) {
         controllerShareIdentity = "";
-        publishControllerState();
+        publishControllerState({ featuredShareIdentity: "" });
       }
       const controllerOverrideActive = availableIdentities.has(controllerShareIdentity);
       const requestedIdentity = controllerShareIdentity || selectedShareIdentity;
@@ -1544,7 +1557,7 @@
               event.stopPropagation();
               selectedShareIdentity = participant.identity;
               controllerShareIdentity = participant.identity;
-              publishControllerState();
+              publishControllerState({ featuredShareIdentity: controllerShareIdentity });
               renderParticipants();
             });
             picker.append(select);
@@ -1585,7 +1598,7 @@
             selectedShareIdentity = participant.identity;
             if (isController) {
               controllerShareIdentity = participant.identity;
-              publishControllerState();
+              publishControllerState({ featuredShareIdentity: controllerShareIdentity });
             }
             renderParticipants();
           });

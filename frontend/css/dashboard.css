@@ -104,6 +104,9 @@ html { min-height: 100%; overflow-x: hidden; background: #f7f7f4; }
 .meeting-dialog-body, .meeting-created-result { padding: 16px 20px; }
 .meeting-dialog-body > label, .meeting-created-result > label, .meeting-conditional { display: grid; gap: 5px; color: #333; font-size: 12px; font-weight: 750; }
 .meeting-dialog-body input, .meeting-created-result input { width: 100%; min-height: 40px; box-sizing: border-box; border: 1px solid #cececa; border-radius: 5px; padding: 0 11px; background: #fff; font: 14px Arial, sans-serif; }
+.meeting-media-field { margin-top: 13px; border: 1px solid #deded9; border-radius: 8px; padding: 12px; background: #fafaf7; }
+.meeting-media-field input { padding: 8px; background: #fff; }
+.meeting-media-field small { color: #6a675f; font-size: 12px; font-weight: 650; line-height: 1.35; }
 .meeting-dialog-body fieldset { margin: 14px 0 0; border: 0; padding: 0; }
 .meeting-dialog-body legend { margin-bottom: 7px; color: #333; font-size: 12px; font-weight: 750; }
 .meeting-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }

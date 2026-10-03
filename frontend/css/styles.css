@@ -4500,3 +4500,56 @@ button.present-back {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Meeting dock state colors: keep action state visually distinct across themes. */
+.live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] .live-control-icon,
+.live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] .live-control-icon,
+.present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] .live-control-icon {
+  border-color: #1f9f5a !important;
+  background: #1f9f5a !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 3px rgba(31,159,90,.18) !important;
+}
+.live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] > [data-live-control-label],
+.live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] > [data-live-control-label],
+.present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="true"] > [data-live-control-label] {
+  color: #7ee0a7 !important;
+}
+.live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="false"]:not(:disabled) .live-control-icon,
+.live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="false"]:not(:disabled) .live-control-icon,
+.present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="false"]:not(:disabled) .live-control-icon {
+  border-color: rgba(213,80,69,.7) !important;
+  background: #35201e !important;
+  color: #ffaaa3 !important;
+}
+.live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="false"]:not(:disabled) > [data-live-control-label],
+.live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="false"]:not(:disabled) > [data-live-control-label],
+.present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button:is(.is-microphone,.is-camera)[aria-pressed="false"]:not(:disabled) > [data-live-control-label] {
+  color: #ffaaa3 !important;
+}
+.live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="false"] .live-control-icon,
+.live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="false"] .live-control-icon,
+.present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="false"] .live-control-icon {
+  border-color: rgba(31,159,90,.72) !important;
+  background: #193329 !important;
+  color: #7ee0a7 !important;
+}
+.live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="true"] .live-control-icon,
+.live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="true"] .live-control-icon,
+.present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="true"] .live-control-icon,
+.live-icon-control-dock .live-control-button.is-mute-all[aria-pressed="true"] .live-control-icon,
+.live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button.is-mute-all[aria-pressed="true"] .live-control-icon,
+.present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button.is-mute-all[aria-pressed="true"] .live-control-icon {
+  border-color: rgba(213,80,69,.72) !important;
+  background: #35201e !important;
+  color: #ffaaa3 !important;
+  box-shadow: 0 0 0 3px rgba(213,80,69,.15) !important;
+}
+.live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="true"] > [data-live-control-label],
+.live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="true"] > [data-live-control-label],
+.present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button.is-tab-speaker[aria-pressed="true"] > [data-live-control-label],
+.live-icon-control-dock .live-control-button.is-mute-all[aria-pressed="true"] > [data-live-control-label],
+.live-controller-page[data-controller-theme="light"] .live-icon-control-dock .live-control-button.is-mute-all[aria-pressed="true"] > [data-live-control-label],
+.present-page[data-audience-theme="light"] .live-icon-control-dock .live-control-button.is-mute-all[aria-pressed="true"] > [data-live-control-label] {
+  color: #ffaaa3 !important;
+}

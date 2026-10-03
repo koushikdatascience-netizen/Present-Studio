@@ -11,6 +11,7 @@ const dashboardStyles = fs.readFileSync(path.join(__dirname, "../frontend/css/da
 
 test("dashboard exposes the complete instant and scheduled meeting workflow", () => {
   assert.match(dashboardHtml, /id="createMeeting"/);
+  assert.match(dashboardHtml, /id="meetingRoomMedia"[^>]+accept="image\/\*,video\/\*"/);
   assert.match(dashboardHtml, /name="timingMode" value="instant"/);
   assert.match(dashboardHtml, /name="timingMode" value="scheduled"/);
   assert.match(dashboardHtml, /name="durationMode" value="unlimited"/);
@@ -22,6 +23,9 @@ test("dashboard exposes the complete instant and scheduled meeting workflow", ()
 test("meeting creation sends scheduling and privacy choices to the dedicated API", () => {
   assert.match(api, /createMeeting:\s*\(meeting\).*\/api\/meetings/);
   assert.match(dashboard, /api\.createMeeting\(\{/);
+  assert.match(dashboard, /attachRoomMediaToMeeting\(meeting, roomMediaFile\)/);
+  assert.match(dashboard, /api\.uploadMedia\(file\)/);
+  assert.match(dashboard, /api\.savePresentation\(updated\)/);
   assert.match(dashboard, /scheduledStart:\s*timingMode === "scheduled"/);
   assert.match(dashboard, /scheduledEnd:\s*scheduledEnd\?\.toISOString/);
   assert.match(dashboard, /meeting\.accessCode/);
@@ -33,10 +37,11 @@ test("timed owner meetings automatically close at their configured end", () => {
 });
 
 test("dashboard presents meetings as a responsive grid with confirmed deletion", () => {
-  assert.match(dashboardHtml, /class="[^"]*is-primary[^"]*" id="createMeeting"/);
-  assert.match(dashboardStyles, /\.meeting-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3,/);
-  assert.match(dashboardStyles, /@media \(max-width:\s*1100px\)[\s\S]*\.meeting-grid\s*\{\s*grid-template-columns:\s*repeat\(2,/);
-  assert.match(dashboardStyles, /@media \(max-width:\s*760px\)[\s\S]*\.meeting-grid\s*\{\s*grid-template-columns:\s*1fr/);
+  assert.match(dashboardHtml, /id="createMeeting"/);
+  assert.match(dashboardHtml, /data-create-meeting-link/);
+  assert.match(dashboardStyles, /\.dashboard-content\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 400px/);
+  assert.match(dashboardStyles, /\.meeting-grid\s*\{[^}]*grid-template-columns:\s*1fr/);
+  assert.match(dashboardStyles, /@media \(max-width:\s*900px\)[\s\S]*\.dashboard-content\s*\{\s*grid-template-columns:\s*1fr/);
   assert.match(api, /deleteMeeting:\s*\(id\).*method:\s*"DELETE"/);
   assert.match(dashboard, /data-delete-meeting/);
   assert.match(dashboard, /window\.confirm\([\s\S]*The audience link will stop working immediately/);

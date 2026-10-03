@@ -2,7 +2,9 @@ from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
+import asyncio
 import jwt
+from app import socket_manager
 from app.database import SessionLocal
 from app.config import get_settings
 from app.main import fastapi_app, live_session_repair_statements, share_link_repair_statements
@@ -458,6 +460,46 @@ def test_meeting_control_payload_restores_persisted_override_state():
         "meetingMuted": True,
         "mutedParticipants": ["participant_one", "participant_two"],
     }
+
+
+def test_meeting_control_partial_update_preserves_featured_share():
+    owner_id = f"user_{uuid4().hex}"
+    presentation_id = f"pres_{uuid4().hex}"
+    live_id = f"live_{uuid4().hex}"
+    with SessionLocal() as db:
+        db.add(User(id=owner_id, name="Owner", email=f"{owner_id}@example.com", password_hash=hash_password("secret123")))
+        db.add(Presentation(id=presentation_id, title="Live room", owner_id=owner_id))
+        db.add(LiveSession(id=live_id, presentation_id=presentation_id, featured_share_identity="screen-owner", meeting_muted=False))
+        db.commit()
+
+    try:
+        with patch.object(socket_manager, "can_present_with_credentials", return_value=True), patch.object(
+            socket_manager.sio, "emit", new_callable=AsyncMock
+        ):
+            asyncio.run(socket_manager.meeting_control("host-sid", {
+                "presentationId": presentation_id,
+                "featuredCameraIdentity": "camera-owner",
+                "meetingMuted": True,
+                "mutedParticipants": ["participant-one"],
+            }))
+
+        with SessionLocal() as db:
+            live = db.get(LiveSession, live_id)
+            assert live.featured_share_identity == "screen-owner"
+            assert live.featured_camera_identity == "camera-owner"
+            assert live.meeting_muted is True
+    finally:
+        with SessionLocal() as db:
+            live = db.get(LiveSession, live_id)
+            presentation = db.get(Presentation, presentation_id)
+            owner = db.get(User, owner_id)
+            if live:
+                db.delete(live)
+            if presentation:
+                db.delete(presentation)
+            if owner:
+                db.delete(owner)
+            db.commit()
 
 
 def test_signup_creates_authenticated_user():

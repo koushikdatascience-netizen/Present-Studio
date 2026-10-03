@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <link rel="stylesheet" href="/css/builder.css?v=20260928-outfit-font">
-  <link rel="stylesheet" href="/css/dashboard.css?v=20261003-dashboard-redesign">
+  <link rel="stylesheet" href="/css/dashboard.css?v=20261003-meeting-media">
 </head>
 <body class="dashboard-page">
   <header class="app-header dashboard-header">
@@ -65,9 +65,10 @@
       <header class="meeting-dialog-header"><div><p class="dashboard-eyebrow">NEW MEETING</p><h2 id="meetingCreateTitle">Set up your meeting</h2></div><button type="button" id="meetingDialogClose" aria-label="Close meeting setup">×</button></header>
       <div class="meeting-dialog-body" data-meeting-form>
         <label class="meeting-title-field"><span>Meeting name</span><input id="meetingTitle" name="title" maxlength="255" value="New meeting" required></label>
+        <label class="meeting-media-field"><span>Room image or video</span><input id="meetingRoomMedia" name="roomMedia" type="file" accept="image/*,video/*"><small data-meeting-media-name>Optional branded visual for the meeting screen.</small></label>
         <fieldset><legend>When should it start?</legend><div class="meeting-choice-grid"><label><input type="radio" name="timingMode" value="instant" checked><span><i class="bi bi-lightning-charge"></i><b>Instant</b><small>Start when you open the room</small></span></label><label><input type="radio" name="timingMode" value="scheduled"><span><i class="bi bi-calendar-event"></i><b>Scheduled</b><small>Choose a future date and time</small></span></label></div></fieldset>
         <label class="meeting-conditional" data-scheduled-start hidden><span>Start date and time</span><input id="meetingScheduledStart" name="scheduledStart" type="datetime-local"></label>
-        <fieldset><legend>How long can it run?</legend><div class="meeting-choice-grid"><label><input type="radio" name="durationMode" value="unlimited" checked><span><i class="bi bi-infinity"></i><b>Unlimited</b><small>Owner closes the meeting</small></span></label><label><input type="radio" name="durationMode" value="timed"><span><i class="bi bi-hourglass-split"></i><b>Timed</b><small>Close at a selected end time</small></span></label></div></fieldset>
+        <fieldset><legend>How long can it run?</legend><div class="meeting-choice-grid"><label><input type="radio" name="durationMode" value="unlimited" checked><span><i class="bi bi-infinity"></i><b>Unlimited</b><small>Persistent room until the owner closes it</small></span></label><label><input type="radio" name="durationMode" value="timed"><span><i class="bi bi-hourglass-split"></i><b>Timed</b><small>Close at a selected end time</small></span></label></div></fieldset>
         <label class="meeting-conditional" data-scheduled-end hidden><span>End date and time</span><input id="meetingScheduledEnd" name="scheduledEnd" type="datetime-local"></label>
         <fieldset><legend>Who can use the link?</legend><div class="meeting-choice-grid"><label><input type="radio" name="accessType" value="public" checked><span><i class="bi bi-globe2"></i><b>Public</b><small>No meeting code required</small></span></label><label><input type="radio" name="accessType" value="private"><span><i class="bi bi-shield-lock"></i><b>Private</b><small>A 4-digit code is generated</small></span></label></div></fieldset>
         <div class="meeting-private-notice" data-private-meeting-notice hidden>
@@ -94,6 +95,6 @@
   </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/js/api.js?v=20260928-meeting-grid"></script>
-  <script src="/js/dashboard.js?v=20261003-dashboard-redesign"></script>
+  <script src="/js/dashboard.js?v=20261003-meeting-media"></script>
 </body>
 </html>

@@ -11,6 +11,8 @@ const toast = document.querySelector("#toast");
 const profileButton = document.querySelector("#profileButton");
 const builderButtons = [document.querySelector("#builderNav"), document.querySelector("#openBuilder")].filter(Boolean);
 const searchInput = document.querySelector("#presentationSearch");
+const meetingRoomMediaInput = document.querySelector("#meetingRoomMedia");
+const meetingRoomMediaName = document.querySelector("[data-meeting-media-name]");
 
 let toastTimer = null;
 let dashboardPresentations = [];
@@ -207,6 +209,53 @@ function localDateTimeValue(date) {
   return local.toISOString().slice(0, 16);
 }
 
+function readLocalDateTime(selector) {
+  const value = document.querySelector(selector)?.value || "";
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function meetingMediaElement(asset) {
+  const isVideo = String(asset.mimeType || "").startsWith("video/");
+  return {
+    id: `meeting_media_${Date.now()}`,
+    type: isVideo ? "video" : "image",
+    src: asset.url,
+    x: 0,
+    y: 0,
+    width: 1280,
+    height: 720,
+    full_bleed: true,
+    fitToSlide: true,
+    loop: isVideo,
+    muted: false,
+    fit: "contain"
+  };
+}
+
+async function attachRoomMediaToMeeting(meeting, file) {
+  if (!file) return true;
+  if (!/^(image|video)\//.test(file.type || "")) {
+    throw new Error("Choose an image or video file for the room visual.");
+  }
+  if (file.size > 100 * 1024 * 1024) {
+    throw new Error("Room image or video must be 100 MB or smaller.");
+  }
+  const { asset } = await api.uploadMedia(file);
+  const { presentation } = await api.getPresentation(meeting.presentationId);
+  const slides = Array.isArray(presentation.slides) ? presentation.slides : [];
+  const firstSlide = slides[0];
+  if (!firstSlide) return true;
+  const canvas = { ...(firstSlide.canvas || {}), background: "#101010", elements: [meetingMediaElement(asset)] };
+  const updated = {
+    ...presentation,
+    slides: slides.map((slide, index) => index === 0 ? { ...slide, canvas } : slide)
+  };
+  await api.savePresentation(updated);
+  return true;
+}
+
 function resetMeetingDialog() {
   meetingForm?.reset();
   privateMeetingNoticeSeen = false;
@@ -223,6 +272,7 @@ function resetMeetingDialog() {
   document.querySelector("#meetingCancel").textContent = "Cancel";
   document.querySelector("#meetingOwnerJoin").hidden = true;
   document.querySelector("#meetingFormError").hidden = true;
+  if (meetingRoomMediaName) meetingRoomMediaName.textContent = "Optional branded visual for the meeting screen.";
   syncMeetingFields();
 }
 
@@ -260,29 +310,43 @@ privateMeetingDialog?.addEventListener("click", event => { if (event.target === 
 document.querySelector("#meetingDialogClose")?.addEventListener("click", closeMeetingDialog);
 document.querySelector("#meetingCancel")?.addEventListener("click", closeMeetingDialog);
 meetingDialog?.addEventListener("click", event => { if (event.target === meetingDialog) closeMeetingDialog(); });
+meetingRoomMediaInput?.addEventListener("change", () => {
+  const file = meetingRoomMediaInput.files?.[0];
+  if (!meetingRoomMediaName) return;
+  meetingRoomMediaName.textContent = file ? `${file.name} · will appear on the meeting screen` : "Optional branded visual for the meeting screen.";
+});
 meetingForm?.addEventListener("submit", async event => {
   event.preventDefault();
   const submit = document.querySelector("#meetingSubmit");
   const error = document.querySelector("#meetingFormError");
   const timingMode = meetingForm.elements.timingMode.value;
   const durationMode = meetingForm.elements.durationMode.value;
-  const startInput = document.querySelector("#meetingScheduledStart").value;
-  const endInput = document.querySelector("#meetingScheduledEnd").value;
-  const scheduledStart = timingMode === "scheduled" ? new Date(startInput) : new Date();
-  const scheduledEnd = durationMode === "timed" ? new Date(endInput) : null;
-  if (timingMode === "scheduled" && (!startInput || scheduledStart <= new Date())) {
+  const now = new Date();
+  const scheduledStart = timingMode === "scheduled" ? readLocalDateTime("#meetingScheduledStart") : null;
+  const meetingStart = scheduledStart || now;
+  const scheduledEnd = durationMode === "timed" ? readLocalDateTime("#meetingScheduledEnd") : null;
+  const roomMediaFile = meetingRoomMediaInput?.files?.[0] || null;
+  if (timingMode === "scheduled" && (!scheduledStart || scheduledStart <= now)) {
     error.textContent = "Choose a future start date and time.";
     error.hidden = false;
     return;
   }
-  if (durationMode === "timed" && (!endInput || scheduledEnd <= scheduledStart)) {
+  if (durationMode === "timed" && (!scheduledEnd || scheduledEnd <= meetingStart)) {
     error.textContent = "The end date and time must be after the meeting starts.";
+    error.hidden = false;
+    return;
+  }
+  if (roomMediaFile && (!/^(image|video)\//.test(roomMediaFile.type || "") || roomMediaFile.size > 100 * 1024 * 1024)) {
+    error.textContent = "Choose an image or video file up to 100 MB.";
     error.hidden = false;
     return;
   }
   error.hidden = true;
   submit.disabled = true;
+  const submitLabel = submit.querySelector("span");
+  const previousSubmitLabel = submitLabel?.textContent || "";
   try {
+    if (submitLabel) submitLabel.textContent = "Creating room";
     const meeting = await api.createMeeting({
       title: document.querySelector("#meetingTitle").value.trim() || "New meeting",
       timingMode,
@@ -291,11 +355,21 @@ meetingForm?.addEventListener("submit", async event => {
       scheduledStart: timingMode === "scheduled" ? scheduledStart.toISOString() : null,
       scheduledEnd: scheduledEnd?.toISOString() || null
     });
+    let mediaAttached = false;
+    if (roomMediaFile) {
+      if (submitLabel) submitLabel.textContent = "Adding media";
+      try {
+        await attachRoomMediaToMeeting(meeting, roomMediaFile);
+        mediaAttached = true;
+      } catch (mediaError) {
+        showToast(mediaError.message || "Meeting created, but the room media could not be added.");
+      }
+    }
     document.querySelector("[data-meeting-form]").hidden = true;
     document.querySelector("[data-meeting-result]").hidden = false;
     document.querySelector("#meetingSubmit").hidden = true;
     document.querySelector("#meetingCancel").textContent = "Done";
-    document.querySelector("#meetingResultSummary").textContent = `${meetingStatusLabel(meeting)} · ${meeting.accessType === "private" ? "Private access" : "Public access"}`;
+    document.querySelector("#meetingResultSummary").textContent = `${meetingStatusLabel(meeting)} · ${meeting.accessType === "private" ? "Private access" : "Public access"}${mediaAttached ? " · Room media added" : ""}`;
     document.querySelector("#meetingAudienceLink").value = meeting.audienceUrl;
     const codePanel = document.querySelector("[data-meeting-access-code]");
     codePanel.hidden = !meeting.accessCode;
@@ -310,6 +384,7 @@ meetingForm?.addEventListener("submit", async event => {
     error.hidden = false;
   } finally {
     submit.disabled = false;
+    if (submitLabel && previousSubmitLabel) submitLabel.textContent = previousSubmitLabel;
   }
 });
 document.querySelector("[data-copy-meeting-link]")?.addEventListener("click", () => copyText(document.querySelector("#meetingAudienceLink").value, "Audience link copied."));

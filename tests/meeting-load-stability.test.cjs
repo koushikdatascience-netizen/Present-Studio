@@ -15,6 +15,7 @@ test("controllers apply canonical state without competing periodic heartbeats", 
 test("participant audio tracks survive camera and screen-share UI updates", () => {
   assert.match(liveMedia, /function syncParticipantAudio\(participant, isLocal = false\)/);
   assert.match(liveMedia, /audioMount\.append\(audio\)/);
+  assert.match(liveMedia, /audio && \(audio\._liveTrack !== publication\.track \|\| !audio\.isConnected\)/);
   assert.doesNotMatch(liveMedia, /tile\.append\(audio\)/);
   assert.doesNotMatch(liveMedia, /meetingMuted, mutedParticipants\.has\(participant\.identity\),\s*selectedCameraIdentity/);
   assert.match(liveMedia, /function syncParticipantTileStatus\(tile, participant, facts\)/);
@@ -43,4 +44,13 @@ test("participant directory provides stable priority ordering, search, and statu
   assert.match(liveMedia, /speakerReleaseTimers/);
   assert.match(liveMedia, /}, 3500\)/);
   assert.match(liveMedia, /function setAudienceToolsOpen\(open, moveFocus = false\)/);
+});
+
+test("meeting dock controls expose distinct on, off, and tab speaker states", () => {
+  const styles = fs.readFileSync(path.join(__dirname, "../frontend/css/styles.css"), "utf8");
+  assert.match(liveMedia, /className = "live-control-button is-tab-speaker"/);
+  assert.match(styles, /\.live-control-button:is\(\.is-microphone,\.is-camera\)\[aria-pressed="true"\][\s\S]*background:\s*#1f9f5a/);
+  assert.match(styles, /\.live-control-button:is\(\.is-microphone,\.is-camera\)\[aria-pressed="false"\]:not\(:disabled\)[\s\S]*background:\s*#35201e/);
+  assert.match(styles, /\.live-control-button\.is-tab-speaker\[aria-pressed="true"\][\s\S]*background:\s*#35201e/);
+  assert.match(styles, /\.live-control-button\.is-tab-speaker\[aria-pressed="false"\][\s\S]*background:\s*#193329/);
 });

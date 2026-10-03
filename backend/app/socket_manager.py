@@ -314,6 +314,7 @@ async def meeting_control(sid, data):
     share_token = data.get("shareToken") or ""
     if not presentation_id:
         return
+    featured_identity_supplied = "featuredShareIdentity" in data
     raw_featured_identity = data.get("featuredShareIdentity")
     featured_identity = (raw_featured_identity.strip()[:128] or None) if isinstance(raw_featured_identity, str) else None
     featured_camera_identity_supplied = "featuredCameraIdentity" in data
@@ -332,7 +333,8 @@ async def meeting_control(sid, data):
         if not live:
             live = LiveSession(id=new_id("live"), presentation_id=presentation_id)
             db.add(live)
-        live.featured_share_identity = featured_identity
+        if featured_identity_supplied:
+            live.featured_share_identity = featured_identity
         if featured_camera_identity_supplied:
             live.featured_camera_identity = featured_camera_identity
         live.meeting_muted = data.get("meetingMuted") is True
