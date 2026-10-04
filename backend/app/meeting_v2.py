@@ -276,6 +276,7 @@ async def _revoke_cohost_controller(
     sid = _cohost_sid_for(presentation_id, guest_id)
     if not sid:
         return
+    await sm.sio.leave_room(sid, f'whiteboard:{presentation_id}')
     sm.controller_sids.get(presentation_id, set()).discard(sid)
     if not sm.controller_sids.get(presentation_id):
         sm.controller_sids.pop(presentation_id, None)

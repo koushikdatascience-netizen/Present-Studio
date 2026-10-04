@@ -917,7 +917,7 @@
     }
 
     function applyRemoteAudioState() {
-      presentationSource.media?.querySelectorAll("iframe[data-youtube-id]").forEach(frame => {
+      presentationSourceMedia()?.querySelectorAll("iframe[data-youtube-id]").forEach(frame => {
         frame._tabSpeakerMuted = tabSpeakerMuted;
         window.SnapKeyYouTube.sync(frame);
       });
@@ -974,8 +974,10 @@
       return String(value || "Current presentation output");
     }
 
+    function presentationSourceMedia() { return typeof presentationSource.media === 'function' ? presentationSource.media() : presentationSource.media; }
     function presentationVisualNodes() {
-      return presentationSource.media ? [...presentationSource.media.children].filter(node => ["IMG", "VIDEO", "IFRAME"].includes(node.tagName) || node.matches?.("[data-slide-screen-share]")) : [];
+      const media = presentationSourceMedia();
+      return media ? [...media.children].filter(node => ["IMG", "VIDEO", "IFRAME"].includes(node.tagName) || node.matches?.("[data-slide-screen-share]")) : [];
     }
 
     function setScreenShareSlotEmpty(slot) {
@@ -1047,7 +1049,7 @@
 
     function syncPresentationViewer() {
       if (!presentationViewer || !presentationCanvas) return;
-      const sourceCanvas = presentationSource.canvas;
+      const sourceCanvas = typeof presentationSource.canvas === 'function' ? presentationSource.canvas() : presentationSource.canvas;
       const sourceNodes = presentationVisualNodes();
       sourceNodes.filter(node => node.tagName === "IFRAME" && node.dataset.youtubeId).forEach(frame => {
         frame._tabSpeakerMuted = tabSpeakerMuted;
@@ -1057,7 +1059,7 @@
       const context = presentationCanvas.getContext("2d");
       context.clearRect(0, 0, presentationCanvas.width, presentationCanvas.height);
       if (canvasVisible) {
-        try { context.drawImage(sourceCanvas, 0, 0, presentationCanvas.width, presentationCanvas.height); } catch {}
+        try { context.drawImage(sourceCanvas, 0, 0, presentationCanvas.width, presentationCanvas.height); window.SnapKeyWhiteboard3D?.composite(sourceCanvas, context, presentationCanvas.width, presentationCanvas.height); } catch {}
       }
       syncPresentationMedia(sourceNodes);
       const hasVisual = canvasVisible || sourceNodes.length > 0;

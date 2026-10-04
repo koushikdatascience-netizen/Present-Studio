@@ -19,6 +19,13 @@ class User(Base):
     presentations: Mapped[list["Presentation"]] = relationship(back_populates="owner")
 
 
+class MathComputeUsage(Base):
+    __tablename__ = 'math_compute_usage'
+    owner_id: Mapped[str] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)
+    calls: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Presentation(Base):
     __tablename__ = "presentations"
 
@@ -116,6 +123,7 @@ class LiveSession(Base):
     featured_camera_identity: Mapped[str | None] = mapped_column(String(128), nullable=True)
     meeting_muted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     muted_participant_identities: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
+    whiteboard_document: Mapped[str | None] = mapped_column(Text, nullable=True)
     presenter_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     audience_count: Mapped[int] = mapped_column(Integer, default=0)
     is_live: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -8,6 +8,7 @@ const participantResumeToken = params.get("resume") || "";
 const authToken = localStorage.getItem("presentStudio.accessToken") || "";
 const socket = window.io ? window.io({ reconnection: true, reconnectionAttempts: 5, reconnectionDelay: 700 }) : null;
 let canvas;
+let whiteboardDocument = null;
 const $ = (id) => document.getElementById(id);
 let presentation; let permission = "viewer"; let currentSlideIndex = 0; let autoplayTimer; let mediaTimer; let mediaIndex = 0; let autoplayRunning = false; let audioEnabled = false; let audioUnlockNeeded = false; let audioUnlockInProgress = false; let screenAccessCode = ""; let screenCodeRequired = false; let liveMediaSession = null; let liveState = null; let currentOutputLabel = "";
 function activeSlide() { return presentation.slides[currentSlideIndex]; }
@@ -280,6 +281,7 @@ function animateObjects() { canvas.getObjects().forEach(object => { const type =
 function setMediaCycle() { clearInterval(mediaTimer); mediaIndex = 0; if (permission !== "presenter") return; const config = playback(); if (["sequential", "random"].includes(config.media_cycle) && mediaItems(activeSlide()).length > 1) mediaTimer = setInterval(() => { mediaIndex += 1; renderMedia(activeSlide()); }, Number(config.media_interval_ms) || 5000); }
 function sanitizeFabricScene(scene) { (scene.objects || []).forEach(object => { if (object.textBaseline === "alphabetical") object.textBaseline = "alphabetic"; }); return scene; }
 function renderSlide() {
+  canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
   const slide = activeSlide();
   const data = slide.canvas || {};
   $("presentFrame").dataset.slideId = slide.id;
@@ -400,6 +402,7 @@ function applyPresentationState(rawState, forceRender = false) {
     $("presentCanvas").hidden = state.kind !== 'whiteboard';
     canvas.backgroundColor = state.kind === 'whiteboard' ? '#fff' : '#000';
     canvas.renderAll();
+    if (state.kind === 'whiteboard' && whiteboardDocument) window.SnapKeyWhiteboardView?.render(canvas, whiteboardDocument);
     frame.dataset.kind = state.kind;
     frame.dataset.mediaId = "";
     currentOutputLabel = state.kind === 'whiteboard' ? 'Whiteboard' : 'Black screen';
@@ -428,10 +431,16 @@ async function endLive() {
 }
 function setupSocket() {
   if (!socket) return;
-  const joinRoom = () => socket.emit("join_presentation", { presentationId: presentation.id });
+  const joinRoom = () => { socket.emit("join_presentation", { presentationId: presentation.id }); socket.emit('whiteboard_join', { presentationId: presentation.id, authToken, shareToken, resumeToken: participantResumeToken, screenCode: screenAccessCode }); };
+  socket.on('meeting_admission_decision', event => { if (event.presentationId === presentation.id && event.accepted && event.clientId === localStorage.getItem('presentStudio.meetingGuestId')) joinRoom(); });
   socket.on("connect", joinRoom);
   if (socket.connected) joinRoom();
   socket.on("presentation_state", applyPresentationState);
+  socket.on('whiteboard_document', event => {
+    if (event.presentationId !== presentation.id) return;
+    whiteboardDocument = event.document;
+    if (liveState?.kind === 'whiteboard') applyPresentationState(liveState, true);
+  });
   socket.on("presentation_annotation", handleAudienceAnnotation);
   socket.on("presentation_updated", event => {
     if (event.presentationId !== presentation.id || !event.presentation) return;
@@ -533,6 +542,8 @@ async function init() {
   $("endLive").onclick = endLive;
   document.addEventListener("keydown", event => { if (event.key.toLowerCase() === "f" && presenter) $("fullscreenToggle").click(); if (event.key === "ArrowLeft") go(-1); if (event.key === "ArrowRight") go(1); });
   $("fullscreenToggle").onclick = () => document.fullscreenElement ? document.exitFullscreen() : $("presentStage").requestFullscreen();
+  const savedBoard = await api.getWhiteboard(presentation.id, shareToken, { publicAccess: permission !== 'presenter' }, participantResumeToken, screenAccessCode).catch(() => ({ document: null }));
+  whiteboardDocument = savedBoard.document;
   applyPresentationState(live, true);
   liveMediaSession = window.SnapKeyLiveMedia?.create({
     root: $("presentLiveMedia"), presentationId, shareToken, resumeToken: participantResumeToken, authToken: audienceJoinLink || participantResumeToken ? "" : authToken, screenAccessCode, socket,

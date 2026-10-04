@@ -32,6 +32,9 @@
       if (resumeToken) query.push(`resume=${encodeURIComponent(resumeToken)}`);
       return request(`/api/presentations/${encodeURIComponent(id)}${query.length ? `?${query.join("&")}` : ""}`, options);
     },
+    getWhiteboard: (id, token = '', options = {}, resume = '', screenCode = '') => request(`/api/presentations/${encodeURIComponent(id)}/whiteboard?token=${encodeURIComponent(token)}&resume=${encodeURIComponent(resume)}&screenCode=${encodeURIComponent(screenCode)}`, options),
+    saveWhiteboard: (id, document, baseRevision, token = '', options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/whiteboard?token=${encodeURIComponent(token)}`, { method: 'PUT', body: JSON.stringify({ document, baseRevision }), ...options }),
+    computeMath: (id, payload, token = '', options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/compute?token=${encodeURIComponent(token)}`, { method: 'POST', body: JSON.stringify(payload), ...options }),
     resolveShareLink: (token, options = {}) => request(`/api/presentations/shared/${encodeURIComponent(token)}`, options),
     createPresentation: (title) => request("/api/presentations", { method: "POST", body: JSON.stringify({ title }) }), savePresentation: (deck) => request(`/api/presentations/${encodeURIComponent(deck.id)}`, { method: "PUT", body: JSON.stringify(deck) }), deletePresentation: (id) => request(`/api/presentations/${encodeURIComponent(id)}`, { method: "DELETE" }),
     listMeetings: () => request("/api/meetings"),

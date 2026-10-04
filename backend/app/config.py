@@ -11,6 +11,9 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 class Settings(BaseModel):
     app_name: str = "Present Studio Cloud"
+    compute_service_url: str = os.getenv('COMPUTE_SERVICE_URL', '')
+    compute_service_key: str = os.getenv('COMPUTE_SERVICE_KEY', '')
+    compute_daily_quota: int = int(os.getenv('COMPUTE_DAILY_QUOTA', '30'))
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./present_studio.db")
     frontend_dir: Path = PROJECT_ROOT / "frontend"
     cors_origins: list[str] = ["http://127.0.0.1:8000", "http://localhost:8000"]

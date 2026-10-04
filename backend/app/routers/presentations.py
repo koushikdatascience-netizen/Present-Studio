@@ -4,7 +4,7 @@ import json
 from urllib.parse import urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, HTTPException, Request
 import jwt
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
@@ -17,6 +17,48 @@ from ..socket_manager import meeting_admission_required, meeting_client_is_admit
 
 router = APIRouter(prefix="/api/presentations", tags=["presentations"])
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+@router.get('/{presentation_id}/whiteboard')
+def get_whiteboard(presentation_id: str, request: Request, db: Session = Depends(get_db)):
+    from ..whiteboard import active_document
+    access = get_presentation(presentation_id, request, db)
+    if access.permission != 'presenter' and not request.query_params.get('resume'):
+        share = active_share_link(db, presentation_id, request.query_params.get('token', ''))
+        if share and share.screen_access_code_hash and not verify_screen_access_code(share, request.query_params.get('screenCode')):
+            raise HTTPException(403, 'Enter the meeting screen access code')
+    live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).first()
+    document = json.loads(live.whiteboard_document) if live and live.whiteboard_document else None
+    return {'document': document if access.permission == 'presenter' else active_document(document)}
+
+
+@router.put('/{presentation_id}/whiteboard')
+async def save_whiteboard(presentation_id: str, payload: dict, request: Request, db: Session = Depends(get_db)):
+    from ..whiteboard import validate_document, active_document
+    from ..security import can_present_with_credentials
+    presentation = db.get(Presentation, presentation_id)
+    auth = request.headers.get('authorization', '')
+    if not presentation or not can_present_with_credentials(db, presentation, auth_token=auth[7:] if auth.lower().startswith('bearer ') else '', share_token=request.query_params.get('token') or ''):
+        raise HTTPException(403, 'Presenter permission required')
+    document = validate_document(payload.get('document'))
+    if type(payload.get('baseRevision')) is not int or payload['baseRevision'] < 0:
+        raise HTTPException(422, 'Invalid board base revision')
+    live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).with_for_update().first()
+    if not live:
+        raise HTTPException(404, 'Live session not found')
+    previous = json.loads(live.whiteboard_document) if live.whiteboard_document else {}
+    revision = previous.get('revision', 0)
+    if payload.get('baseRevision') != revision:
+        raise HTTPException(409, 'Another presenter updated this board. Export your changes, then reload the saved board.')
+    document['revision'] = revision + 1
+    stored = live.whiteboard_document
+    saved = db.execute(update(LiveSession).where(LiveSession.id == live.id, LiveSession.whiteboard_document == stored).values(whiteboard_document=json.dumps(document, allow_nan=False)).execution_options(synchronize_session=False))
+    if saved.rowcount != 1:
+        db.rollback()
+        raise HTTPException(409, 'Another presenter updated this board. Export your changes, then reload the saved board.')
+    db.commit()
+    await sio.emit('whiteboard_document', {'presentationId': presentation_id, 'document': active_document(document), 'partial': True}, room=f'whiteboard:{presentation_id}')
+    return {'revision': document['revision']}
 
 
 def serialize_live_session(live: LiveSession | None, presentation_id: str) -> LiveSessionOut:

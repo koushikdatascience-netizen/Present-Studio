@@ -21,6 +21,8 @@
   let activeMedia = null;
   let linkedAudio = null;
   let currentState = null;
+  let whiteboardDocument = null;
+  let whiteboardScreenCode = '';
   function presentationVolume(media, state = currentState) { const raw = media.tagName === "VIDEO" ? state?.videoVolume : state?.audioVolume; const value = raw == null ? NaN : Number(raw); return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1; }
 
   function stopMedia() {
@@ -133,6 +135,7 @@
 
   function renderSlide(slide) {
     if (!slide) return;
+    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
     stage.dataset.slideId = slide.id;
     stage.dataset.kind = "slide";
     stage.dataset.mediaId = "";
@@ -179,7 +182,7 @@
     transition();
   }
 
-  function joinRoom() { socket?.emit("join_presentation", { presentationId }); }
+  function joinRoom() { socket?.emit("join_presentation", { presentationId }); socket?.emit('whiteboard_join', { presentationId, shareToken, screenCode: whiteboardScreenCode }); }
 
   function handlePresentationUpdate(event) {
     if (event.presentationId !== presentationId || !event.presentation) return;
@@ -271,9 +274,12 @@
   });
 
   async function loadScreen(screenCode = "") {
+    whiteboardScreenCode = screenCode;
     const [result, live] = await Promise.all([api.getScreenPresentation(presentationId, shareToken, screenCode), api.getLiveSession(presentationId)]);
     presentation = result.presentation;
     canvas = new fabric.StaticCanvas("outputCanvas", { width: 1280, height: 720, selection: false });
+    const savedBoard = await api.getWhiteboard(presentationId, shareToken, { publicAccess: true }, '', screenCode).catch(() => ({ document: null }));
+    whiteboardDocument = savedBoard.document;
     if (presentation.slides.length) applyPresentationState(live, true);
     socket?.on("connect", joinRoom);
     if (socket?.connected) joinRoom();
@@ -281,6 +287,11 @@
     socket?.on("presentation_updated", handlePresentationUpdate);
     socket?.on("presentation_deleted", event => { if (event.presentationId === presentationId) control("stop"); });
     socket?.on("presentation_annotation", handleAnnotation);
+    socket?.on('whiteboard_document', event => {
+      if (event.presentationId !== presentationId) return;
+      whiteboardDocument = event.document;
+      if (currentState?.kind === 'whiteboard') applyPresentationState(currentState, true);
+    });
     socket?.on("session_ended", event => { if (!event?.presentationId || event.presentationId === presentationId) control("stop"); });
     setInterval(async () => {
       try {
@@ -392,6 +403,7 @@
         canvas.backgroundColor = '#fff';
         canvas.renderAll();
         canvasWrap.hidden = false;
+        if (whiteboardDocument) window.SnapKeyWhiteboardView?.render(canvas, whiteboardDocument);
       }
       stage.dataset.slideId = slide.id;
       stage.dataset.kind = state.kind;

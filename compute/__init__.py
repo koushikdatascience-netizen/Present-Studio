@@ -1,0 +1,1 @@
+"""Optional isolated mathematics service."""

@@ -69,6 +69,30 @@ def test_s3_failure_returns_clear_upload_error():
         assert response.json()["detail"] == "Object storage upload failed. Please try again."
 
 
+def test_whiteboard_cohost_s3_reference_upload_and_access_rejection():
+    storage = MagicMock(); storage.meeting_key.side_effect = lambda presentation, object_id: f'meeting/{presentation}/{object_id}'
+    with TestClient(fastapi_app) as client:
+        login = client.post('/api/auth/login', json={'email': 'owner@presentstudio.local', 'password': 'password123'}).json()
+        headers = {'Authorization': f"Bearer {login['accessToken']}"}
+        presentation = client.post('/api/presentations', json={'title': 'PDF board'}, headers=headers).json()['presentation']
+        link = client.post(f"/api/presentations/{presentation['id']}/share", json={'permission': 'presenter', 'screenAccessCode': '4321'}, headers=headers).json()['token']
+        client.cookies.clear()
+        payload = {'presentation_id': presentation['id'], 'client_id': '', 'share_token': link}
+        try:
+            with patch.object(get_settings(), 'storage_provider', 's3'), patch('app.routers.media.s3_storage', return_value=storage):
+                response = client.post('/api/media/meeting-upload', data=payload, files={'file': ('PDF-page-1.png', b'png-reference', 'image/png')})
+                assert response.status_code == 200
+                assert response.json()['attachment']['url'].startswith(f"/api/media/meeting-content/{presentation['id']}/")
+                storage.upload_bytes.assert_called_once()
+                unauthorized = client.post('/api/media/meeting-upload', data={**payload, 'share_token': ''}, files={'file': ('PDF.png', b'png', 'image/png')})
+                assert unauthorized.status_code == 403
+                storage.upload_bytes.side_effect = RuntimeError('S3 unavailable')
+                failure = client.post('/api/media/meeting-upload', data=payload, files={'file': ('PDF.png', b'png', 'image/png')})
+                assert failure.status_code == 502
+        finally:
+            client.delete(f"/api/presentations/{presentation['id']}", headers=headers)
+
+
 @pytest.mark.parametrize("access_type", ["public", "private"])
 def test_youtube_meeting_preview_and_media_link_revision(access_type):
     with TestClient(fastapi_app) as client:

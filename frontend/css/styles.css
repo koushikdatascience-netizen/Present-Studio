@@ -1049,6 +1049,7 @@ button.present-back {
 #liveAnnotationText span { position: absolute; max-width: 55%; padding: .18em .32em; background: rgba(0,0,0,.45); color: var(--annotation-color, #ffd54a); font: 800 var(--annotation-size, 34px) var(--sans); line-height: 1.12; overflow-wrap: anywhere; transform: translate(-50%, -50%); }
 .live-output-canvas .canvas-container { width: min(100vw, calc(100vh * 16 / 9)) !important; height: min(100vh, calc(100vw * 9 / 16)) !important; }
 .live-output-canvas canvas { width: 100% !important; height: 100% !important; }
+#outputStage[data-kind="whiteboard"] .live-output-canvas > canvas { width:min(100vw, calc(100vh * 16 / 9)) !important; height:auto !important; aspect-ratio:16 / 9; }
 .live-output-item { width: 100%; height: 100%; object-fit: contain; background: #000; }
 .live-output-positioned-video { position: absolute; object-fit: contain; }
 .screen-audio-gate { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: #000; }

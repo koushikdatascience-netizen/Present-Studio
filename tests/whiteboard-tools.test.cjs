@@ -73,7 +73,7 @@ test("fullscreen whiteboard controls are grouped and clearly described", () => {
   }
 });
 
-test("preview whiteboard is separate from the persisted black-screen state", () => {
+test("opening the live whiteboard replaces black-screen output", () => {
   const controllerSource = fs.readFileSync(path.join(__dirname, "../frontend/js/controller.js"), "utf8");
   const start = controllerSource.indexOf("function setPreviewWhiteboard");
   const end = controllerSource.indexOf("function recordingMimeType", start);
@@ -83,7 +83,8 @@ test("preview whiteboard is separate from the persisted black-screen state", () 
     "#previewWhiteboardSurface": { hidden: true },
     "#previewStage": { classList: classList() },
     "#openWhiteboard": { classList: classList(), dataset: {}, setAttribute() {} },
-    "#previewTitle": { textContent: "" }
+    "#previewTitle": { textContent: "" },
+    "#controllerPreviewMedia": { querySelectorAll: () => [] }
   };
   const toolbarButton = { classList: classList(), setAttribute() {}, title: "" };
   const context = {
@@ -94,6 +95,13 @@ test("preview whiteboard is separate from the persisted black-screen state", () 
     let previewWhiteboardActive = false;
     let outputBlanked = true;
     let activeTargetId = "slide-1";
+    let previewToolZoom = 1;
+    let previewToolPan = { x: 0, y: 0 };
+    const stopLoop = () => {};
+    const previewMediaElements = () => [];
+    const clearPreviewToolAnnotations = () => {};
+    const applyPreviewToolViewport = () => {};
+    const emitControllerState = () => {};
     let targets = [{ id: "slide-1", title: "Opening slide" }];
     const $ = selector => elements[selector];
     ${whiteboardSource}
@@ -104,12 +112,12 @@ test("preview whiteboard is separate from the persisted black-screen state", () 
   context.setPreviewWhiteboard(true);
   assert.equal(elements["#previewWhiteboardSurface"].hidden, false);
   assert.equal(elements["#previewTitle"].textContent, "Whiteboard");
-  assert.equal(context.isOutputBlanked(), true);
+  assert.equal(context.isOutputBlanked(), false);
 
   context.setPreviewWhiteboard(false);
   assert.equal(elements["#previewWhiteboardSurface"].hidden, true);
-  assert.equal(elements["#previewTitle"].textContent, "Screen cleared");
-  assert.equal(context.isOutputBlanked(), true);
+  assert.equal(elements["#previewTitle"].textContent, "Opening slide");
+  assert.equal(context.isOutputBlanked(), false);
 });
 
 test("the server relays synchronized shape annotations", () => {

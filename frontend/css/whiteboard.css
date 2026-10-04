@@ -1,0 +1,80 @@
+.science-board { position: fixed; inset: 0; width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; background: #eef0f3; color: #202329; font-family: var(--sans, Arial, sans-serif); overflow: hidden; }
+.science-board [hidden] { display:none !important; }
+.science-board::backdrop { background: #17181b; }
+.science-board-shell { height: 100%; display: grid; grid-template-rows: 58px 56px minmax(0, 1fr) 58px; }
+.science-board-header, .science-board-tools, .science-board-pages { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 16px; background: #fff; border-bottom: 1px solid #dce0e6; }
+.science-board-header { justify-content: space-between; }
+.science-board-header > div, .science-board-pages > div { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.science-board h2 { margin: 0; font-size: 17px; white-space: nowrap; }
+.science-board-save { font-size: 11px; color: #587066; }
+.science-board button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-height: 38px; padding: 7px 10px; gap: 7px; border: 1px solid #dce0e6; border-radius: 6px; background: #fff; color: #202329; font: 600 12px/1.2 var(--sans, Arial, sans-serif); cursor: pointer; }
+.science-board button:hover { background: #f0f2f5; border-color: #a8afb9; }
+.science-board button:disabled { opacity: .4; cursor: not-allowed; }
+.science-board button.is-active, .science-board button.is-primary { color: #181a1f; background: #ffd54a; border-color: #e4b924; }
+.science-board button:focus-visible, .science-board input:focus-visible, .science-board select:focus-visible { outline: 2px solid #2989a3; outline-offset: 2px; }
+.science-board .wb-icon { width: 38px; padding: 7px; }
+.science-board svg { width: 18px; height: 18px; flex-shrink: 0; }
+.science-board-tools { gap: 5px; overflow-x: auto; scrollbar-width: thin; }
+.science-board-separator { flex: 0 0 1px; height: 26px; margin: 0 5px; background: #dce0e6; }
+.science-board input, .science-board select, .science-board textarea { max-width: 100%; border: 1px solid #d5dae2; border-radius: 5px; padding: 8px; background: #fff; color: #202329; font: 13px/1.4 var(--sans, Arial, sans-serif); }
+.science-board input[type="color"] { width: 36px; height: 36px; padding: 3px; cursor: pointer; }
+.science-board input[type="range"] { width: 85px; padding: 0; }
+.science-board-size { width: 28px; text-align: center; font-size: 11px; }
+.science-board-viewport { position: relative; min-height: 0; min-width: 0; overflow: hidden; }
+.science-board-viewport > .canvas-container { position: absolute !important; left: 0; top: 0; }
+.science-board-viewport canvas { touch-action: none; }
+.science-board-pages { border-bottom: 0; border-top: 1px solid #dce0e6; justify-content: space-between; }
+.science-board-pages select { max-width: 190px; }
+.science-board-zoom { width: 48px; text-align: center; font-size: 12px; }
+.science-board-window { position: absolute; z-index: 20; top: 128px; right: 18px; width: 460px; max-width: calc(100% - 32px); max-height: calc(100% - 202px); min-width: 260px; display: flex; flex-direction: column; overflow: auto; resize: both; border: 1px solid #d2d8e1; border-radius: 8px; background: #fff; box-shadow: 0 12px 50px #10182030; }
+.science-board-window[hidden] { display: none; }
+.science-board-window > header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #dce0e6; background: #fff; cursor: grab; touch-action: none; }
+.science-board-window > header strong { font-size: 13px; }
+.science-board-window > header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.science-board-window > section { padding: 12px; display: grid; gap: 10px; }
+.science-board-window label { display: grid; gap: 5px; min-width: 0; font-size: 11px; font-weight: 600; }
+.science-board-window .wb-row { display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
+.science-board-window .wb-row > label { flex: 1; }
+.science-board-window textarea { width: 100%; min-height: 72px; resize: vertical; font-family: monospace; }
+.science-board-window math-field { min-height: 56px; padding: 10px; border: 1px solid #d5dae2; border-radius: 5px; font-size: 22px; }
+.science-board-equation-preview { min-height: 70px; display: flex; align-items: center; justify-content: center; overflow-x: auto; }
+.science-board-equation-preview svg { width: auto; height: auto; max-width: 100%; }
+.science-board-plot { height: 310px; min-width: 0; }
+.science-board-pdf { width: 100%; max-width: none; height: auto; background: #f0f1f3; }
+.science-board-window[data-wb-window="pdf"] .wb-row { position: sticky; top: 54px; z-index: 1; padding-bottom: 6px; background: #fff; }
+.science-board-message { min-height: 16px; margin: 0; color: #ac423b; font-size: 12px; }
+.science-board-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.science-board-swatches { display: flex; gap: 3px; }
+.science-board button.wb-swatch { width: 24px; min-height: 24px; padding: 0; border-radius: 50%; background: var(--ink); border: 2px solid #fff; box-shadow: 0 0 0 1px #ccd2db; }
+.science-board button.wb-swatch.is-active { box-shadow: 0 0 0 2px #202329; }
+.has-premium-whiteboard .controller-preview-stage.is-whiteboard:not(:fullscreen) { margin-bottom: 0; }
+.has-premium-whiteboard .controller-preview-stage.is-whiteboard .controller-fullscreen-tools { display: none; }
+.controller-preview-whiteboard > canvas { width: 100% !important; height: 100% !important; }
+.controller-preview-whiteboard > button { position: absolute; top: 12px; right: 12px; padding: 8px 12px; border: 1px solid #dce0e6; border-radius: 6px; background: #fff; color: #202329; font-size: 12px; cursor: pointer; }
+@media (max-width: 640px) {
+  .science-board-shell { grid-template-rows: 54px 54px minmax(0, 1fr) 102px; }
+  .science-board-header, .science-board-tools, .science-board-pages { padding: 6px 8px; gap: 5px; }
+  .science-board-header h2 { font-size: 15px; }
+  .science-board-save { font-size: 10px; max-width: 90px; }
+  .science-board-header .wb-desktop-label { display: none; }
+  .science-board-header [data-wb-action="reload"], .science-board-header [data-wb-action="export-board"] { display: none; }
+  .science-board-pages { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 40px 40px; justify-items: center; }
+  .science-board-pages select { width: 80px; font-size: 12px; }
+  .science-board-pages .wb-page-extras { display: flex; gap: 3px; }
+  .science-board-window { top: 118px; left: 8px !important; right: 8px; width: auto !important; max-width: none; max-height: calc(100% - 192px); resize: none; }
+  .science-board-window math-field { font-size: 18px; }
+  .science-board-plot { height: 260px; }
+  .science-board-tools button, .science-board .wb-icon { min-height: 40px; min-width: 40px; }
+  .science-board-pages .wb-icon { width: 32px; min-width: 32px; min-height: 38px; padding: 5px; }
+}
+@media (max-width: 360px) { .science-board-header .science-board-save { display: none; } }
+ .wb-calculator-result { display:block; min-height:48px; padding:12px; background:#eef4f2; color:#172520; font-size:22px; overflow-wrap:anywhere; }
+ .wb-calculator-keys { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin:12px 0; }
+ .wb-calculator-keys button { min-height:40px; min-width:0; }
+ .wb-calculator-history { max-height:160px; overflow:auto; padding-left:24px; }
+ .wb-calculator-history button { text-align:left; overflow-wrap:anywhere; max-width:100%; }
+ .wb-lab-result { display:block; white-space:pre-wrap; overflow-wrap:anywhere; font-size:14px; line-height:1.5; padding:10px 0; }
+ .wb-lesson-list { display:flex; flex-direction:column; }
+ .wb-lesson-list button { display:flex; flex-direction:column; gap:4px; text-align:left; padding:12px 0; border:0; border-bottom:1px solid #ddd; border-radius:0; background:transparent; }
+ .wb-lesson-list span { font-size:12px; color:#666; }
+ [data-live-steps], [data-advanced-steps] { padding-left:20px; font-size:13px; line-height:1.6; }

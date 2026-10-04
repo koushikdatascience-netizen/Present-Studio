@@ -23,7 +23,7 @@ test("dashboard exposes the complete instant and scheduled meeting workflow", ()
 test("meeting creation sends scheduling and privacy choices to the dedicated API", () => {
   assert.match(api, /createMeeting:\s*\(meeting\).*\/api\/meetings/);
   assert.match(dashboard, /api\.createMeeting\(\{/);
-  assert.match(dashboard, /attachRoomMediaToMeeting\(meeting, roomMediaFile\)/);
+  assert.match(dashboard, /attachRoomMediaToMeeting\(meeting, roomMediaFile, youtubeId\)/);
   assert.match(dashboard, /api\.uploadMedia\(file\)/);
   assert.match(dashboard, /api\.savePresentation\(updated\)/);
   assert.match(dashboard, /scheduledStart:\s*timingMode === "scheduled"/);

@@ -45,6 +45,8 @@
   let restoredMediaState = null;
   let outputBlanked = false;
   let previewWhiteboardActive = false;
+  let whiteboardWorkspace = null;
+  let whiteboardPreviewCanvas = null;
   let localRecording = null;
   let recordingUiMinimized = false;
   let recordingMiniOpen = false;
@@ -893,7 +895,7 @@
     const toolbar = $("#previewFullscreenTools");
     const color = () => $("#previewToolColor").value || "#ffd54a";
     const size = () => Number($("#previewToolSize").value) || 18;
-    document.querySelectorAll("[data-preview-whiteboard]").forEach(button => button.onclick = () => setPreviewWhiteboard(!previewWhiteboardActive));
+    document.querySelectorAll("[data-preview-whiteboard]").forEach(button => button.onclick = () => whiteboardWorkspace ? whiteboardWorkspace.open() : setPreviewWhiteboard(!previewWhiteboardActive));
     document.querySelectorAll("[data-preview-tool]").forEach(button => button.onclick = () => setPreviewTool(button.dataset.previewTool));
     $("#previewZoomOut").onclick = () => { previewToolZoom = Math.max(.5, previewToolZoom - .1); applyPreviewToolViewport(); };
     $("#previewZoomIn").onclick = () => { previewToolZoom = Math.min(3, previewToolZoom + .1); applyPreviewToolViewport(); };
@@ -1788,8 +1790,8 @@
       fullscreenOnJoin: false,
       controller: true,
       presentationSource: {
-        canvas: $("#controllerPreviewCanvas"),
-        media: $("#controllerPreviewMedia"),
+        canvas: () => previewWhiteboardActive && whiteboardPreviewCanvas ? whiteboardPreviewCanvas.lowerCanvasEl : $("#controllerPreviewCanvas"),
+        media: () => previewWhiteboardActive ? null : $("#controllerPreviewMedia"),
         label: () => $("#previewTitle").textContent || presentation.title
       }
     });
@@ -1806,6 +1808,16 @@
     scheduleMeetingExpiry(meetingPlan);
 
     previewCanvas = new fabric.StaticCanvas("controllerPreviewCanvas", { width: 1280, height: 720, selection: false, renderOnAddRemove: false });
+    if (window.SnapKeyWhiteboard) {
+      const surface = $('#previewWhiteboardSurface');
+      const canvasElement = document.createElement('canvas'); canvasElement.width = 1280; canvasElement.height = 720; surface.append(canvasElement);
+      whiteboardPreviewCanvas = new fabric.StaticCanvas(canvasElement, { width: 1280, height: 720, selection: false });
+      const launch = document.createElement('button'); launch.type = 'button'; launch.textContent = 'Open workspace'; launch.onclick = () => whiteboardWorkspace.open(); surface.append(launch);
+      document.body.classList.add('has-premium-whiteboard');
+      whiteboardWorkspace = window.SnapKeyWhiteboard.create({ api, presentationId, token: shareToken, requestOptions: cohostRequestOptions, socket, notify: toast, onActivate: () => setPreviewWhiteboard(true), onStop: () => setPreviewWhiteboard(false), onDocument: document => window.SnapKeyWhiteboardView.render(whiteboardPreviewCanvas, document) });
+      const savedBoard = await api.getWhiteboard(presentationId, shareToken, cohostRequestOptions).catch(() => ({ document: null }));
+      if (savedBoard.document) window.SnapKeyWhiteboardView.render(whiteboardPreviewCanvas, savedBoard.document);
+    }
     $("#backToEditor").href = `/builder.html?id=${encodeURIComponent(presentation.id)}`;
     renderControllerTargets();
     const initialTarget = targetForLiveState(live) || targets.find(target => target.kind === "slide");
@@ -1824,7 +1836,7 @@
     $("#pauseMedia").onclick = () => sendMediaControl("toggle");
     $("#previewAudio").onclick = togglePreviewAudio;
     $("#replayMedia").onclick = () => sendMediaControl("replay");
-    $("#openWhiteboard").onclick = () => setPreviewWhiteboard(!previewWhiteboardActive);
+    $("#openWhiteboard").onclick = () => whiteboardWorkspace ? whiteboardWorkspace.open() : setPreviewWhiteboard(!previewWhiteboardActive);
     $("#stopMedia").onclick = () => {
       stopLoop(false);
       outputBlanked = true;

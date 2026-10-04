@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlsplit
 import re
 from .socket_manager import sio
 from . import meeting_v2
-from .routers import admin, auth, media, meetings, presentations
+from .routers import admin, auth, media, meetings, presentations, computation
 from .security import admin_user
 from .seed import seed_demo_data
 
@@ -129,6 +129,7 @@ def live_session_repair_statements(dialect_name: str, columns: set[str]) -> list
         "featured_camera_identity": "VARCHAR(128)",
         "meeting_muted": f"BOOLEAN DEFAULT {bool_default} NOT NULL",
         "muted_participant_identities": "TEXT DEFAULT '[]' NOT NULL",
+        "whiteboard_document": "TEXT",
     }
     return [
         f"ALTER TABLE live_sessions ADD COLUMN {name} {definition}"
@@ -147,6 +148,7 @@ fastapi_app.include_router(presentations.router)
 fastapi_app.include_router(meetings.router)
 fastapi_app.include_router(media.router)
 fastapi_app.include_router(admin.router)
+fastapi_app.include_router(computation.router)
 
 
 @fastapi_app.get("/admin", include_in_schema=False)

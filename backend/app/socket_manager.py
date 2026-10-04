@@ -2,8 +2,8 @@ import json
 import socketio
 from .database import SessionLocal
 from .live_state import apply_controller_state, live_session_payload, meeting_control_payload, utc_now
-from .models import LiveSession, Presentation, Slide
-from .security import can_present_with_credentials, new_id
+from .models import LiveSession, Presentation, Slide, ShareLink
+from .security import can_present_with_credentials, can_view_presentation, user_from_token, resolve_share_permission, resolve_participant_resume_token, new_id, verify_password
 
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
@@ -114,6 +114,37 @@ async def join_presentation(sid, data):
         control_state = meeting_control_payload(live, presentation_id)
     await sio.emit("meeting_control_state", control_state, room=sid)
     await sio.emit("presence", {"message": "joined", "presentationId": presentation_id}, room=sid)
+
+
+@sio.event
+async def whiteboard_join(sid, data):
+    presentation_id = data.get('presentationId')
+    if not presentation_id:
+        return
+    with SessionLocal() as db:
+        presentation = db.get(Presentation, presentation_id)
+        user = user_from_token(db, data.get('authToken') or '')
+        allowed = bool(presentation and (
+            (user and can_view_presentation(db, presentation, user))
+            or resolve_share_permission(db, presentation_id, data.get('shareToken') or '')
+            or resolve_participant_resume_token(db, data.get('resumeToken') or '', presentation_id)
+        ))
+        if allowed and not (user and can_view_presentation(db, presentation, user)) and not resolve_participant_resume_token(db, data.get('resumeToken') or '', presentation_id):
+            share = db.query(ShareLink).filter(ShareLink.presentation_id == presentation_id, ShareLink.token == (data.get('shareToken') or '')).first()
+            if share and share.permission == 'viewer' and share.screen_access_code_hash:
+                allowed = bool(data.get('screenCode') and verify_password(data['screenCode'], share.screen_access_code_hash))
+        if not allowed:
+            await sio.leave_room(sid, f'whiteboard:{presentation_id}')
+            return
+        live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).first()
+        document = json.loads(live.whiteboard_document) if live and live.whiteboard_document else None
+        presenter = can_present_with_credentials(db, presentation, auth_token=data.get('authToken') or '', share_token=data.get('shareToken') or '')
+        if document and not presenter:
+            from .whiteboard import active_document
+            document = active_document(document)
+    await sio.enter_room(sid, f'whiteboard:{presentation_id}')
+    if document:
+        await sio.emit('whiteboard_document', {'presentationId': presentation_id, 'document': document, 'partial': not presenter}, room=sid)
 
 
 @sio.event
