@@ -130,6 +130,26 @@ class LiveSession(Base):
     updated_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class BreakoutRoom(Base):
+    __tablename__ = "breakout_rooms"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    parent_id: Mapped[str] = mapped_column(ForeignKey("presentations.id", ondelete="CASCADE"), index=True)
+    instance_id: Mapped[str] = mapped_column(String(64), index=True)
+    presentation_id: Mapped[str] = mapped_column(ForeignKey("presentations.id", ondelete="CASCADE"), unique=True)
+    name: Mapped[str] = mapped_column(String(80))
+    closed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    allow_return: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    closing_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class BreakoutAssignment(Base):
+    __tablename__ = "breakout_assignments"
+    parent_id: Mapped[str] = mapped_column(ForeignKey("presentations.id", ondelete="CASCADE"), primary_key=True)
+    instance_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    guest_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    room_id: Mapped[str] = mapped_column(String(64))
+
+
 class MeetingParticipantGrant(Base):
     __tablename__ = "meeting_participant_grants"
     __table_args__ = (

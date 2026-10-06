@@ -308,7 +308,7 @@ def list_presentations(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, list[PresentationOut]]:
-    presentations = db.query(Presentation).filter(Presentation.owner_id == user.id, Presentation.status != "meeting").order_by(Presentation.updated_at.desc()).all()
+    presentations = db.query(Presentation).filter(Presentation.owner_id == user.id, Presentation.status.notin_(["meeting", "breakout"])).order_by(Presentation.updated_at.desc()).all()
     return {"presentations": [serialize_presentation(item) for item in presentations]}
 
 
@@ -342,7 +342,7 @@ def create_presentation(
     db: Session = Depends(get_db),
 ) -> PresentationPayload:
     quota_user = db.query(User).filter(User.id == user.id).with_for_update().one()
-    presentation_count = db.query(func.count(Presentation.id)).filter(Presentation.owner_id == user.id, Presentation.status != "meeting").scalar() or 0
+    presentation_count = db.query(func.count(Presentation.id)).filter(Presentation.owner_id == user.id, Presentation.status.notin_(["meeting", "breakout"])).scalar() or 0
     if presentation_count >= quota_user.presentation_limit:
         raise HTTPException(
             status_code=409,
@@ -607,6 +607,17 @@ def create_live_media_token(
         raise HTTPException(status_code=403, detail="Waiting for presenter approval")
 
     participant_name = " ".join((payload.displayName or default_name).strip().split())[:80] or default_name
+    from ..breakout import context as breakout_context, enforce_assignment
+    if presentation.status == "breakout":
+        breakout_context(db, presentation_id)
+    if db.query(LiveSession).filter_by(presentation_id=presentation_id, is_live=True).first():
+        if permission == "viewer":
+            enforce_assignment(db, presentation_id, payload.clientId)
+        else:
+            cohost_share = db.query(ShareLink).filter_by(token=payload.shareToken).first() if payload.shareToken else None
+            cohost_grant = db.query(MeetingParticipantGrant).filter_by(cohost_share_id=cohost_share.id).first() if cohost_share else None
+            if cohost_grant:
+                enforce_assignment(db, presentation_id, cohost_grant.guest_id)
     participant_identity = stable_livekit_participant_identity(
         presentation_id,
         permission,
@@ -668,7 +679,7 @@ def verify_screen_access(
 
 
 @router.post("/{presentation_id}/live/end")
-def end_live_session(
+async def end_live_session(
     presentation_id: str,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -676,6 +687,8 @@ def end_live_session(
     presentation = db.get(Presentation, presentation_id)
     if not presentation or not can_edit_presentation(db, presentation, user):
         raise HTTPException(status_code=404, detail="Presentation not found")
+    if presentation.status == "breakout":
+        raise HTTPException(status_code=409, detail="Close breakout rooms from the Rooms panel")
     live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).first()
     if not live:
         live = LiveSession(id=new_id("live"), presentation_id=presentation_id, presenter_user_id=user.id)
@@ -683,7 +696,17 @@ def end_live_session(
     live.is_live = False
     live.media_playing = False
     live.media_updated_at = datetime.now(timezone.utc)
+    from ..models import BreakoutRoom
+    child_ids = []
+    for child in db.query(BreakoutRoom).filter_by(parent_id=presentation_id).all():
+        child.closed = True
+        child_ids.append(child.presentation_id)
+        child_live = db.query(LiveSession).filter_by(presentation_id=child.presentation_id).first()
+        if child_live:
+            child_live.is_live = False
     db.commit()
+    for child_id in child_ids:
+        await sio.emit("session_ended", {"presentationId": child_id}, room=child_id)
     return serialize_live_session(live, presentation_id)
 
 
@@ -741,6 +764,10 @@ async def delete_presentation(
     presentation = db.get(Presentation, presentation_id)
     if not presentation or presentation.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Presentation not found")
+    if presentation.status == "breakout":
+        raise HTTPException(status_code=409, detail="Delete breakout rooms from the Rooms panel")
+    from ..breakout import cleanup_children
+    child_ids = cleanup_children(db, presentation_id)
 
     db.query(PresentationMember).filter(PresentationMember.presentation_id == presentation_id).delete()
     db.query(Meeting).filter(Meeting.presentation_id == presentation_id).delete()
@@ -750,4 +777,6 @@ async def delete_presentation(
     db.delete(presentation)
     db.commit()
     await sio.emit("presentation_deleted", {"presentationId": presentation_id}, room=presentation_id)
+    for child_id in child_ids:
+        await sio.emit("presentation_deleted", {"presentationId": child_id}, room=child_id)
     return {"ok": True, "presentationId": presentation_id}

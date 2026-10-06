@@ -1789,6 +1789,7 @@
       fullscreenTarget: $("#controllerLiveMedia").querySelector(".interactive-main-stage"),
       fullscreenOnJoin: false,
       controller: true,
+      onBeforeRoomSwitch: () => finishLocalRecording({download: true}),
       presentationSource: {
         canvas: () => previewWhiteboardActive && whiteboardPreviewCanvas ? whiteboardPreviewCanvas.lowerCanvasEl : $("#controllerPreviewCanvas"),
         media: () => previewWhiteboardActive ? null : $("#controllerPreviewMedia"),
@@ -1865,7 +1866,7 @@
       }
     };
     if (!socket) setConnectionStatus("Sync ready");
-    const joinRoom = () => { setConnectionStatus("Live"); socket?.emit("join_presentation", { presentationId }); };
+    const joinRoom = () => { setConnectionStatus("Live"); socket?.emit("join_presentation", credentials()); };
     socket?.on("connect", joinRoom);
     if (socket?.connected) joinRoom();
     socket?.on("connect_error", () => setConnectionStatus("Sync backup"));
@@ -1904,6 +1905,7 @@
       document.querySelectorAll("#controllerLiveMedia button, .controller-console-actions button").forEach(button => { button.disabled = true; });
     });
   } catch (error) {
+    if (window.SnapKeyBreakoutRooms?.recover(presentationId)) return;
     $("#controllerTitle").textContent = "Controller unavailable";
     showPreviewPlaceholder(error.message);
   }

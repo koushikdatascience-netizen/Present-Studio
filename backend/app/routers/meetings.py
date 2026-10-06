@@ -158,6 +158,8 @@ async def delete_meeting(
     presentation_id = meeting.presentation_id
 
     try:
+        from ..breakout import cleanup_children
+        child_ids = cleanup_children(db, presentation_id)
         # Remove participant grants first.
         db.query(MeetingParticipantGrant).filter(
             MeetingParticipantGrant.presentation_id == presentation_id
@@ -201,6 +203,8 @@ async def delete_meeting(
         {"presentationId": presentation_id},
         room=presentation_id,
     )
+    for child_id in child_ids:
+        await sio.emit("presentation_deleted", {"presentationId": child_id}, room=child_id)
 
     return {
         "ok": True,

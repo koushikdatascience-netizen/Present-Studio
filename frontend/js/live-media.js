@@ -71,6 +71,16 @@
     const presentationEmpty = root.querySelector("[data-live-presentation-empty]");
     const handButton = root.querySelector("[data-live-hand]");
     const reactionButtons = [...root.querySelectorAll("[data-live-reaction]")];
+    const breakoutRooms = window.SnapKeyBreakoutRooms?.mount(options, {
+      open: () => { setSidebarTab("rooms"); setAudienceSidebarHidden(false); },
+      leave: () => leave({requeue: true, releaseTab: true}),
+      status: message => setStatus(message),
+      remember: () => {
+        try {
+          if (!sessionStorage.getItem("presentStudio.breakoutTransfer")) sessionStorage.setItem("presentStudio.breakoutTransfer", JSON.stringify({name: currentName(), microphone: desiredMicrophoneEnabled, camera: cameraEnabled}));
+        } catch {}
+      }
+    });
     const sidebarTabs = [...root.querySelectorAll("[data-live-tab]")];
     const sidebarPanels = [...root.querySelectorAll("[data-live-panel]")];
     if (options.controller && meetingSidebar) {
@@ -514,7 +524,7 @@
     }
 
     function setSidebarTab(tab) {
-      activeSidebarTab = tab === "chat" ? "chat" : "people";
+      activeSidebarTab = ["chat", "rooms"].includes(tab) ? tab : "people";
       sidebarTabs.forEach(button => {
         const active = button.dataset.liveTab === activeSidebarTab;
         button.classList.toggle("is-active", active);
@@ -2169,6 +2179,7 @@
       if ((isController && !isCohostController) || !room?.localParticipant?.identity) return;
       if (refreshAdmission && !isCohostController) emitAdmissionRequest();
       options.socket?.emit("meeting_participant_joined", {
+        ...moderationCredentials(), resumeToken: options.resumeToken || "",
         presentationId: options.presentationId,
         clientId: isCohostController ? options.cohostGuestId : meetingClientId,
         identity: room.localParticipant.identity,
@@ -2200,6 +2211,15 @@
           clientId: meetingClientId
         }, options.requestOptions || {});
         await room.connect(credentials.url, credentials.token, { autoSubscribe: true });
+        try {
+          const transfer = JSON.parse(sessionStorage.getItem("presentStudio.breakoutTransfer") || "null");
+          if (transfer) {
+            sessionStorage.removeItem("presentStudio.breakoutTransfer");
+            if (transfer.microphone) { await room.localParticipant.setMicrophoneEnabled(true); desiredMicrophoneEnabled = true; }
+            if (transfer.camera) await room.localParticipant.setCameraEnabled(true);
+            syncLocalPublishedState();
+          }
+        } catch (error) { setStatus("Room joined; enable your microphone or camera manually if needed", "error"); }
         const gestureUnlocked = await audioUnlock;
         const connectedAudioReady = await enableAudio(false);
         const audioReady = connectedAudioReady || (gestureUnlocked && !audioPlaybackBlocked && room.canPlayAudio !== false);
@@ -2883,6 +2903,7 @@
       return localMicrophonePublication()?.track?.mediaStreamTrack || null;
     }
 
+    if (isController && new URLSearchParams(location.search).get("breakoutJoin") === "1") queueMicrotask(() => join(true));
     return { join, leave, getLocalMicrophoneMediaTrack };
   }
 

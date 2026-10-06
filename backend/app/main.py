@@ -15,6 +15,7 @@ from urllib.parse import urljoin, urlsplit
 import re
 from .socket_manager import sio
 from . import meeting_v2
+from . import breakout
 from .routers import admin, auth, media, meetings, presentations, computation
 from .security import admin_user
 from .seed import seed_demo_data
@@ -100,6 +101,9 @@ def share_link_repair_statements(dialect_name: str, columns: set[str]) -> list[s
 def repair_live_session_schema() -> None:
     """Keep databases created before media-state persistence usable."""
     inspector = inspect(engine)
+    if "breakout_rooms" in inspector.get_table_names() and "closing_at" not in {column["name"] for column in inspector.get_columns("breakout_rooms")}:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE breakout_rooms ADD COLUMN closing_at FLOAT"))
     if "live_sessions" not in inspector.get_table_names():
         return
     columns = {column["name"] for column in inspector.get_columns("live_sessions")}

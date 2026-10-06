@@ -431,7 +431,7 @@ async function endLive() {
 }
 function setupSocket() {
   if (!socket) return;
-  const joinRoom = () => { socket.emit("join_presentation", { presentationId: presentation.id }); socket.emit('whiteboard_join', { presentationId: presentation.id, authToken, shareToken, resumeToken: participantResumeToken, screenCode: screenAccessCode }); };
+  const joinRoom = () => { socket.emit("join_presentation", { presentationId: presentation.id, authToken: audienceJoinLink || participantResumeToken ? "" : authToken, shareToken, resumeToken: participantResumeToken }); socket.emit('whiteboard_join', { presentationId: presentation.id, authToken, shareToken, resumeToken: participantResumeToken, screenCode: screenAccessCode }); };
   socket.on('meeting_admission_decision', event => { if (event.presentationId === presentation.id && event.accepted && event.clientId === localStorage.getItem('presentStudio.meetingGuestId')) joinRoom(); });
   socket.on("connect", joinRoom);
   if (socket.connected) joinRoom();
@@ -579,4 +579,4 @@ async function init() {
   setupSocket();
 }
 bindAudienceSettings();
-init().catch(error => showError(error.message));
+init().catch(error => { if (!window.SnapKeyBreakoutRooms?.recover(presentationId)) showError(error.message); });

@@ -99,6 +99,22 @@ async def join_presentation(sid, data):
     presentation_id = data.get("presentationId")
     if not presentation_id:
         return
+    with SessionLocal() as db:
+        presentation = db.get(Presentation, presentation_id)
+        if presentation and presentation.status == "breakout":
+            from .breakout import authorize, enforce_assignment
+            from fastapi import HTTPException
+            try:
+                _, _, _, _, guest = authorize(db, data)
+                if guest:
+                    enforce_assignment(db, presentation_id, guest.guest_id)
+                    session = await sio.get_session(sid)
+                    session["breakout_guest_id"] = guest.guest_id
+                    session["breakout_presentation_id"] = presentation_id
+                    await sio.save_session(sid, session)
+            except HTTPException:
+                await sio.leave_room(sid, presentation_id)
+                return
     await sio.enter_room(sid, presentation_id)
     with SessionLocal() as db:
         live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).first()
