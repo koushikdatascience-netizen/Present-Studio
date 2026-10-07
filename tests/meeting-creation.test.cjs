@@ -8,6 +8,7 @@ const dashboard = fs.readFileSync(path.join(__dirname, "../frontend/js/dashboard
 const api = fs.readFileSync(path.join(__dirname, "../frontend/js/api.js"), "utf8");
 const controller = fs.readFileSync(path.join(__dirname, "../frontend/js/controller.js"), "utf8");
 const dashboardStyles = fs.readFileSync(path.join(__dirname, "../frontend/css/dashboard.css"), "utf8");
+const controllerStyles = fs.readFileSync(path.join(__dirname, "../frontend/css/styles.css"), "utf8");
 
 test("dashboard exposes the complete instant and scheduled meeting workflow", () => {
   assert.match(dashboardHtml, /id="createMeeting"/);
@@ -34,6 +35,18 @@ test("meeting creation sends scheduling and privacy choices to the dedicated API
 test("timed owner meetings automatically close at their configured end", () => {
   assert.match(controller, /function scheduleMeetingExpiry\(meeting\)/);
   assert.match(controller, /socket\?\.emit\("meeting_close", credentials\(\)\)/);
+  assert.match(controller, /meeting_time_extended/);
+  const liveMedia = fs.readFileSync(path.join(__dirname, "../frontend/js/live-media.js"), "utf8");
+  assert.match(liveMedia, /5 \* 60 \* 1000/);
+  assert.match(liveMedia, /meeting-time-extension-button/);
+  assert.match(liveMedia, /api\.extendMeeting/);
+});
+
+test("controller slide cards render legacy images in compact 16:9 thumbnails", () => {
+  assert.match(controller, /fabric\.Image\.fromURL\(item\.src/);
+  assert.match(controller, /data\.elements \|\| \[\]/);
+  assert.match(controllerStyles, /controller-target-thumb \.canvas-container \{[^}]*width: 100% !important; height: 100% !important/);
+  assert.match(controllerStyles, /controller-library-panel \.controller-target-thumb \{[^}]*aspect-ratio: 16 \/ 9/);
 });
 
 test("dashboard presents meetings as a responsive grid with confirmed deletion", () => {

@@ -340,6 +340,7 @@ def resolve_shared_presentation(token: str, db: Session = Depends(get_db)) -> Sh
         presentationId=share.presentation_id,
         standaloneMeeting=bool(meeting),
         meetingAccessType=meeting.access_type if meeting else None,
+        scheduledEnd=_aware_datetime(meeting.scheduled_end).isoformat() if meeting and meeting.scheduled_end else None,
     )
 
 

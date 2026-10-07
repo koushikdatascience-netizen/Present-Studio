@@ -39,6 +39,7 @@
     createPresentation: (title) => request("/api/presentations", { method: "POST", body: JSON.stringify({ title }) }), savePresentation: (deck) => request(`/api/presentations/${encodeURIComponent(deck.id)}`, { method: "PUT", body: JSON.stringify(deck) }), deletePresentation: (id) => request(`/api/presentations/${encodeURIComponent(id)}`, { method: "DELETE" }),
     listMeetings: () => request("/api/meetings"),
     createMeeting: (meeting) => request("/api/meetings", { method: "POST", body: JSON.stringify(meeting) }),
+    extendMeeting: (id, minutes = 15) => request(`/api/meetings/${encodeURIComponent(id)}/extend`, { method: "POST", body: JSON.stringify({ minutes }) }),
     deleteMeeting: (id) => request(`/api/meetings/${encodeURIComponent(id)}`, { method: "DELETE" }),
     getMeetingForPresentation: (id) => request(`/api/meetings/by-presentation/${encodeURIComponent(id)}`),
     getCurrentShareLink: (id) => request(`/api/presentations/${encodeURIComponent(id)}/share/current`),

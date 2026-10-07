@@ -9,7 +9,7 @@ from app.database import SessionLocal
 from app.config import get_settings
 from app.main import fastapi_app, live_session_repair_statements, share_link_repair_statements
 from app.live_state import meeting_control_payload
-from app.models import LiveSession, Presentation, ShareLink, User
+from app.models import LiveSession, Meeting, Presentation, ShareLink, User
 from app.security import hash_password
 
 
@@ -157,6 +157,45 @@ def test_create_private_scheduled_timed_meeting_generates_code_and_range():
     assert response.json()["scheduledEnd"] is not None
     assert early_join.status_code == 403
     assert "scheduled for" in early_join.json()["detail"]
+
+
+def test_owner_can_extend_timed_meeting_and_share_expiry_tracks_end():
+    email = f"meeting-extension-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Meeting Owner", "email": email, "password": "securepass123"})
+        headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
+        end = datetime.now(timezone.utc) + timedelta(minutes=10)
+        created = client.post("/api/meetings", json={
+            "title": "Timed room", "timingMode": "instant", "durationMode": "timed",
+            "accessType": "public", "scheduledEnd": end.isoformat(),
+        }, headers=headers)
+        meeting_id = created.json()["id"]
+        presentation_id = created.json()["presentationId"]
+        extended = client.post(f"/api/meetings/{meeting_id}/extend", json={"minutes": 15}, headers=headers)
+        resolved = client.get(f"/api/presentations/shared/{created.json()['audienceUrl'].rsplit('/', 1)[-1]}")
+    assert created.status_code == 200
+    assert extended.status_code == 200
+    assert datetime.fromisoformat(extended.json()["scheduledEnd"]) > end + timedelta(minutes=14)
+    assert resolved.status_code == 200
+    assert resolved.json()["scheduledEnd"] == extended.json()["scheduledEnd"]
+    with SessionLocal() as db:
+        meeting = db.query(Meeting).filter_by(id=meeting_id).one()
+        share = db.query(ShareLink).filter_by(presentation_id=presentation_id, permission="viewer").one()
+        assert meeting.scheduled_end == share.expires_at
+
+
+def test_only_owner_can_extend_timed_meeting():
+    owner_email = f"meeting-extension-owner-{uuid4().hex}@example.com"
+    guest_email = f"meeting-extension-guest-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        owner = client.post("/api/auth/signup", json={"name": "Owner", "email": owner_email, "password": "securepass123"})
+        guest = client.post("/api/auth/signup", json={"name": "Guest", "email": guest_email, "password": "securepass123"})
+        meeting = client.post("/api/meetings", json={
+            "title": "Timed room", "timingMode": "instant", "durationMode": "timed",
+            "accessType": "public", "scheduledEnd": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+        }, headers={"Authorization": f"Bearer {owner.json()['accessToken']}"})
+        response = client.post(f"/api/meetings/{meeting.json()['id']}/extend", json={"minutes": 15}, headers={"Authorization": f"Bearer {guest.json()['accessToken']}"})
+    assert response.status_code == 404
 
 
 def test_share_link_requires_auth():

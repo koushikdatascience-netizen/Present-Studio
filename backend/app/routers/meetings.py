@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import secrets
 import hashlib
 import json
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import LiveSession, Meeting, Presentation, ShareLink, Slide, User, MeetingParticipantGrant, PresentationMember
-from ..schemas import MeetingCreate, MeetingOut
+from ..schemas import MeetingCreate, MeetingExtendRequest, MeetingOut
 from ..security import current_user, hash_password, new_id, new_share_token
 from ..socket_manager import sio
 from .presentations import public_share_base_url
@@ -139,6 +139,38 @@ def create_meeting(payload: MeetingCreate, request: Request, user: User = Depend
     db.add_all([meeting, live])
     db.commit()
     return serialize_meeting(meeting, presentation, share, request, access_code)
+
+
+@router.post("/{meeting_id}/extend")
+async def extend_meeting(
+    meeting_id: str,
+    payload: MeetingExtendRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    meeting = db.get(Meeting, meeting_id)
+    if not meeting or meeting.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    end = aware(meeting.scheduled_end) if meeting.scheduled_end else None
+    now = datetime.now(timezone.utc)
+    if meeting.duration_mode != "timed" or not end:
+        raise HTTPException(status_code=409, detail="Only timed meetings can be extended")
+    if meeting.status == "closed" or end <= now:
+        raise HTTPException(status_code=409, detail="This meeting has already ended")
+
+    meeting.scheduled_end = end + timedelta(minutes=payload.minutes)
+    meeting.updated_at = now
+    share = db.get(ShareLink, meeting.audience_share_id)
+    if share:
+        share.expires_at = meeting.scheduled_end
+    db.commit()
+    scheduled_end = aware(meeting.scheduled_end).isoformat()
+    await sio.emit("meeting_time_extended", {
+        "meetingId": meeting.id,
+        "presentationId": meeting.presentation_id,
+        "scheduledEnd": scheduled_end,
+    }, room=meeting.presentation_id)
+    return {"meetingId": meeting.id, "presentationId": meeting.presentation_id, "scheduledEnd": scheduled_end}
 
 
 @router.delete("/{meeting_id}")

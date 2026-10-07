@@ -487,13 +487,15 @@ function setupSocket() {
 }
 let standaloneMeeting = false;
 let standaloneMeetingAccessType = "";
+let meetingEndAt = "";
 
 async function loadPresentationAccess() {
   const audienceRequest = audienceJoinLink || participantResumeToken ? { publicAccess: true } : {};
-  if (!presentationId && shareToken) {
+  if (shareToken) {
     const resolved = await api.resolveShareLink(shareToken, audienceRequest);
-    presentationId = resolved.presentationId;
+    presentationId ||= resolved.presentationId;
     standaloneMeeting = Boolean(resolved.standaloneMeeting);
+    meetingEndAt = resolved.scheduledEnd || "";
     standaloneMeetingAccessType = String(
       resolved.meetingAccessType || ""
     ).toLowerCase();
@@ -579,6 +581,7 @@ async function init() {
   applyPresentationState(live, true);
   liveMediaSession = window.SnapKeyLiveMedia?.create({
     root: $("presentLiveMedia"), presentationId, shareToken, resumeToken: participantResumeToken, authToken: audienceJoinLink || participantResumeToken ? "" : authToken, screenAccessCode, socket,
+    meetingEndAt,
     admissionBypass: presenter || publicStandaloneMeeting || Boolean(participantResumeToken),
     displayName: cohostReturnState.displayName || result.resumeDisplayName || api.getCachedSession()?.name || "", fullscreenTarget: presenter ? null : $("presentLiveMedia").querySelector(".audience-meeting-stage"), fullscreenOnJoin: false,
     onEnableAudio: enablePresentationAudio,

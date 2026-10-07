@@ -48,6 +48,76 @@
     const fullscreenExitButton = root.querySelector("[data-live-fullscreen-exit]");
     const fullscreenTarget = options.fullscreenTarget || null;
     const status = root.querySelector("[data-live-status]");
+    const canExtendMeeting = Boolean(options.controller && options.canExtendMeeting && options.meetingId && api?.extendMeeting);
+    let meetingEndAt = Date.parse(options.meetingEndAt || "") || 0;
+    let meetingCountdownTimer = 0;
+    let meetingTimeAlert = null;
+    let meetingTimeLabel = null;
+    let meetingExtendButton = null;
+    let meetingExtendDuration = null;
+    let renderMeetingCountdown = () => {};
+    if (meetingEndAt) {
+      meetingTimeAlert = document.createElement("aside");
+      meetingTimeAlert.className = "meeting-time-alert";
+      meetingTimeAlert.setAttribute("role", "status");
+      meetingTimeAlert.setAttribute("aria-live", "polite");
+      const copy = document.createElement("div");
+      copy.className = "meeting-time-alert-copy";
+      const heading = document.createElement("strong");
+      heading.textContent = "Meeting ends in";
+      meetingTimeLabel = document.createElement("span");
+      meetingTimeLabel.className = "meeting-time-countdown";
+      copy.append(heading, meetingTimeLabel);
+      meetingTimeAlert.append(copy);
+      if (canExtendMeeting) {
+        meetingExtendDuration = document.createElement("select");
+        meetingExtendDuration.className = "meeting-time-extension-select";
+        meetingExtendDuration.setAttribute("aria-label", "Add time to this meeting");
+        for (const minutes of [5, 10, 15, 30, 60]) {
+          const option = document.createElement("option");
+          option.value = String(minutes);
+          option.textContent = `+${minutes} min`;
+          if (minutes === 15) option.selected = true;
+          meetingExtendDuration.append(option);
+        }
+        meetingExtendButton = document.createElement("button");
+        meetingExtendButton.className = "meeting-time-extension-button";
+        meetingExtendButton.type = "button";
+        meetingExtendButton.textContent = "Add time";
+        meetingTimeAlert.append(meetingExtendDuration, meetingExtendButton);
+      }
+      root.append(meetingTimeAlert);
+      renderMeetingCountdown = () => {
+        if (!meetingTimeAlert || !meetingEndAt) return;
+        const remaining = meetingEndAt - Date.now();
+        const seconds = Math.max(0, Math.ceil(remaining / 1000));
+        const display = seconds >= 3600
+          ? `${Math.floor(seconds / 3600)}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`
+          : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+        meetingTimeLabel.textContent = remaining <= 0 ? "00:00" : display;
+        meetingTimeAlert.hidden = remaining > 5 * 60 * 1000;
+        meetingTimeAlert.classList.toggle("is-urgent", remaining <= 60 * 1000);
+        if (meetingExtendButton) meetingExtendButton.disabled = remaining <= 0;
+      };
+      meetingExtendButton?.addEventListener("click", async () => {
+        if (meetingExtendButton.disabled) return;
+        meetingExtendButton.disabled = true;
+        meetingExtendButton.textContent = "Updating…";
+        try {
+          const result = await api.extendMeeting(options.meetingId, Number(meetingExtendDuration.value));
+          meetingEndAt = Date.parse(result.scheduledEnd) || meetingEndAt;
+          renderMeetingCountdown();
+          setStatus(`Meeting extended. New end time ${new Date(meetingEndAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`, "success");
+        } catch (error) {
+          setStatus(error.message || "Could not extend this meeting.", "error");
+        } finally {
+          meetingExtendButton.textContent = "Add time";
+          meetingExtendButton.disabled = meetingEndAt <= Date.now();
+        }
+      });
+      renderMeetingCountdown();
+      meetingCountdownTimer = window.setInterval(renderMeetingCountdown, 1000);
+    }
     const count = root.querySelector("[data-live-count]");
     const tiles = root.querySelector("[data-live-tiles]");
     const peopleSearch = root.querySelector("[data-live-people-search]");
@@ -2717,6 +2787,13 @@
       });
     }
     options.socket?.on("meeting_control_state", applyControllerState);
+    options.socket?.on("meeting_time_extended", event => {
+      if (event?.presentationId !== options.presentationId || !event.scheduledEnd || !meetingTimeAlert) return;
+      const nextEndAt = Date.parse(event.scheduledEnd);
+      if (!Number.isFinite(nextEndAt)) return;
+      meetingEndAt = nextEndAt;
+      renderMeetingCountdown();
+    });
     options.socket?.on("meeting_participant_audio_command", applyParticipantAudioCommand);
     options.socket?.on("meeting_chat_message", message => { if (message?.presentationId === options.presentationId) appendChatMessage(message); });
     options.socket?.on("meeting_reaction_event", message => { if (message?.presentationId === options.presentationId) showReaction(message); });
@@ -2836,6 +2913,8 @@
     options.socket?.on("session_ended", async message => {
       if (message?.presentationId && message.presentationId !== options.presentationId) return;
       admissionState = "closed";
+      if (meetingCountdownTimer) window.clearInterval(meetingCountdownTimer);
+      if (meetingTimeAlert) meetingTimeAlert.hidden = true;
       await leave({ releaseTab: true });
       options.socket?.disconnect?.();
       syncButtons(false);

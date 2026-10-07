@@ -99,6 +99,7 @@ class ShareLinkResolveOut(BaseModel):
     presentationId: str
     standaloneMeeting: bool = False
     meetingAccessType: Literal["public", "private"] | None = None
+    scheduledEnd: str | None = None
 
 
 class LiveMediaTokenRequest(BaseModel):
@@ -162,6 +163,10 @@ class MeetingCreate(BaseModel):
     accessType: Literal["public", "private"] = "public"
     scheduledStart: datetime | None = None
     scheduledEnd: datetime | None = None
+
+
+class MeetingExtendRequest(BaseModel):
+    minutes: Literal[5, 10, 15, 30, 60] = 15
 
 
 class MeetingOut(BaseModel):

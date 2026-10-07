@@ -1623,11 +1623,42 @@
       thumbnail.backgroundColor = data.background || "#f8f4ea";
       if (data.fabric) {
         const scene = JSON.parse(JSON.stringify(data.fabric));
-        scene.objects = (scene.objects || []).filter(object => object.mediaType !== "video");
+        scene.objects = (scene.objects || []).filter(object => !["video", "youtube", "screen-share"].includes(object.mediaType || object.type));
         thumbnail.loadFromJSON(scene, finish);
       } else {
-        (data.elements || []).filter(item => item.type === "text").forEach(item => thumbnail.add(legacyPreviewText(item)));
-        finish();
+        const elements = data.elements || [];
+        const images = elements.filter(item => item.type === "image" && item.src);
+        Promise.all(images.map(item => new Promise(resolve => {
+          fabric.Image.fromURL(item.src, image => resolve(image || null));
+        }))).then(loadedImages => {
+          if (version !== slideThumbnailRenderVersion || !slideThumbnailCanvases.includes(thumbnail)) return;
+          let imageIndex = 0;
+          elements.forEach(item => {
+            if (item.type === "text") {
+              thumbnail.add(legacyPreviewText(item));
+              return;
+            }
+            if (item.type !== "image" || !item.src) return;
+            const image = loadedImages[imageIndex++];
+            if (!image) return;
+            const boxWidth = Math.max(1, Number(item.width || 100) * 12.8);
+            const boxHeight = Math.max(1, Number(item.height || 100) * 7.2);
+            const scale = item.full_bleed || item.fit === "fill"
+              ? null
+              : Math.min(boxWidth / image.width, boxHeight / image.height);
+            image.set({
+              left: Number(item.x || 0) * 12.8,
+              top: Number(item.y || 0) * 7.2,
+              scaleX: scale || boxWidth / image.width,
+              scaleY: scale || boxHeight / image.height,
+              selectable: false,
+              evented: false
+            });
+            thumbnail.add(image);
+            if (item.full_bleed) thumbnail.sendToBack(image);
+          });
+          finish();
+        }).catch(() => finish());
       }
     });
   }
@@ -1786,6 +1817,9 @@
       requestOptions: cohostRequestOptions,
       displayName: resolvedPresenterName,
       cohostGuestId,
+      meetingId: meetingPlan?.id || "",
+      meetingEndAt: meetingPlan?.scheduledEnd || "",
+      canExtendMeeting: Boolean(!isCohost && cachedUser?.id && cachedUser.id === result.presentation.ownerId),
       fullscreenTarget: $("#controllerLiveMedia").querySelector(".interactive-main-stage"),
       fullscreenOnJoin: false,
       controller: true,
@@ -1903,6 +1937,10 @@
       setConnectionStatus("Closed");
       toast("Meeting closed. All participants were disconnected.");
       document.querySelectorAll("#controllerLiveMedia button, .controller-console-actions button").forEach(button => { button.disabled = true; });
+    });
+    socket?.on("meeting_time_extended", event => {
+      if (event?.presentationId !== presentationId || !event.scheduledEnd) return;
+      scheduleMeetingExpiry({ scheduledEnd: event.scheduledEnd });
     });
   } catch (error) {
     if (window.SnapKeyBreakoutRooms?.recover(presentationId)) return;
