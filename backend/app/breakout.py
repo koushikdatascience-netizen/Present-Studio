@@ -2,6 +2,7 @@
 import asyncio
 import time
 import logging
+from datetime import datetime, timedelta, timezone
 from weakref import WeakValueDictionary
 from urllib.parse import urlencode
 
@@ -11,7 +12,7 @@ from . import socket_manager as sm
 from .config import get_settings
 from .database import SessionLocal
 from .models import BreakoutRoom, BreakoutAssignment, LiveSession, MeetingParticipantGrant, Presentation, PresentationMember, ShareLink, Slide
-from .security import can_present_with_credentials, create_participant_resume_token, new_id, resolve_participant_resume_token
+from .security import can_edit_presentation, can_present_with_credentials, create_participant_resume_token, new_id, new_share_token, resolve_participant_resume_token, user_from_token
 from . import meeting_v2 as mv
 
 _locks = WeakValueDictionary()
@@ -323,18 +324,27 @@ async def _room_operation(sid, data):
                 target = next((r for r in snapshot(db, parent_id, live, True)["rooms"] if r["id"] == target_id), None)
                 if not target:
                     raise HTTPException(404, "Room not found")
+                user = user_from_token(db, data.get("authToken") or "")
+                parent = db.get(Presentation, parent_id)
+                owner_access = bool(user and parent and can_edit_presentation(db, parent, user))
                 if data.get("shareToken"):
-                    # A co-host keeps only their meeting-scoped role, never owner credentials.
-                    share = mv.ShareLink
-                    current = db.query(share).filter_by(token=data["shareToken"]).first()
+                    current = db.query(ShareLink).filter_by(token=data["shareToken"]).first()
                     grant = db.query(MeetingParticipantGrant).filter_by(cohost_share_id=current.id).first() if current else None
-                    if not grant:
-                        raise HTTPException(403, "A session-scoped co-host is required")
-                    await move(db, parent_id, live, [grant.guest_id], target_id)
-                    url = transfer_url(db, parent_id, live, grant.guest_id, target["presentationId"])
+                    if grant:
+                        # A co-host keeps only their meeting-scoped role, never owner credentials.
+                        await move(db, parent_id, live, [grant.guest_id], target_id)
+                        url = transfer_url(db, parent_id, live, grant.guest_id, target["presentationId"])
+                        db.commit()
+                    elif owner_access:
+                        url = "/controller.html?id=" + parent_id if target_id == "main" else owner_breakout_url(db, target["presentationId"])
+                        db.commit()
+                    else:
+                        raise HTTPException(403, "A session-scoped host or co-host is required")
+                elif owner_access:
+                    url = "/controller.html?id=" + parent_id if target_id == "main" else owner_breakout_url(db, target["presentationId"])
                     db.commit()
                 else:
-                    url = "/controller.html?" + urlencode({"id": target["presentationId"], "breakoutJoin": "1"})
+                    raise HTTPException(403, "Host or co-host permission required")
                 return {"ok": True, "url": url}
             elif action == "announce":
                 text = str(data.get("text") or "").strip()[:500]
@@ -360,3 +370,13 @@ async def _room_operation(sid, data):
     except Exception:
         logger.exception("Breakout room operation failed")
         return {"ok": False, "error": "Room operation failed. Please retry; no transfer should be assumed."}
+
+
+def owner_breakout_url(db, presentation_id):
+    share = ShareLink(
+        id=new_id("share"), presentation_id=presentation_id, token=new_share_token(),
+        permission="presenter", is_active=True,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=12),
+    )
+    db.add(share)
+    return "/controller.html?" + urlencode({"id": presentation_id, "token": share.token, "breakoutJoin": "1"})

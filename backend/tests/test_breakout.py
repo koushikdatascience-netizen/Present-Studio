@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 from app import breakout
 from app.database import Base
-from app.models import BreakoutAssignment, BreakoutRoom, LiveSession, MeetingParticipantGrant, Presentation, User
+from app.models import BreakoutAssignment, BreakoutRoom, LiveSession, MeetingParticipantGrant, Presentation, ShareLink, User
 from app.security import create_access_token, create_participant_resume_token, resolve_participant_resume_token
 
 
@@ -200,6 +200,27 @@ def test_cohost_can_manage_and_visit_but_parent_demotion_revokes_child_access(se
         db.get(MeetingParticipantGrant, "guestgrant").role = "audience"
         db.commit()
     assert not command(child)["ok"]
+
+
+def test_owner_can_visit_breakout_and_return_without_losing_owner_access(setup):
+    sessions, owner, _ = setup
+    room = create(owner)
+    result = command(owner, action="visit", roomId=room["id"])
+    assert result["ok"]
+    from urllib.parse import parse_qs, urlsplit
+    query = parse_qs(urlsplit(result["url"]).query)
+    assert query["id"] == [room["presentationId"]]
+    assert query["breakoutJoin"] == ["1"]
+    child_token = query["token"][0]
+    with sessions() as db:
+        share = db.query(ShareLink).filter_by(token=child_token).one()
+        assert share.presentation_id == room["presentationId"]
+        assert share.permission == "presenter"
+        assert share.expires_at is not None
+    child_owner = {**owner, "presentationId": room["presentationId"], "shareToken": child_token}
+    assert command(child_owner)["manager"]
+    back = command(child_owner, action="visit", roomId="main")
+    assert back["ok"] and back["url"] == "/controller.html?id=parent"
 
 
 def test_room_limit_and_duplicate_names_are_rejected(setup):

@@ -44,17 +44,20 @@
     return objects.find((object, index) => object.mediaType === kind && String(object.id || index) === String(id));
   }
 
-  function playLinkedAudio(src, loop = false) {
+  function playLinkedAudio(src, loop = false, existing = new Map(), desired = []) {
     if (!src) return;
-    linkedAudio = new Audio(src);
+    const key = `slide-audio:${src}`;
+    linkedAudio = existing.get(key) || new Audio(src);
+    if (existing.has(key)) linkedAudio.dataset.mediaReused = "true";
+    linkedAudio.dataset.presentationMediaKey = key;
     linkedAudio.volume = presentationVolume(linkedAudio);
     linkedAudio.loop = loop;
     linkedAudio.muted = !audioUnlocked || Boolean(currentState?.muted);
     linkedAudio.hidden = true;
     linkedAudio.dataset.slideMusic = "true";
-    mediaLayer.append(linkedAudio);
+    desired.push(linkedAudio);
     activeMedia = linkedAudio;
-    linkedAudio.play().catch(() => {});
+    if (!existing.has(key)) linkedAudio.play().catch(() => {});
   }
 
   function legacyOutputText(item) {
@@ -73,10 +76,12 @@
     });
   }
 
-  function addPositionedOutputMedia(item) {
+  function addPositionedOutputMedia(item, key, existing, desired) {
     if (!item?.src) return;
-    const node = document.createElement(item.type === "video" ? "video" : "img");
-    node.src = item.src;
+    const node = existing.get(key) || document.createElement(item.type === "video" ? "video" : "img");
+    if (existing.has(key)) node.dataset.mediaReused = "true";
+    else node.src = item.src;
+    node.dataset.presentationMediaKey = key;
     node.className = "live-output-positioned-video";
     Object.assign(node.style, {
       left: `${item.full_bleed ? 0 : Number(item.x || 0)}%`,
@@ -88,10 +93,10 @@
     if (node.tagName === "VIDEO") {
       Object.assign(node, { autoplay: true, playsInline: true, loop: item.loop !== false, muted: !audioUnlocked || Boolean(currentState?.muted) });
       node.volume = presentationVolume(node);
+      if (!existing.has(key)) node.play().catch(() => { node.muted = true; node.play().catch(() => {}); });
       activeMedia = node;
-      node.play().catch(() => { node.muted = true; node.play().catch(() => {}); });
     }
-    mediaLayer.append(node);
+    desired.push(node);
   }
 
   function renderDirectMedia(slide, mediaId, kind) {
@@ -133,15 +138,19 @@
     transition();
   }
 
-  function renderSlide(slide) {
+  function renderSlide(slide, preserveMedia = false) {
     if (!slide) return;
     canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
     stage.dataset.slideId = slide.id;
     stage.dataset.kind = "slide";
     stage.dataset.mediaId = "";
     stage.dataset.presentationTitle = presentation.title;
-    stopMedia();
-    mediaLayer.replaceChildren();
+    if (!preserveMedia) {
+      stopMedia();
+      mediaLayer.replaceChildren();
+    }
+    const existing = preserveMedia ? new Map([...mediaLayer.children].filter(node => node.dataset.presentationMediaKey).map(node => [node.dataset.presentationMediaKey, node])) : new Map();
+    const desired = [];
     canvasWrap.hidden = false;
     const data = slide.canvas || {};
     canvas.clear();
@@ -151,11 +160,15 @@
       const videos = (scene.objects || []).filter(object => ["video", "youtube"].includes(object.mediaType) && (object.src || object.youtubeId));
       scene.objects = (scene.objects || []).filter(object => !["video", "youtube"].includes(object.mediaType));
       canvas.loadFromJSON(scene, () => { canvas.getObjects().forEach(object => { object.selectable = false; object.evented = false; }); canvas.renderAll(); });
-      videos.forEach(object => {
+      videos.forEach((object, index) => {
         const isYoutube = object.mediaType === "youtube";
-        const video = isYoutube ? window.SnapKeyYouTube.frame(object) : document.createElement("video");
+        const key = object.id ? `${object.id}:${object.src || object.youtubeId || object.mediaType}` : `${object.mediaType}:${object.src || object.youtubeId || index}`;
+        const reused = existing.has(key);
+        const video = existing.get(key) || (isYoutube ? window.SnapKeyYouTube.frame(object) : document.createElement("video"));
         if (!video) return;
-        if (!isYoutube) video.src = object.src;
+        video.dataset.presentationMediaKey = key;
+        if (reused) video.dataset.mediaReused = "true";
+        else if (!isYoutube) video.src = object.src;
         video.className = "live-output-positioned-video";
         video.style.left = `${object.full_bleed ? 0 : ((object.left || 0) / 1280) * 100}%`;
         video.style.top = `${object.full_bleed ? 0 : ((object.top || 0) / 720) * 100}%`;
@@ -166,19 +179,26 @@
           Object.assign(video, { autoplay: true, playsInline: true, loop: object.loop !== false, muted: !audioUnlocked || Boolean(currentState?.muted) });
           video.volume = presentationVolume(video);
         }
-        mediaLayer.append(video);
+        desired.push(video);
         if (isYoutube) window.SnapKeyYouTube.sync(video, { volume: presentationVolume({ tagName: "VIDEO" }), muted: !audioUnlocked || Boolean(currentState?.muted) });
-        else { activeMedia = video; video.play().catch(() => { video.muted = true; video.play().catch(() => {}); }); }
+        else { activeMedia = video; if (!reused) video.play().catch(() => { video.muted = true; video.play().catch(() => {}); }); }
       });
       const slideAudioSrc = data.audio?.src;
-      playLinkedAudio(slideAudioSrc);
+      playLinkedAudio(slideAudioSrc, Boolean(data.audio?.loop), existing, desired);
     } else {
       const elements = data.elements || [];
       elements.filter(item => item.type === "text").forEach(item => canvas.add(legacyOutputText(item)));
-      elements.filter(item => ["image", "video"].includes(item.type)).forEach(addPositionedOutputMedia);
+      elements.filter(item => ["image", "video"].includes(item.type)).forEach((item, index) => addPositionedOutputMedia(item, item.id ? `${item.id}:${item.src || item.type}` : `${item.type}:${item.src || index}`, existing, desired));
       canvas.renderAll();
-      playLinkedAudio(data.audio?.src);
+      playLinkedAudio(data.audio?.src, Boolean(data.audio?.loop), existing, desired);
     }
+    desired.forEach((node, index) => { if (mediaLayer.children[index] !== node) mediaLayer.insertBefore(node, mediaLayer.children[index] || null); });
+    [...mediaLayer.children].slice(desired.length).forEach(node => {
+      if (node === activeMedia) activeMedia = null;
+      if (node === linkedAudio) linkedAudio = null;
+      node.pause?.();
+      node.remove();
+    });
     transition();
   }
 
@@ -186,8 +206,14 @@
 
   function handlePresentationUpdate(event) {
     if (event.presentationId !== presentationId || !event.presentation) return;
+    const oldSlide = slideById(currentState?.slideId);
+    const oldCanvas = oldSlide ? JSON.stringify(oldSlide.canvas || {}) : "";
     presentation = event.presentation;
-    applyPresentationState(event.liveState || currentState || { slideId: event.activeSlideId }, true);
+    const state = event.liveState || currentState || { slideId: event.activeSlideId };
+    const newSlide = slideById(state.slideId || state.activeSlideId);
+    const stateSlideId = state.slideId || state.activeSlideId;
+    const sameVisibleSlideChanged = (state.kind || "slide") === "slide" && stateSlideId === currentState?.slideId && newSlide && oldCanvas !== JSON.stringify(newSlide.canvas || {});
+    applyPresentationState(state, sameVisibleSlideChanged, sameVisibleSlideChanged);
   }
 
   function control(action, position) {
@@ -390,7 +416,7 @@
     }, { once: true });
   }
 
-  function applyPresentationState(rawState, forceRender = false) {
+  function applyPresentationState(rawState, forceRender = false, preserveMedia = false) {
     const state = normalizedLiveState(rawState);
     if (state.presentationId && state.presentationId !== presentationId) return;
     const slide = slideById(state.slideId);
@@ -416,9 +442,16 @@
       || String(stage.dataset.mediaId || "") !== String(state.mediaId || "");
     if (selectionChanged) {
       if (["image", "video", "audio"].includes(state.kind)) renderDirectMedia(slide, state.mediaId, state.kind);
-      else renderSlide(slide);
+      else renderSlide(slide, preserveMedia);
     }
-    [...mediaLayer.querySelectorAll("video,audio")].forEach(media => correctMediaDrift(media, state));
-    mediaLayer.querySelectorAll("iframe[data-youtube-id]").forEach(frame => window.SnapKeyYouTube.sync(frame, { volume: presentationVolume({ tagName: "VIDEO" }, state), muted: !audioUnlocked || Boolean(state.muted), playing: typeof state.playing === "boolean" ? state.playing : undefined, position: Number.isFinite(Number(state.position)) ? expectedPosition(state) : undefined }));
+    [...mediaLayer.querySelectorAll("video,audio")].forEach(media => {
+      if (media.dataset.mediaReused) { media.muted = !audioUnlocked || Boolean(state.muted); media.volume = presentationVolume(media, state); delete media.dataset.mediaReused; }
+      else correctMediaDrift(media, state);
+    });
+    mediaLayer.querySelectorAll("iframe[data-youtube-id]").forEach(frame => {
+      const reused = frame.dataset.mediaReused;
+      window.SnapKeyYouTube.sync(frame, { volume: presentationVolume({ tagName: "VIDEO" }, state), muted: !audioUnlocked || Boolean(state.muted), ...(reused ? {} : { playing: typeof state.playing === "boolean" ? state.playing : undefined, position: Number.isFinite(Number(state.position)) ? expectedPosition(state) : undefined }) });
+      delete frame.dataset.mediaReused;
+    });
   }
 })();
