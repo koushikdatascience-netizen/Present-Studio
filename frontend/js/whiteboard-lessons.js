@@ -7,9 +7,11 @@
     { id: 'parabola', title: 'Quadratic transformations', level: 'Classes 8–12', kind: 'graph', values: { expression: 'a*x^2', parameter: 1, minimum: -3, maximum: 3 } },
     { id: 'slope', title: 'From secants to tangents', level: 'Classes 11–University', kind: 'tangent', values: { expression: 'x^2', minimum: -2, maximum: 2, position: .65 } },
     { id: 'area', title: 'Area through midpoint rectangles', level: 'Classes 11–University', kind: 'integral', values: { expression: 'x^2', minimum: 0, maximum: 1, count: 8 } },
+    { id: 'cardioid', title: 'Polar curves: the cardioid', level: 'Classes 11–University', kind: 'polar', values: { expression: 'a*(1+cos(theta))', parameter: 1.5, minimum: 0, maximum: 6.2832 } },
     { id: 'linear', title: 'Rotation, stretch and determinant', level: 'University', kind: 'matrix', values: { angle: 45, stretch: 1.5 } },
   ];
   function explanations(model) {
+    if (model.kind === 'polar') return { status: 'Sampled polar curve', steps: ['Map each polar sample to (r cos θ, r sin θ).', 'Negative r reflects the point through the origin.', 'Undefined or non-real r breaks the curve.', 'Sampling does not prove symmetry, area or tangents.'] };
     if (model.kind === 'sequence') return { status: 'Finite partial sums, not convergence proof', steps: [`Evaluate terms at integer indices ${model.minimum} to ${model.maximum}.`, 'Teal shows terms; gold shows cumulative sums on the same vertical scale.', 'Infinite convergence requires a separate analytical test.'] };
     if (model.kind === 'surface3d') return { status: 'Sampled real surface', steps: [`z = ${model.expression}, with a = ${model.parameter}.`, 'The surface is sampled on a finite grid; undefined/non-real vertices are omitted.', 'The stored equation and teacher camera synchronize; viewer orbit/zoom does not edit the teacher board.'] };
     if (model.kind === 'fraction') {

@@ -1,5 +1,5 @@
 (function () {
-  const allowed = new Set(['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'sqrt', 'abs', 'exp', 'log', 'log10', 'factorial', 'det', 'inv', 'transpose', 'norm', 'complex', 'conj', 're', 'im', 'sinh', 'cosh', 'tanh']);
+  const allowed = new Set(['sin', 'cos', 'tan', 'sec', 'csc', 'cot', 'floor', 'ceil', 'round', 'min', 'max', 'sign', 'pow', 'asin', 'acos', 'atan', 'sqrt', 'abs', 'exp', 'log', 'log10', 'factorial', 'det', 'inv', 'transpose', 'norm', 'complex', 'conj', 're', 'im', 'sinh', 'cosh', 'tanh']);
   function expression(math, source, symbolic = false) {
     if (!source.trim() || source.length > 500) throw new Error('Enter an expression of up to 500 characters.');
     const node = math.parse(source); let count = 0;

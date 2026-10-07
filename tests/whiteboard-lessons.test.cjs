@@ -6,7 +6,7 @@ const context = { window: {} };
 vm.runInNewContext(fs.readFileSync('frontend/js/whiteboard-lessons.js', 'utf8'), context);
 const lessons = context.window.SnapKeyLessons;
 test('lesson templates cover school arithmetic, geometry and university demonstrations', () => {
-  assert.equal(new Set(lessons.templates.map(item => item.id)).size, 8);
+  assert.equal(new Set(lessons.templates.map(item => item.id)).size, 9);
   for (const kind of ['fraction', 'numberline', 'geometry', 'graph', 'tangent', 'integral', 'matrix']) assert(lessons.templates.some(item => item.kind === kind));
 });
 test('fraction explanations use checked integer reduction, including zero', () => {

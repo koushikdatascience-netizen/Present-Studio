@@ -198,7 +198,7 @@
       canvas.add(image); setTool('select'); canvas.setActiveObject(image); canvas.renderAll(); commit();
       } catch (error) { status('Reference upload failed'); throw error; } finally { uploading = false; }
     }
-    function showWindow(name) { dialog.querySelectorAll('.science-board-window').forEach(window => { window.hidden = window.dataset.wbWindow !== name; }); }
+    function showWindow(name) { dialog._wbMathKeyboard?.hide(); if (name !== 'equation') window.mathVirtualKeyboard?.hide?.(); dialog.querySelectorAll('.science-board-window').forEach(window => { window.hidden = window.dataset.wbWindow !== name; }); }
     function dragWindows() {
       dialog.querySelectorAll('.science-board-window > header').forEach(header => {
         header.addEventListener('pointerdown', event => {
@@ -214,8 +214,8 @@
     function compileExpression(expression) {
       if (!expression.trim() || expression.length > 500) throw new Error('Enter a mathematical expression of up to 500 characters.');
       const node = math.parse(expression); let count = 0;
-      const symbols = new Set(['x', 'y', 't', 'a', 'pi', 'e']);
-      const functions = new Set(['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh', 'exp', 'log', 'log10', 'sqrt', 'abs', 'floor', 'ceil', 'round', 'min', 'max', 'sign', 'pow']);
+      const symbols = new Set(['x', 'y', 't', 'a', 'k', 'theta', 'pi', 'e']);
+      const functions = new Set(['sin', 'cos', 'tan', 'sec', 'csc', 'cot', 'asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh', 'exp', 'log', 'log10', 'sqrt', 'abs', 'floor', 'ceil', 'round', 'min', 'max', 'sign', 'pow']);
       node.traverse(item => {
         if (++count > 150 || !['ConstantNode', 'SymbolNode', 'OperatorNode', 'FunctionNode', 'ParenthesisNode'].includes(item.type)) throw new Error('Use a numeric expression, not assignments or programming commands.');
         if (item.type === 'SymbolNode' && !symbols.has(item.name) && !functions.has(item.name)) throw new Error(`Unknown symbol: ${item.name}`);
@@ -252,7 +252,7 @@
         const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3)); geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); geometry.setIndex(indices); geometry.computeVertexNormals();
         group.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: .65 })));
       } else {
-        const second = compileExpression(q('[data-wb-expression-y]').value); const third = compileExpression(q('[data-wb-expression-z]').value);
+        const second = compileExpression(prepare(q('[data-wb-expression-y]').value, mode)); const third = compileExpression(prepare(q('[data-wb-expression-z]').value, mode));
         let segment = [];
         const append = () => { if (segment.length > 1) group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(segment), new THREE.LineBasicMaterial({ color: '#198fa0' }))); segment = []; };
         values.forEach(t => { const x = evaluate(expressions[0], { t }), y = evaluate(second, { t }), z = evaluate(third, { t }); if ([x, y, z].includes(null)) append(); else segment.push(new THREE.Vector3(x, z, y)); }); append();
@@ -269,28 +269,47 @@
       threeGraph = { renderer, controls, scene, observer, frame: null };
       const animate = () => { if (!threeGraph || threeGraph.renderer !== renderer) return; threeGraph.frame = requestAnimationFrame(animate); if (dialog.open && !q('[data-wb-window="graph"]').hidden) { controls.update(); renderer.render(scene, camera); } }; animate(); renderer.render(scene, camera);
     }
+    function prepare(line, mode) {
+      const source = line.includes('\\') ? window.SnapKeyMathInput.latexToExpression(line) : window.SnapKeyMathInput.normalize(line);
+      return mode === 'implicit' ? source : window.SnapKeyMathInput.stripLeft(source, 'r|ρ|y|z|x');
+    }
+    async function graphEquation() {
+      const source = window.SnapKeyMathInput.latexToExpression(q('[data-wb-latex]').value);
+      const mode = /^\s*(?:r|ρ)\s*=/.test(source) || /\btheta\b/.test(source) ? 'polar' : source.includes('=') && /\by\b/.test(source) && !/^\s*y\s*=/.test(source) ? 'implicit' : 'function';
+      q('[data-wb-graph-mode]').value = mode; q('[data-wb-expression]').value = source;
+      q('[data-wb-domain-min]').value = mode === 'polar' ? '0' : '-10'; q('[data-wb-domain-max]').value = mode === 'polar' ? '2*pi' : '10';
+      graphMode(); showWindow('graph'); await graph();
+    }
     async function graph() {
       const error = q('[data-wb-graph-error]'); error.textContent = '';
       try {
         if (!graphReady) { await Promise.all([script('https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js'), script('https://cdn.jsdelivr.net/npm/mathjs@13.2.3/lib/browser/math.js')]); graphReady = true; }
-        const mode = q('[data-wb-graph-mode]').value; const min = Number(q('[data-wb-domain-min]').value); const max = Number(q('[data-wb-domain-max]').value); const a = Number(q('[data-wb-parameter]').value);
+        const mode = q('[data-wb-graph-mode]').value; const min = window.SnapKeyMathInput.numberFrom(window.math, q('[data-wb-domain-min]').value); const max = window.SnapKeyMathInput.numberFrom(window.math, q('[data-wb-domain-max]').value); const a = Number(q('[data-wb-parameter]').value); const k = Number(q('[data-wb-k]').value);
         if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max || max - min > 1000) throw new Error('Choose a finite domain with minimum below maximum (maximum span 1000).');
-        const expressions = q('[data-wb-expression]').value.split('\n').filter(line => line.trim()).slice(0, 5).map(line => { let source = line.trim(); if (mode === 'implicit' && source.includes('=')) { const sides = source.split('='); if (sides.length !== 2) throw new Error('Use one equality per implicit expression.'); source = `(${sides[0]})-(${sides[1]})`; } else source = source.replace(/^[yz]\s*=\s*/, ''); return compileExpression(source); });
+        const expressions = q('[data-wb-expression]').value.split('\n').filter(line => line.trim()).slice(0, 5).map(line => { let source = prepare(line, mode); if (mode === 'implicit' && source.includes('=')) { const sides = source.split('='); if (sides.length !== 2) throw new Error('Use one equality per implicit expression.'); source = `(${sides[0]})-(${sides[1]})`; } return compileExpression(source); });
         if (!expressions.length) throw new Error('Enter at least one expression.');
-        const evaluate = (expression, scope) => { try { const result = expression.evaluate({ ...scope, a }); return typeof result === 'number' && Number.isFinite(result) && Math.abs(result) < 1e9 ? result : null; } catch { return null; } };
+        const evaluate = (expression, scope) => { try { const result = expression.evaluate({ ...scope, a, k }); return typeof result === 'number' && Number.isFinite(result) && Math.abs(result) < 1e9 ? result : null; } catch { return null; } };
         const domain = count => Array.from({ length: count }, (_, index) => min + index * (max - min) / (count - 1));
         if (['surface', 'curve3d'].includes(mode)) { await draw3d(mode, expressions, domain(mode === 'surface' ? 61 : 501), evaluate); q('[data-wb-graph-insert]').disabled = false; return; }
         const had3d = Boolean(threeGraph); dispose3d(); if (had3d) q('[data-wb-plot]').replaceChildren();
         let traces;
         const colors = ['#198fa0', '#dc5963', '#9670c2', '#d99816', '#3a9366'];
+        if (mode === 'polar') {
+          traces = expressions.map((expression, index) => ({ type: 'scatter', mode: 'lines', ...window.SnapKeyMathInput.polarPoints(theta => evaluate(expression, { theta }), min, max), connectgaps: false, line: { color: colors[index], width: 3 } }));
+          const points = traces.flatMap(trace => trace.x.flatMap((x, i) => x === null ? [] : [Math.hypot(x, trace.y[i])]));
+          if (!points.length) throw new Error('This θ interval has no finite real points.');
+          const { shapes, outer } = window.SnapKeyMathInput.polarGrid(Math.max(...points) * 1.08);
+          await Plotly.react(q('[data-wb-plot]'), traces, { margin: { l: 42, r: 15, t: 15, b: 38 }, shapes, xaxis: { range: [-outer, outer], showgrid: false }, yaxis: { range: [-outer, outer], showgrid: false, scaleanchor: 'x', scaleratio: 1 }, showlegend: false }, { responsive: true, displaylogo: false, scrollZoom: true });
+          q('[data-wb-graph-insert]').disabled = false; return;
+        }
         if (mode === 'surface' || mode === 'implicit') {
           const values = domain(mode === 'surface' ? 61 : 101); const z = values.map(y => values.map(x => evaluate(expressions[0], { x, y })));
           traces = [{ type: mode === 'surface' ? 'surface' : 'contour', x: values, y: values, z, colorscale: 'Viridis', showscale: mode === 'surface', ...(mode === 'implicit' ? { contours: { start: 0, end: 0, size: 1, coloring: 'lines' }, line: { width: 3 }, showscale: false } : {}) }];
         } else if (mode === 'parametric' || mode === 'curve3d') {
-          const values = domain(501); const second = compileExpression(q('[data-wb-expression-y]').value); const third = mode === 'curve3d' ? compileExpression(q('[data-wb-expression-z]').value) : null;
+          const values = domain(501); const second = compileExpression(prepare(q('[data-wb-expression-y]').value, mode)); const third = mode === 'curve3d' ? compileExpression(prepare(q('[data-wb-expression-z]').value, mode)) : null;
           traces = [{ type: third ? 'scatter3d' : 'scatter', mode: 'lines', x: values.map(t => evaluate(expressions[0], { t })), y: values.map(t => evaluate(second, { t })), ...(third ? { z: values.map(t => evaluate(third, { t })) } : {}), line: { color: colors[0], width: third ? 5 : 3 } }];
         } else traces = expressions.map((expression, index) => { const x = domain(601); return { type: 'scatter', mode: 'lines', x, y: x.map(x => evaluate(expression, { x })), name: `f${index + 1}(x)`, connectgaps: false, line: { color: colors[index], width: 3 } }; });
-        await Plotly.react(q('[data-wb-plot]'), traces, { margin: { l: 42, r: 15, t: 15, b: 38 }, paper_bgcolor: '#fff', plot_bgcolor: '#fff', font: { family: 'Arial', size: 11 }, xaxis: { title: mode.includes('3d') ? 'x' : mode === 'parametric' ? 'x(t)' : 'x', gridcolor: '#e5e9ef', zerolinecolor: '#bbc4d0' }, yaxis: { title: 'y', gridcolor: '#e5e9ef', zerolinecolor: '#bbc4d0' }, scene: { aspectmode: 'auto', xaxis: { title: 'x' }, yaxis: { title: 'y' }, zaxis: { title: 'z' } }, showlegend: traces.length > 1 }, { responsive: true, displaylogo: false, scrollZoom: true, modeBarButtonsToRemove: ['sendDataToCloud'] });
+        await Plotly.react(q('[data-wb-plot]'), traces, { margin: { l: 42, r: 15, t: 15, b: 38 }, paper_bgcolor: '#fff', plot_bgcolor: '#fff', font: { family: 'Arial', size: 11 }, xaxis: { title: mode.includes('3d') ? 'x' : mode === 'parametric' ? 'x(t)' : 'x', gridcolor: '#e5e9ef', zerolinecolor: '#bbc4d0' }, yaxis: { title: 'y', gridcolor: '#e5e9ef', zerolinecolor: '#bbc4d0', ...(['parametric', 'implicit'].includes(mode) ? { scaleanchor: 'x', scaleratio: 1 } : {}) }, scene: { aspectmode: 'auto', xaxis: { title: 'x' }, yaxis: { title: 'y' }, zaxis: { title: 'z' } }, showlegend: traces.length > 1 }, { responsive: true, displaylogo: false, scrollZoom: true, modeBarButtonsToRemove: ['sendDataToCloud'] });
         q('[data-wb-graph-insert]').disabled = false;
       } catch (message) { error.textContent = message.message; q('[data-wb-graph-insert]').disabled = true; }
     }
@@ -339,7 +358,11 @@
       <nav class="science-board-tools" aria-label="Whiteboard tools">${tools.map(([name, label, tool]) => `<button type="button" class="wb-icon" data-wb-tool="${tool}" title="${label}" aria-label="${label}" aria-pressed="false"><i data-lucide="${name}"></i></button>`).join('')}<span class="science-board-separator"></span><div class="science-board-swatches">${['#202329', '#198fa0', '#dc5963', '#9670c2', '#d99816', '#3a9366'].map(color => `<button class="wb-swatch" type="button" data-wb-ink="${color}" style="--ink:${color}" title="Ink ${color}" aria-label="Ink ${color}"></button>`).join('')}</div><input type="color" data-wb-color value="#202329" aria-label="Custom ink color"><input type="range" data-wb-size min="1" max="24" value="4" aria-label="Stroke width"><span class="science-board-size" data-wb-size-value>4</span><span class="science-board-separator"></span>${icon('sigma', 'Insert an equation', 'equation')}${icon('chart-no-axes-combined', '2D and 3D graph laboratory', 'graph')}${icon('file-up', 'Open a PDF reference', 'pdf')}</nav>
       <section class="science-board-viewport" aria-label="Drawing canvas"><canvas data-wb-canvas></canvas></section>
       <footer class="science-board-pages"><div>${icon('chevron-left', 'Previous page', 'previous')}<select data-wb-pages aria-label="Whiteboard page"></select>${icon('chevron-right', 'Next page', 'next')}${icon('plus', 'Add page', 'add-page')}<span class="wb-page-extras">${icon('copy', 'Duplicate page', 'duplicate-page')}${icon('trash-2', 'Delete page', 'delete-page')}</span></div><div>${icon('undo-2', 'Undo', 'undo')}${icon('redo-2', 'Redo', 'redo')}${icon('zoom-out', 'Zoom out', 'zoom-out')}<span class="science-board-zoom" data-wb-zoom>100%</span>${icon('zoom-in', 'Zoom in', 'zoom-in')}${icon('scan', 'Reset view', 'fit')}<select data-wb-paper aria-label="Paper style"><option value="blank">Blank</option><option value="dots">Dots</option><option value="grid">Grid</option><option value="ruled">Ruled</option></select>${icon('delete', 'Clear page', 'clear')}</div></footer></div>
-      <aside class="science-board-window" data-wb-window="graph" hidden><header><strong>Graph laboratory</strong>${icon('x', 'Close graph panel', 'close-window')}</header><section><label>Mode<select data-wb-graph-mode><option value="function">2D functions</option><option value="implicit">2D implicit: f(x,y) = 0</option><option value="parametric">2D parametric</option><option value="surface">3D surface</option><option value="curve3d">3D parametric curve</option></select></label><label>Expression<textarea data-wb-expression spellcheck="false">a*sin(x)</textarea></label><div data-wb-parametric hidden><label>y(t)<input data-wb-expression-y value="sin(t)"></label><label data-wb-z-field hidden>z(t)<input data-wb-expression-z value="t/4"></label></div><div class="wb-row"><label>Minimum<input type="number" data-wb-domain-min value="-10"></label><label>Maximum<input type="number" data-wb-domain-max value="10"></label><label>a = <output data-wb-parameter-value>1</output><input type="range" data-wb-parameter min="-5" max="5" step="0.1" value="1"></label></div><div class="science-board-presets"><button type="button" data-wb-preset="wave">Wave</button><button type="button" data-wb-preset="parabola">Parabola</button><button type="button" data-wb-preset="circle">Circle</button><button type="button" data-wb-preset="surface">3D wave</button><button type="button" data-wb-preset="helix">Helix</button></div><p class="science-board-message" data-wb-graph-error></p><div class="science-board-plot" data-wb-plot></div><div class="wb-row"><button type="button" class="is-primary" data-wb-action="plot">Plot</button><button type="button" data-wb-action="insert-graph" data-wb-graph-insert disabled>Add graph to page</button></div></section></aside>
+      <aside class="science-board-window" data-wb-window="graph" hidden><header><strong>Graph laboratory</strong>${icon('x', 'Close graph panel', 'close-window')}</header><section>
+      <label>Mode<select data-wb-graph-mode><option value="function">2D functions</option><option value="polar">Polar: r(θ) — cardioid, rose, limaçon</option><option value="implicit">2D implicit: f(x,y) = 0</option><option value="parametric">2D parametric</option><option value="surface">3D surface</option><option value="curve3d">3D parametric curve</option></select></label>
+      <label>Expression<textarea data-wb-expression spellcheck="false">a*sin(x)</textarea></label><div data-wb-parametric hidden><label>y(t)<input data-wb-expression-y value="sin(t)"></label><label data-wb-z-field hidden>z(t)<input data-wb-expression-z value="t/4"></label></div>
+      <div class="wb-row"><label>Minimum<input type="text" inputmode="decimal" spellcheck="false" autocomplete="off" data-wb-domain-min value="-10"></label><label>Maximum<input type="text" inputmode="decimal" spellcheck="false" autocomplete="off" data-wb-domain-max value="10"></label><label>a = <output data-wb-parameter-value>1</output><input type="range" data-wb-parameter min="-5" max="5" step="0.1" value="1"></label><label data-wb-k-field hidden>k = <output data-wb-k-value>3</output><input type="range" data-wb-k min="1" max="12" step="0.5" value="3"></label></div>
+      <div class="science-board-presets"><button type="button" data-wb-preset="wave">Wave</button><button type="button" data-wb-preset="parabola">Parabola</button><button type="button" data-wb-preset="circle">Circle</button><button type="button" data-wb-preset="surface">3D wave</button><button type="button" data-wb-preset="helix">Helix</button>${Object.entries(window.SnapKeyMathInput.presets).map(([id, preset]) => `<button type="button" data-wb-preset="${id}">${preset.label}</button>`).join('')}</div><p class="science-board-message" data-wb-graph-error></p><div class="science-board-plot" data-wb-plot></div><div class="wb-row"><button type="button" class="is-primary" data-wb-action="plot">Plot</button><button type="button" data-wb-action="insert-graph" data-wb-graph-insert disabled>Add graph to page</button></div></section></aside>
       <aside class="science-board-window" data-wb-window="equation" hidden><header><strong>Equation studio</strong>${icon('x', 'Close equation panel', 'close-window')}</header><section><math-field data-wb-latex>\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}</math-field><div class="science-board-presets"><button type="button" data-wb-equation="\\frac{a}{b}">Fraction</button><button type="button" data-wb-equation="\\int_0^1 x^2\\,dx">Integral</button><button type="button" data-wb-equation="\\sum_{n=1}^{\\infty}\\frac{1}{n^2}">Series</button><button type="button" data-wb-equation="\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}">Matrix</button><button type="button" data-wb-equation="E=mc^2">Physics</button></div><div class="science-board-equation-preview" data-wb-equation-preview></div><div class="wb-row"><button type="button" data-wb-action="equation-preview">Preview</button><button type="button" class="is-primary" data-wb-action="insert-equation" data-wb-equation-insert disabled>Add equation</button></div></section></aside>
       <aside class="science-board-window" data-wb-window="pdf" hidden><header><strong data-wb-pdf-title>PDF reference</strong>${icon('x', 'Close PDF reference', 'close-window')}</header><section><div class="wb-row">${icon('chevron-left', 'Previous PDF page', 'pdf-previous')}<span data-wb-pdf-page></span>${icon('chevron-right', 'Next PDF page', 'pdf-next')}${icon('zoom-out', 'Zoom PDF out', 'pdf-zoom-out')}${icon('zoom-in', 'Zoom PDF in', 'pdf-zoom-in')}<button type="button" data-wb-action="insert-pdf">Add page to board</button></div><canvas class="science-board-pdf" data-wb-pdf-canvas></canvas></section></aside><input type="file" data-wb-pdf-input accept="application/pdf,.pdf" hidden>`;
       document.body.append(dialog);
@@ -350,6 +373,8 @@
       const format = document.createElement('select'); format.dataset.wbFormat = ''; format.setAttribute('aria-label', 'Page format');
       format.add(new Option('Auto page', 'auto')); format.add(new Option('Landscape', 'landscape')); format.add(new Option('Portrait', 'portrait')); q('.science-board-tools').append(format);
       format.addEventListener('change', () => { const bounds = q('.science-board-viewport').getBoundingClientRect(); page().width = format.value === 'portrait' ? 900 : 1280; page().height = format.value === 'landscape' ? 720 : format.value === 'portrait' ? 1280 : Math.max(360, Math.min(4000, Math.round(1280 * bounds.height / bounds.width))); viewport(); commit(); });
+      window.SnapKeyMathKeyboard?.attach(dialog, { preferPolar: field => q('[data-wb-graph-mode]')?.value === 'polar' && field.matches('[data-wb-expression]') });
+      const graphEquationButton = document.createElement('button'); graphEquationButton.type = 'button'; graphEquationButton.dataset.wbAction = 'graph-equation'; graphEquationButton.textContent = 'Graph this equation'; q('[data-wb-window="equation"] .wb-row').append(graphEquationButton);
       window.SnapKeyWhiteboardStudios.attach({ dialog, showWindow, notify, loadMath: async () => { await script('https://cdn.jsdelivr.net/npm/mathjs@13.2.3/lib/browser/math.js'); return window.math; }, addText: (value, language, fontSize) => {
         const rtl = ['ar', 'ur'].includes(language);
         const object = new fabric.Textbox(value, { left: 40, top: 40, width: (page().width || 1280) * .8, fill: ink, fontSize, fontFamily: 'Arial, Nirmala UI, sans-serif', direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left' });
@@ -375,7 +400,11 @@
         if (button.dataset.wbEquation) { q('[data-wb-latex]').value = button.dataset.wbEquation; await equation(); return; }
         if (button.dataset.wbPreset) {
           const presets = { wave: ['function', 'a*sin(x)', '-10', '10'], parabola: ['function', 'a*x^2', '-5', '5'], circle: ['implicit', 'x^2+y^2-a^2', '-5', '5'], surface: ['surface', 'a*sin(sqrt(x^2+y^2))', '-8', '8'], helix: ['curve3d', 'cos(t)', '0', '12.56'] };
-          const values = presets[button.dataset.wbPreset]; q('[data-wb-graph-mode]').value = values[0]; q('[data-wb-expression]').value = values[1]; q('[data-wb-domain-min]').value = values[2]; q('[data-wb-domain-max]').value = values[3]; graphMode(); await graph(); return;
+          const polar = window.SnapKeyMathInput.presets[button.dataset.wbPreset];
+          const values = polar ? [polar.mode, polar.expression, polar.min, polar.max] : presets[button.dataset.wbPreset];
+          q('[data-wb-graph-mode]').value = values[0]; q('[data-wb-expression]').value = values[1]; q('[data-wb-domain-min]').value = values[2]; q('[data-wb-domain-max]').value = values[3];
+          if (polar) { q('[data-wb-parameter]').value = polar.a; q('[data-wb-parameter-value]').textContent = polar.a; q('[data-wb-k]').value = polar.k; q('[data-wb-k-value]').textContent = polar.k; }
+          graphMode(); await graph(); return;
         }
         const action = button.dataset.wbAction;
         if (uploading && ['reload', 'delete-page', 'undo', 'redo', 'clear', 'stop', 'close'].includes(action)) throw new Error('Wait for the reference upload to finish.');
@@ -395,15 +424,29 @@
         else if (['calculator', 'language', 'math-lab', 'live-math', 'lessons', 'advanced'].includes(action)) showWindow(action);
         else if (action === 'graph') { showWindow('graph'); await graph(); }
         else if (action === 'plot') await graph();
-        else if (action === 'insert-graph') { const mode = q('[data-wb-graph-mode]').value; if (!['function', 'surface'].includes(mode)) throw new Error('Shared insertion supports explicit 2D functions and 3D surfaces. Other modes remain interactive in the graph laboratory.'); const expression = q('[data-wb-expression]').value; if (expression.includes('\n')) throw new Error('Insert one live function at a time.'); await liveMath.insert({ ...window.SnapKeyLiveMath.defaults(mode === 'surface' ? 'surface3d' : 'graph'), expression, parameter: Number(q('[data-wb-parameter]').value), minimum: Number(q('[data-wb-domain-min]').value), maximum: Number(q('[data-wb-domain-max]').value) }); showWindow('live-math'); }
-        else if (action === 'equation') { showWindow('equation'); await script('https://cdn.jsdelivr.net/npm/mathlive@0.101.1/dist/mathlive.min.js'); if (window.mathVirtualKeyboard) window.mathVirtualKeyboard.container = dialog; const selected = canvas.getActiveObject(); if (selected?.wbLatex !== undefined) q('[data-wb-latex]').value = selected.wbLatex; await equation(); }
+        else if (action === 'insert-graph') {
+          const mode = q('[data-wb-graph-mode]').value;
+          if (!['function', 'surface', 'polar'].includes(mode)) throw new Error('Shared insertion supports explicit functions, polar curves and 3D surfaces. Parametric and implicit plots remain interactive only.');
+          const raw = q('[data-wb-expression]').value; if (raw.includes('\n')) throw new Error('Insert one live curve at a time.');
+          const expression = prepare(raw, mode).replace(/\bk\b/g, `(${Number(q('[data-wb-k]').value)})`);
+          await liveMath.insert({ ...window.SnapKeyLiveMath.defaults(mode === 'surface' ? 'surface3d' : mode === 'polar' ? 'polar' : 'graph'), expression, parameter: Number(q('[data-wb-parameter]').value), minimum: window.SnapKeyMathInput.numberFrom(window.math, q('[data-wb-domain-min]').value), maximum: window.SnapKeyMathInput.numberFrom(window.math, q('[data-wb-domain-max]').value) }); showWindow('live-math');
+        }
+        else if (action === 'equation') {
+          showWindow('equation'); await script('https://cdn.jsdelivr.net/npm/mathlive@0.101.1/dist/mathlive.min.js');
+          if (window.mathVirtualKeyboard) window.mathVirtualKeyboard.container = dialog;
+          const field = q('[data-wb-latex]'); field.mathVirtualKeyboardPolicy = 'manual';
+          if (!field.dataset.wbBound) { field.dataset.wbBound = 'true'; let previewTimer; field.addEventListener('focusin', () => window.mathVirtualKeyboard?.show?.()); field.addEventListener('input', () => { clearTimeout(previewTimer); previewTimer = setTimeout(guard(equation), 350); }); }
+          const selected = canvas.getActiveObject(); if (selected?.wbLatex !== undefined) field.value = selected.wbLatex;
+          field.focus(); await equation();
+        }
+        else if (action === 'graph-equation') await graphEquation();
         else if (action === 'equation-preview') await equation();
         else if (action === 'insert-equation') await insertEquation();
         else if (action === 'pdf') q('[data-wb-pdf-input]').click();
         else if (action === 'pdf-previous' || action === 'pdf-next') { if (!pdf) return; pdfPage = Math.max(1, Math.min(pdf.numPages, pdfPage + (action === 'pdf-next' ? 1 : -1))); await renderPdf(); }
         else if (action === 'pdf-zoom-in' || action === 'pdf-zoom-out') { pdfZoom = Math.max(.5, Math.min(2, pdfZoom + (action === 'pdf-zoom-in' ? .25 : -.25))); await renderPdf(); }
         else if (action === 'insert-pdf') { if (pdf) await addImage(await rasterBlob(q('[data-wb-pdf-canvas]')), `PDF-page-${pdfPage}.png`); }
-        else if (action === 'close-window') button.closest('.science-board-window').hidden = true;
+        else if (action === 'close-window') { button.closest('.science-board-window').hidden = true; dialog._wbMathKeyboard?.hide(); window.mathVirtualKeyboard?.hide?.(); }
       }));
       q('[data-wb-pages]').addEventListener('change', guard(event => changePage(event.target.value)));
       q('[data-wb-paper]').addEventListener('change', event => paper(event.target.value));
@@ -411,6 +454,7 @@
       q('[data-wb-size]').addEventListener('input', event => { size = Number(event.target.value); setTool(tool); });
       q('[data-wb-graph-mode]').addEventListener('change', graphMode);
       let graphTimer;
+      q('[data-wb-k]').addEventListener('input', event => { q('[data-wb-k-value]').textContent = event.target.value; clearTimeout(graphTimer); graphTimer = setTimeout(graph, 120); });
       q('[data-wb-parameter]').addEventListener('input', event => { q('[data-wb-parameter-value]').textContent = event.target.value; clearTimeout(graphTimer); graphTimer = setTimeout(graph, 120); });
       q('[data-wb-pdf-input]').addEventListener('change', guard(async event => { await openPdf(event.target.files[0]); event.target.value = ''; }));
       dialog.addEventListener('keydown', event => {
@@ -421,7 +465,7 @@
       new ResizeObserver(viewport).observe(q('.science-board-viewport'));
       script('https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js').then(() => lucide.createIcons({ root: dialog })).catch(error => notify(error.message));
     }
-    function graphMode() { const mode = q('[data-wb-graph-mode]').value; q('[data-wb-parametric]').hidden = !['parametric', 'curve3d'].includes(mode); q('[data-wb-z-field]').hidden = mode !== 'curve3d'; }
+    function graphMode() { const mode = q('[data-wb-graph-mode]').value; q('[data-wb-parametric]').hidden = !['parametric', 'curve3d'].includes(mode); q('[data-wb-z-field]').hidden = mode !== 'curve3d'; q('[data-wb-k-field]').hidden = mode !== 'polar'; if (mode === 'polar' && !/theta|θ/.test(q('[data-wb-expression]').value)) { const preset = window.SnapKeyMathInput.presets.cardioid; q('[data-wb-expression]').value = preset.expression; q('[data-wb-domain-min]').value = preset.min; q('[data-wb-domain-max]').value = preset.max; } }
     async function open() {
       if (!dialog) build();
       if (dialog.open) return;

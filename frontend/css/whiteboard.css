@@ -78,3 +78,23 @@
  .wb-lesson-list button { display:flex; flex-direction:column; gap:4px; text-align:left; padding:12px 0; border:0; border-bottom:1px solid #ddd; border-radius:0; background:transparent; }
  .wb-lesson-list span { font-size:12px; color:#666; }
  [data-live-steps], [data-advanced-steps] { padding-left:20px; font-size:13px; line-height:1.6; }
+.science-board .science-board-plot svg.main-svg,
+.science-board .science-board-plot .svg-container > svg { width: auto; height: auto; max-width: none; }
+.science-board .science-board-plot .modebar svg { width: 1em; height: 1em; }
+.science-board-window math-field { --keyboard-zindex: 2147483000; }
+.science-board-window textarea { box-sizing: border-box; }
+.wb-math-keyboard { position: absolute; bottom: 0; left: 0; right: 0; z-index: 60; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); background: #f5f7fa; border-top: 1px solid #ccd3dc; user-select: none; }
+.wb-math-keyboard[hidden] { display: none; }
+.wb-kb-bar, .wb-kb-tabs, .wb-kb-actions { display: flex; gap: 4px; align-items: center; }
+.wb-kb-bar { justify-content: space-between; flex-wrap: wrap; margin-bottom: 6px; }
+.wb-kb-digits { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 4px; margin-bottom: 4px; }
+.wb-kb-keys { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.wb-math-keyboard button { min-width: 0; min-height: 30px; padding: 4px 8px; border: 1px solid #ccd3dc; border-radius: 4px; background: #fff; color: #202329; font-size: 13px; }
+.wb-kb-tabs .is-active { background: #ffda45; border-color: #c49d16; }
+.science-board.has-math-keyboard .science-board-window { max-height: calc(100% - 202px - var(--wb-kb-height, 0px)); }
+@media (max-width: 640px) {
+  .wb-math-keyboard { padding-left: 6px; padding-right: 6px; }
+  .wb-kb-digits { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .wb-math-keyboard button { padding: 4px 3px; font-size: 12px; }
+  .science-board.has-math-keyboard .science-board-window { top: 118px; max-height: calc(100% - 126px - var(--wb-kb-height, 0px)); }
+}
