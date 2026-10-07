@@ -49,11 +49,21 @@ html { min-height: 100%; height: auto; overflow-x: hidden; overflow-y: auto; bac
 .preview-number { position: absolute; top: 24px; right: 24px; opacity: .5; }
 .preview-title { position: absolute; z-index: 2; right: 24px; bottom: 24px; left: 24px; font-size: 27px; font-weight: 850; letter-spacing: -.4px; line-height: 1.08; }
 .presentation-card-footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 74px; padding: 15px 18px; }
+.presentation-card-copy { min-width: 0; }
 .presentation-card-footer h3 { overflow: hidden; margin: 0 0 5px; font-size: 16px; font-weight: 850; text-overflow: ellipsis; white-space: nowrap; }
 .presentation-card-footer p { margin: 0; color: #60605a; font-size: 13px; }
 .presentation-card-footer button { width: 34px; height: 34px; border: 0; border-radius: 7px; background: transparent; }
 .presentation-card-footer button:hover { background: #eee; }
-.presentation-card-footer .card-menu { display: none; }
+.presentation-card-footer .presentation-options { position: relative; }
+.presentation-card-footer .card-menu { display: grid; place-items: center; color: #272722; }
+.presentation-card-footer .card-menu[aria-expanded="true"] { color: #111; background: #fff0a8; }
+.presentation-options-menu { position: absolute; z-index: 20; right: 0; bottom: 42px; width: 232px; padding: 5px; border: 1px solid #d8d8d3; border-radius: 7px; background: #fff; box-shadow: 0 12px 30px rgba(0,0,0,.16); }
+.presentation-options-menu[hidden] { display: none; }
+.presentation-options-menu button { width: 100%; min-height: 39px; display: flex; align-items: center; gap: 10px; border: 0; border-radius: 4px; padding: 0 10px; color: #252520; background: transparent; font: 600 13px Arial, sans-serif; text-align: left; }
+.presentation-options-menu button:hover { background: #fff4c7; }
+.presentation-options-menu button:last-child { color: #a12f28; }
+.presentation-options-menu button i { width: 16px; font-size: 15px; }
+.presentation-options-menu [data-delete] { height: auto; }
 .presentation-card-footer .card-delete { order: 2; color: #8f2c26; }
 .presentation-card-footer .card-delete:hover { color: #fff; background: #b83b32; }
 .presentation-create-card { min-height: 298px; display: grid; place-items: center; align-content: center; gap: 18px; border: 2px dashed #d5d5cf; border-radius: 8px; color: #151515; background: transparent; font: 800 15px Arial, sans-serif; cursor: pointer; }
@@ -151,6 +161,28 @@ html { min-height: 100%; height: auto; overflow-x: hidden; overflow-y: auto; bac
 .private-meeting-dialog h2 { margin: 16px 0 8px; font-size: 23px; line-height: 1.12; }
 .private-meeting-dialog p { margin: 0 0 20px; color: #5d5d57; font-size: 14px; line-height: 1.55; }
 .private-meeting-dialog button { width: 100%; }
+.presentation-share-dialog { width: min(520px, calc(100vw - 28px)); max-width: none; border: 1px solid #d7d7d0; border-radius: 9px; padding: 0; color: #111; background: #fff; box-shadow: 0 24px 80px rgba(0,0,0,.28); }
+.presentation-share-dialog::backdrop { background: rgba(13,13,12,.58); backdrop-filter: blur(3px); }
+.presentation-share-shell { padding: 22px; }
+.presentation-share-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.presentation-share-header h2 { margin: 0; font-size: 23px; }
+.presentation-share-header .dashboard-eyebrow { margin: 0 0 6px; color: #7b6a27; }
+.presentation-share-header > button { width: 34px; height: 34px; border: 0; border-radius: 5px; color: #333; background: transparent; font-size: 24px; cursor: pointer; }
+.presentation-share-header > button:hover { background: #f1f1ed; }
+.presentation-share-description { margin: 13px 0 20px; color: #5d5d57; font-size: 14px; line-height: 1.5; }
+.presentation-share-create { display: grid; grid-template-columns: minmax(0,1fr) 160px; align-items: center; gap: 10px; }
+.presentation-share-create label, .presentation-share-result > label { color: #24241f; font-size: 13px; font-weight: 750; }
+.presentation-share-create select { height: 42px; border: 1px solid #d3d3cd; border-radius: 5px; padding: 0 10px; color: #171715; background: #fff; font: 600 13px Arial, sans-serif; }
+.presentation-share-create > button { grid-column: 1 / -1; justify-self: start; margin-top: 5px; }
+.presentation-share-result > label { display: block; margin-bottom: 7px; }
+.presentation-share-link-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+.presentation-share-link-row input { min-width: 0; height: 42px; border: 1px solid #d3d3cd; border-radius: 5px; padding: 0 10px; color: #333; background: #f8f8f6; font: 12px Arial, sans-serif; }
+.presentation-share-link-row .cta-primary { min-height: 42px; padding: 0 13px; }
+.presentation-share-result > p { margin: 8px 0 14px; color: #696961; font-size: 12px; }
+.presentation-share-actions { display: flex; justify-content: space-between; gap: 12px; }
+.presentation-share-actions button { min-height: 38px; }
+.presentation-share-revoke { border: 0; padding: 0 8px; color: #a12f28; background: transparent; font: 700 13px Arial, sans-serif; cursor: pointer; }
+.presentation-share-status { min-height: 18px; margin: 13px 0 0; color: #696961; font-size: 12px; }
 @media (max-width: 1120px) {
   .dashboard-main { width: calc(100vw - 42px); }
   .dashboard-content { grid-template-columns: minmax(0, 1fr) 350px; gap: 24px; }
@@ -196,4 +228,8 @@ html { min-height: 100%; height: auto; overflow-x: hidden; overflow-y: auto; bac
   .meeting-copy-row { grid-template-columns: 1fr; }
   .meeting-copy-row button { min-height: 40px; }
   .meeting-access-code { flex-wrap: wrap; }
+  .presentation-share-shell { padding: 18px; }
+  .presentation-share-create { grid-template-columns: minmax(0,1fr); }
+  .presentation-share-create select, .presentation-share-create > button { grid-column: 1; width: 100%; }
+  .presentation-share-link-row { grid-template-columns: minmax(0,1fr) auto; }
 }

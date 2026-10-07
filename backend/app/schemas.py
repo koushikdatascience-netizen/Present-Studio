@@ -88,6 +88,11 @@ class ShareLinkOut(BaseModel):
     screenUrl: str | None = None
     screenToken: str | None = None
     audienceUrl: str | None = None
+    expiresAt: str | None = None
+
+
+class ViewerShareCreate(BaseModel):
+    expiresInDays: Literal[7, 30, 90] | None = None
 
 
 class ShareLinkResolveOut(BaseModel):

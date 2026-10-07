@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11110f">
+  <meta name="description" content="A presentation shared with SnapKey Studio.">
+  <title>Shared presentation | SnapKey Studio</title>
+  <link rel="stylesheet" href="/css/viewer.css?v=20261007-viewer">
+</head>
+<body class="share-viewer-page">
+  <main class="share-viewer" aria-label="Shared presentation">
+    <section class="share-viewer-stage" id="viewerStage" aria-label="Presentation slide">
+      <div class="share-viewer-media" id="viewerMedia"></div>
+      <canvas id="viewerCanvas" width="1280" height="720" aria-label="Presentation content"></canvas>
+      <div class="share-viewer-message" id="viewerMessage" role="status">Loading presentation…</div>
+    </section>
+    <nav class="share-viewer-controls" id="viewerControls" aria-label="Presentation controls" hidden>
+      <button type="button" id="viewerPrevious" aria-label="Previous slide" title="Previous slide">‹</button>
+      <span class="share-viewer-counter" id="viewerCounter" aria-live="polite">1 / 1</span>
+      <button type="button" id="viewerNext" aria-label="Next slide" title="Next slide">›</button>
+      <span class="share-viewer-divider" aria-hidden="true"></span>
+      <button type="button" id="viewerAutoplay" aria-pressed="false"><span aria-hidden="true">▶</span><span>Autoplay</span></button>
+    </nav>
+    <footer class="share-viewer-brand"><span class="share-viewer-mark" aria-hidden="true">S</span><span>Presented with SnapKey Studio</span></footer>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+  <script src="/js/fabric-patch.js?v=20260908-paragraph-align"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/viewer.js?v=20261007-viewer"></script>
+</body>
+</html>

@@ -10,7 +10,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..live_state import apply_controller_state, live_session_payload
 from ..models import LiveSession, Meeting, MeetingParticipantGrant, Presentation, PresentationMember, ShareLink, Slide, User
-from ..schemas import LiveMediaTokenOut, LiveMediaTokenRequest, LiveSessionOut, LiveSlideUpdate, PresentationCreate, PresentationOut, PresentationPayload, PresentationSave, ScreenAccessRequest, ShareLinkCreate, ShareLinkOut, ShareLinkResolveOut, SlideOut
+from ..schemas import LiveMediaTokenOut, LiveMediaTokenRequest, LiveSessionOut, LiveSlideUpdate, PresentationCreate, PresentationOut, PresentationPayload, PresentationSave, ScreenAccessRequest, ShareLinkCreate, ShareLinkOut, ShareLinkResolveOut, SlideOut, ViewerShareCreate
 from ..security import can_edit_presentation, can_view_presentation, current_user, hash_password, new_id, new_share_token, optional_current_user, resolve_participant_resume_token, resolve_share_permission, verify_password
 from ..socket_manager import meeting_admission_required, meeting_client_is_admitted, sio
 
@@ -113,11 +113,19 @@ def public_share_base_url(request: Request) -> str:
 def active_share_link(db: Session, presentation_id: str, token: str) -> ShareLink | None:
     if not token:
         return None
-    return db.query(ShareLink).filter(
+    share = db.query(ShareLink).filter(
         ShareLink.token == token,
         ShareLink.presentation_id == presentation_id,
         ShareLink.is_active == True,  # noqa: E712
     ).first()
+    if not share:
+        return None
+    expires_at = _aware_datetime(share.expires_at)
+    if expires_at and expires_at <= datetime.now(timezone.utc):
+        share.is_active = False
+        db.commit()
+        return None
+    return share
 
 
 def verify_screen_access_code(share: ShareLink, code: str | None) -> bool:
@@ -506,6 +514,83 @@ def get_current_share_link(
         screenToken=screen_share.token if screen_share else None,
         audienceUrl=f"{base}/join/{screen_share.token}" if screen_share else None,
     )
+
+
+def standalone_viewer_shares(db: Session, presentation_id: str) -> list[ShareLink]:
+    return [share for share in db.query(ShareLink).filter_by(presentation_id=presentation_id).all()
+            if share.id.startswith("vshare_")]
+
+
+def viewer_share_out(request: Request, share: ShareLink) -> ShareLinkOut:
+    base = public_share_base_url(request)
+    expires_at = _aware_datetime(share.expires_at)
+    return ShareLinkOut(
+        url=f"{base}/presentation/{share.token}", token=share.token, permission="viewer",
+        expiresAt=expires_at.isoformat() if expires_at else None,
+    )
+
+
+def require_shareable_presentation(db: Session, presentation_id: str, user: User) -> Presentation:
+    presentation = db.get(Presentation, presentation_id)
+    meeting = db.query(Meeting).filter_by(presentation_id=presentation_id).first()
+    if not presentation or not can_edit_presentation(db, presentation, user):
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    if presentation.status in {"meeting", "breakout"} or meeting:
+        raise HTTPException(status_code=409, detail="Live meeting links are managed separately")
+    return presentation
+
+
+@router.get("/{presentation_id}/viewer-share", response_model=ShareLinkOut | None)
+def get_viewer_share_link(
+    presentation_id: str,
+    request: Request,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ShareLinkOut | None:
+    require_shareable_presentation(db, presentation_id, user)
+    now = datetime.now(timezone.utc)
+    for share in standalone_viewer_shares(db, presentation_id):
+        expiry = _aware_datetime(share.expires_at)
+        if share.is_active and (not expiry or expiry > now):
+            return viewer_share_out(request, share)
+        if share.is_active:
+            share.is_active = False
+    db.commit()
+    return None
+
+
+@router.post("/{presentation_id}/viewer-share", response_model=ShareLinkOut)
+def create_viewer_share_link(
+    presentation_id: str,
+    request: Request,
+    payload: ViewerShareCreate = ViewerShareCreate(),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ShareLinkOut:
+    require_shareable_presentation(db, presentation_id, user)
+    for share in standalone_viewer_shares(db, presentation_id):
+        share.is_active = False
+    expires_at = datetime.now(timezone.utc) + timedelta(days=payload.expiresInDays) if payload.expiresInDays else None
+    share = ShareLink(
+        id=new_id("vshare"), presentation_id=presentation_id, token=new_share_token(),
+        permission="viewer", is_active=True, expires_at=expires_at,
+    )
+    db.add(share)
+    db.commit()
+    return viewer_share_out(request, share)
+
+
+@router.delete("/{presentation_id}/viewer-share")
+def revoke_viewer_share_link(
+    presentation_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    require_shareable_presentation(db, presentation_id, user)
+    for share in standalone_viewer_shares(db, presentation_id):
+        share.is_active = False
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/{presentation_id}/share")

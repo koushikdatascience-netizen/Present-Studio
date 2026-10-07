@@ -8,6 +8,7 @@ const meetingDialog = document.querySelector("#meetingCreateDialog");
 const privateMeetingDialog = document.querySelector("#privateMeetingDialog");
 const meetingForm = document.querySelector("#meetingCreateForm");
 const toast = document.querySelector("#toast");
+const presentationShareDialog = document.querySelector("#presentationShareDialog");
 const profileButton = document.querySelector("#profileButton");
 const builderButtons = [document.querySelector("#builderNav"), document.querySelector("#openBuilder")].filter(Boolean);
 const searchInput = document.querySelector("#presentationSearch");
@@ -19,6 +20,7 @@ let dashboardPresentations = [];
 let dashboardMeetings = [];
 let privateMeetingNoticeSeen = false;
 let dashboardThumbnailCanvases = [];
+let activeSharePresentationId = "";
 
 function renderDashboardThumbnails(presentations) {
   if (!window.fabric) return;
@@ -139,9 +141,15 @@ function renderDecks(presentations) {
           <span class="preview-title">${title}</span>`}
         </button>
         <div class="presentation-card-footer">
-          <button type="button" class="card-delete" data-delete="${escapeHtml(deck.id)}" aria-label="Delete ${title}" title="Delete presentation"><i class="bi bi-trash"></i></button>
-          <div><h3>${title}</h3><p>${slideLabel} · ${escapeHtml(updated)}</p></div>
-          <button type="button" class="card-menu" data-toast="Presentation options will connect to the backend.">•••</button>
+          <div class="presentation-card-copy"><h3>${title}</h3><p>${slideLabel} · ${escapeHtml(updated)}</p></div>
+          <div class="presentation-options">
+            <button type="button" class="card-menu" data-menu-toggle="${escapeHtml(deck.id)}" aria-label="Presentation actions" aria-expanded="false" title="Presentation actions"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button>
+            <div class="presentation-options-menu" data-deck-menu="${escapeHtml(deck.id)}" hidden>
+              <button type="button" data-share-presentation="${escapeHtml(deck.id)}"><i class="bi bi-link-45deg" aria-hidden="true"></i><span>Share read-only link</span></button>
+              <button type="button" data-download-presentation="${escapeHtml(deck.id)}"><i class="bi bi-download" aria-hidden="true"></i><span>Download HTML presentation</span></button>
+              <button type="button" data-delete="${escapeHtml(deck.id)}"><i class="bi bi-trash" aria-hidden="true"></i><span>Delete presentation</span></button>
+            </div>
+          </div>
         </div>
       </article>
     `;
@@ -154,6 +162,23 @@ function renderDecks(presentations) {
       window.location.href = `/builder.html?id=${encodeURIComponent(button.dataset.open)}`;
     });
   });
+  grid.querySelectorAll("[data-menu-toggle]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    const menu = grid.querySelector(`[data-deck-menu="${CSS.escape(button.dataset.menuToggle)}"]`);
+    const willOpen = menu.hidden;
+    grid.querySelectorAll("[data-deck-menu]").forEach(item => { item.hidden = true; });
+    grid.querySelectorAll("[data-menu-toggle]").forEach(item => item.setAttribute("aria-expanded", "false"));
+    menu.hidden = !willOpen;
+    button.setAttribute("aria-expanded", String(willOpen));
+  }));
+  grid.querySelectorAll("[data-share-presentation]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    openPresentationShare(button.dataset.sharePresentation);
+  }));
+  grid.querySelectorAll("[data-download-presentation]").forEach(button => button.addEventListener("click", event => {
+    event.stopPropagation();
+    downloadPresentation(button.dataset.downloadPresentation, button);
+  }));
   grid.querySelectorAll("[data-toast]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -176,6 +201,99 @@ function renderDecks(presentations) {
       showToast(error.message);
     }
   }));
+}
+
+function viewerShareExpiryLabel(expiresAt) {
+  if (!expiresAt) return "This link does not expire.";
+  const date = new Date(expiresAt);
+  return `Expires ${date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}.`;
+}
+
+function displayViewerShare(link) {
+  document.querySelector("[data-viewer-share-create]").hidden = Boolean(link);
+  document.querySelector("[data-viewer-share-result]").hidden = !link;
+  document.querySelector("[data-viewer-share-status]").textContent = link ? "" : "Create a secure, read-only viewer link for this presentation.";
+  if (!link) return;
+  document.querySelector("#viewerShareUrl").value = link.url;
+  document.querySelector("[data-viewer-share-expiry]").textContent = viewerShareExpiryLabel(link.expiresAt);
+}
+
+async function openPresentationShare(presentationId) {
+  if (!presentationShareDialog) return;
+  activeSharePresentationId = presentationId;
+  document.querySelector("[data-viewer-share-status]").textContent = "Loading link status…";
+  document.querySelector("[data-viewer-share-create]").hidden = true;
+  document.querySelector("[data-viewer-share-result]").hidden = true;
+  presentationShareDialog.showModal();
+  try {
+    displayViewerShare(await api.getViewerShareLink(presentationId));
+  } catch (error) {
+    document.querySelector("[data-viewer-share-status]").textContent = error.message || "Could not load sharing settings.";
+  }
+}
+
+async function createViewerShare(replace = false) {
+  const button = document.querySelector(replace ? "[data-viewer-share-regenerate]" : "[data-viewer-share-generate]");
+  const status = document.querySelector("[data-viewer-share-status]");
+  if (!activeSharePresentationId || !button) return;
+  button.disabled = true;
+  status.textContent = "Creating your read-only link…";
+  try {
+    const raw = document.querySelector("#viewerShareExpiry").value;
+    const link = await api.createViewerShareLink(activeSharePresentationId, raw ? Number(raw) : null);
+    displayViewerShare(link);
+    showToast(replace ? "Read-only link replaced." : "Read-only link created.");
+  } catch (error) {
+    status.textContent = error.message || "Could not create the share link.";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function downloadPresentation(presentationId, button) {
+  const deck = dashboardPresentations.find(item => item.id === presentationId);
+  if (!deck || !button) return;
+  button.disabled = true;
+  try {
+    const [{ presentation }, cssResponse, jsResponse, fabricPatchResponse, fabricResponse] = await Promise.all([
+      api.getPresentation(presentationId),
+      fetch("/css/viewer.css?v=20261007-viewer"),
+      fetch("/js/viewer.js?v=20261007-viewer"),
+      fetch("/js/fabric-patch.js?v=20260908-paragraph-align"),
+      fetch("https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js")
+    ]);
+    if (!cssResponse.ok || !jsResponse.ok || !fabricPatchResponse.ok || !fabricResponse.ok) throw new Error("Could not prepare the presentation download.");
+    const [css, script, fabricPatch, fabricScript] = await Promise.all([cssResponse.text(), jsResponse.text(), fabricPatchResponse.text(), fabricResponse.text()]);
+    const portable = JSON.parse(JSON.stringify(presentation));
+    const makeMediaAbsolute = value => {
+      if (Array.isArray(value)) return value.forEach(makeMediaAbsolute);
+      if (!value || typeof value !== "object") return;
+      for (const [key, item] of Object.entries(value)) {
+        if ((key === "src" || key === "poster") && typeof item === "string" && item.startsWith("/")) value[key] = new URL(item, location.origin).href;
+        else makeMediaAbsolute(item);
+      }
+    };
+    makeMediaAbsolute(portable);
+    const safeJson = JSON.stringify(portable).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+    const safeScript = script.replace(/<\/script/gi, "<\\/script");
+    const safeFabricPatch = fabricPatch.replace(/<\/script/gi, "<\\/script");
+    const safeFabricScript = fabricScript.replace(/<\/script/gi, "<\\/script");
+    const safeTitle = escapeHtml(portable.title || "SnapKey presentation");
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="A presentation created with SnapKey Studio."><title>${safeTitle}</title><style>${css}</style></head><body class="share-viewer-page"><main class="share-viewer" aria-label="Shared presentation"><section class="share-viewer-stage" id="viewerStage" aria-label="Presentation slide"><div class="share-viewer-media" id="viewerMedia"></div><canvas id="viewerCanvas" width="1280" height="720" aria-label="Presentation content"></canvas><div class="share-viewer-message" id="viewerMessage" role="status">Loading presentation…</div></section><nav class="share-viewer-controls" id="viewerControls" aria-label="Presentation controls" hidden><button type="button" id="viewerPrevious" aria-label="Previous slide" title="Previous slide">‹</button><span class="share-viewer-counter" id="viewerCounter" aria-live="polite">1 / 1</span><button type="button" id="viewerNext" aria-label="Next slide" title="Next slide">›</button><span class="share-viewer-divider" aria-hidden="true"></span><button type="button" id="viewerAutoplay" aria-pressed="false"><span aria-hidden="true">▶</span><span>Autoplay</span></button></nav><footer class="share-viewer-brand"><span class="share-viewer-mark" aria-hidden="true">S</span><span>Presented with SnapKey Studio</span></footer></main><script>${safeFabricScript}</script><script>${safeFabricPatch}</script><script>window.SnapKeyPresentationExport=${safeJson};</script><script>${safeScript}</script></body></html>`;
+    const blobUrl = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = blobUrl;
+    anchor.download = `${String(portable.title || "presentation").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").trim() || "presentation"}.html`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+    showToast("HTML presentation downloaded. Linked media and YouTube require internet access.");
+  } catch (error) {
+    showToast(error.message || "Could not download this presentation.");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function meetingStatusLabel(meeting) {
@@ -469,6 +587,31 @@ meetingForm?.addEventListener("submit", async event => {
 });
 document.querySelector("[data-copy-meeting-link]")?.addEventListener("click", () => copyText(document.querySelector("#meetingAudienceLink").value, "Audience link copied."));
 document.querySelector("[data-copy-meeting-code]")?.addEventListener("click", () => copyText(document.querySelector("#meetingAccessCode").textContent, "Meeting code copied."));
+
+document.querySelector("[data-viewer-share-generate]")?.addEventListener("click", () => createViewerShare());
+document.querySelector("[data-viewer-share-regenerate]")?.addEventListener("click", () => {
+  if (window.confirm("Replace this link? The existing link will stop working.")) createViewerShare(true);
+});
+document.querySelector("[data-viewer-share-copy]")?.addEventListener("click", () => copyText(document.querySelector("#viewerShareUrl").value, "Read-only link copied."));
+document.querySelector("[data-viewer-share-revoke]")?.addEventListener("click", async event => {
+  if (!activeSharePresentationId || !window.confirm("Revoke this link? Anyone using it will lose access.")) return;
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    await api.revokeViewerShareLink(activeSharePresentationId);
+    displayViewerShare(null);
+    showToast("Read-only link revoked.");
+  } catch (error) {
+    document.querySelector("[data-viewer-share-status]").textContent = error.message || "Could not revoke the link.";
+  } finally {
+    button.disabled = false;
+  }
+});
+document.addEventListener("click", event => {
+  if (event.target.closest(".presentation-options")) return;
+  grid?.querySelectorAll("[data-deck-menu]").forEach(menu => { menu.hidden = true; });
+  grid?.querySelectorAll("[data-menu-toggle]").forEach(button => button.setAttribute("aria-expanded", "false"));
+});
 
 async function openBuilder() {
   const existing = dashboardPresentations[0];

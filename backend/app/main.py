@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -217,6 +217,57 @@ def audience_join(token: str, request: Request, db: Session = Depends(get_db)) -
     metadata += f'\n<meta name="description" content="{escape(description, quote=True)}">'
     page = (settings.frontend_dir / "present.html").read_text(encoding="utf-8")
     page = page.replace("<title>Present Studio - Present</title>", f"<title>{escape(title)}</title>")
+    return HTMLResponse(page.replace("</head>", metadata + "\n</head>"), headers={"Cache-Control": "no-cache"})
+
+
+@fastapi_app.get("/presentation/{token}", include_in_schema=False)
+def shared_presentation(token: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    share = db.query(ShareLink).filter(ShareLink.token == token, ShareLink.is_active.is_(True)).first()
+    expiry = share.expires_at if share else None
+    if expiry and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    if not share or not share.id.startswith("vshare_") or (expiry and expiry <= datetime.now(timezone.utc)):
+        raise HTTPException(status_code=404, detail="This presentation link is invalid or has expired")
+
+    presentation = db.get(Presentation, share.presentation_id)
+    if not presentation or db.query(Meeting).filter_by(presentation_id=share.presentation_id).first():
+        raise HTTPException(status_code=404, detail="This presentation link is unavailable")
+
+    base = presentations.public_share_base_url(request)
+    title = f"{presentation.title} | SnapKey Studio"
+    description = "View this presentation on SnapKey Studio."
+    image = f"{base}/assets/snapkey.png"
+    first_slide = db.query(Slide).filter_by(presentation_id=presentation.id).order_by(Slide.order).first()
+    if first_slide:
+        scene = first_slide.canvas or {}
+        objects = list(scene.get("elements") or []) + list((scene.get("fabric") or {}).get("objects") or [])
+        visual = next((item for item in objects if (item.get("mediaType") or item.get("type")) in {"image", "video", "youtube"} and item.get("src")), None)
+        if visual:
+            candidate = visual["src"]
+            kind = visual.get("mediaType") or visual.get("type")
+            if kind == "youtube":
+                video_id = str(visual.get("youtubeId", ""))
+                if re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+                    candidate = f"/api/media/youtube/{video_id}/preview"
+                else:
+                    candidate = ""
+            elif candidate.startswith("/api/media/") and candidate.endswith("/content"):
+                candidate = candidate.removesuffix("/content") + "/preview"
+            elif kind == "video" and "res.cloudinary.com" in candidate:
+                candidate = candidate.rsplit(".", 1)[0] + ".jpg"
+            elif kind == "video":
+                candidate = ""
+            if candidate:
+                absolute = urljoin(base + "/", candidate)
+                if urlsplit(absolute).scheme in {"https", "http"}:
+                    image = absolute
+
+    canonical = f"{base}/presentation/{token}"
+    tags = {"og:type": "website", "og:site_name": "SnapKey Studio", "og:title": title, "og:description": description, "og:url": canonical, "og:image": image, "og:image:alt": title}
+    metadata = "\n".join(f'<meta property="{key}" content="{escape(value, quote=True)}">' for key, value in tags.items())
+    metadata += f'\n<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="{escape(image, quote=True)}">'
+    page = (settings.frontend_dir / "viewer.html").read_text(encoding="utf-8")
+    page = page.replace("<title>Shared presentation | SnapKey Studio</title>", f"<title>{escape(title)}</title>")
     return HTMLResponse(page.replace("</head>", metadata + "\n</head>"), headers={"Cache-Control": "no-cache"})
 
 fastapi_app.mount("/", StaticFiles(directory=settings.frontend_dir, html=True), name="frontend")

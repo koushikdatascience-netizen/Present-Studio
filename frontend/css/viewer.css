@@ -1,0 +1,61 @@
+:root { color-scheme: dark; font-family: Arial, sans-serif; background: #11110f; color: #f6f5f1; }
+* { box-sizing: border-box; }
+html, body { width: 100%; min-width: 320px; min-height: 100%; margin: 0; }
+.share-viewer-page { min-height: 100vh; overflow: hidden; background: #11110f; }
+.share-viewer { min-height: 100vh; display: grid; grid-template-rows: minmax(0, 1fr) auto auto; justify-items: center; gap: 14px; padding: 18px 18px 12px; }
+.share-viewer-stage { position: relative; isolation: isolate; width: min(100%, calc((100vh - 112px) * 16 / 9)); aspect-ratio: 16 / 9; align-self: center; overflow: hidden; background: #fff; box-shadow: 0 18px 64px rgba(0,0,0,.34); }
+.share-viewer-stage > .canvas-container, .share-viewer-stage > canvas, .share-viewer-media { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; }
+.share-viewer-stage > .canvas-container { z-index: 2; pointer-events: none; }
+.share-viewer-stage > .canvas-container canvas { width: 100% !important; height: 100% !important; }
+.share-viewer-media { z-index: 3; overflow: hidden; pointer-events: none; }
+.share-viewer-media > :is(img, video, iframe) { position: absolute; display: block; max-width: none; border: 0; object-fit: contain; pointer-events: auto; }
+.share-viewer-message { position: absolute; z-index: 5; inset: 0; display: grid; place-items: center; padding: 24px; color: #494943; background: #f8f7f2; font-size: 16px; text-align: center; }
+.share-viewer-message[hidden] { display: none; }
+.share-viewer-controls { min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 5px; border: 1px solid #3d3d38; border-radius: 7px; background: #1c1c19; }
+.share-viewer-controls[hidden] { display: none; }
+.share-viewer-controls button { min-width: 38px; height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 4px; padding: 0 10px; color: #f5f4ef; background: transparent; font: 700 14px/1 Arial, sans-serif; cursor: pointer; }
+.share-viewer-controls button:hover:not(:disabled), .share-viewer-controls button:focus-visible { color: #111; background: #ffd740; outline: none; }
+.share-viewer-controls button:disabled { opacity: .38; cursor: default; }
+.share-viewer-controls button[aria-pressed="true"] { color: #111; background: #ffd740; }
+.share-viewer-counter { min-width: 64px; color: #e5e3db; font: 700 12px/1 Arial, sans-serif; text-align: center; font-variant-numeric: tabular-nums; }
+.share-viewer-divider { width: 1px; height: 22px; margin: 0 2px; background: #474741; }
+.share-viewer-brand { display: flex; align-items: center; gap: 7px; color: #95948d; font: 600 11px/1 Arial, sans-serif; }
+.share-viewer-mark { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 4px; color: #111; background: #ffd740; font-size: 11px; font-weight: 900; }
+.share-viewer-stage.transition-fade { animation: viewer-fade var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-fade-left { animation: viewer-fade-left var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-fade-right { animation: viewer-fade-right var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-fade-up { animation: viewer-fade-up var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-fade-down { animation: viewer-fade-down var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage:is(.transition-slide, .transition-push-right) { animation: viewer-push-right var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-push-left { animation: viewer-push-left var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-push-up { animation: viewer-push-up var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-push-down { animation: viewer-push-down var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-morph { animation: viewer-morph var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-morph-left { animation: viewer-morph-left var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-morph-right { animation: viewer-morph-right var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-morph-up { animation: viewer-morph-up var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-morph-down { animation: viewer-morph-down var(--transition-duration, 500ms) ease both; }
+.share-viewer-stage.transition-zoom { animation: viewer-zoom var(--transition-duration, 500ms) ease both; }
+@keyframes viewer-fade { from { opacity: .12; } to { opacity: 1; } }
+@keyframes viewer-fade-left { from { transform: translateX(-34px); opacity: .12; } to { transform: translateX(0); opacity: 1; } }
+@keyframes viewer-fade-right { from { transform: translateX(34px); opacity: .12; } to { transform: translateX(0); opacity: 1; } }
+@keyframes viewer-fade-up { from { transform: translateY(-34px); opacity: .12; } to { transform: translateY(0); opacity: 1; } }
+@keyframes viewer-fade-down { from { transform: translateY(34px); opacity: .12; } to { transform: translateY(0); opacity: 1; } }
+@keyframes viewer-push-right { from { transform: translateX(54px); opacity: .18; } to { transform: translateX(0); opacity: 1; } }
+@keyframes viewer-push-left { from { transform: translateX(-54px); opacity: .18; } to { transform: translateX(0); opacity: 1; } }
+@keyframes viewer-push-up { from { transform: translateY(-54px); opacity: .18; } to { transform: translateY(0); opacity: 1; } }
+@keyframes viewer-push-down { from { transform: translateY(54px); opacity: .18; } to { transform: translateY(0); opacity: 1; } }
+@keyframes viewer-morph { from { transform: scale(.94); opacity: .16; filter: blur(8px); } to { transform: scale(1); opacity: 1; filter: blur(0); } }
+@keyframes viewer-morph-left { from { transform: translateX(-38px) scale(.94); opacity: .16; filter: blur(8px); } to { transform: translateX(0) scale(1); opacity: 1; filter: blur(0); } }
+@keyframes viewer-morph-right { from { transform: translateX(38px) scale(.94); opacity: .16; filter: blur(8px); } to { transform: translateX(0) scale(1); opacity: 1; filter: blur(0); } }
+@keyframes viewer-morph-up { from { transform: translateY(-38px) scale(.94); opacity: .16; filter: blur(8px); } to { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); } }
+@keyframes viewer-morph-down { from { transform: translateY(38px) scale(.94); opacity: .16; filter: blur(8px); } to { transform: translateY(0) scale(1); opacity: 1; filter: blur(0); } }
+@keyframes viewer-zoom { from { transform: scale(.965); opacity: .2; } to { transform: scale(1); opacity: 1; } }
+@media (max-width: 640px) {
+  .share-viewer { gap: 12px; padding: 10px 10px max(10px, env(safe-area-inset-bottom)); }
+  .share-viewer-stage { width: 100%; }
+  .share-viewer-controls { min-height: 46px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .share-viewer-stage[class*="transition-"] { animation-duration: 1ms !important; }
+}

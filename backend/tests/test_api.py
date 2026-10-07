@@ -9,7 +9,7 @@ from app.database import SessionLocal
 from app.config import get_settings
 from app.main import fastapi_app, live_session_repair_statements, share_link_repair_statements
 from app.live_state import meeting_control_payload
-from app.models import LiveSession, Presentation, User
+from app.models import LiveSession, Presentation, ShareLink, User
 from app.security import hash_password
 
 
@@ -48,6 +48,56 @@ def test_create_presentation_creates_its_live_session():
     assert signup.status_code == 200
     assert response.status_code == 200
     assert response.json()["presentation"]["title"] == "Builder test presentation"
+
+
+def test_read_only_presentation_share_can_expire_and_be_revoked():
+    email = f"viewer-share-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Share Owner", "email": email, "password": "securepass123"})
+        headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
+        created = client.post("/api/presentations", json={"title": "Quarterly review"}, headers=headers)
+        presentation_id = created.json()["presentation"]["id"]
+        assert client.get(f"/api/presentations/{presentation_id}/viewer-share", headers=headers).json() is None
+        link = client.post(f"/api/presentations/{presentation_id}/viewer-share", json={"expiresInDays": 7}, headers=headers)
+        assert link.status_code == 200
+        data = link.json()
+        token = data["token"]
+        assert data["permission"] == "viewer"
+        assert data["expiresAt"]
+        assert data["url"].endswith(f"/presentation/{token}")
+
+        viewer = client.get(f"/api/presentations/{presentation_id}?token={token}")
+        landing = client.get(f"/presentation/{token}")
+        assert viewer.status_code == 200 and viewer.json()["permission"] == "viewer"
+        assert landing.status_code == 200
+        assert "Quarterly review | SnapKey Studio" in landing.text
+        assert 'id="viewerAutoplay"' in landing.text
+        assert "meeting" not in landing.text.lower()
+
+        replacement = client.post(f"/api/presentations/{presentation_id}/viewer-share", json={"expiresInDays": None}, headers=headers)
+        assert replacement.status_code == 200
+        assert replacement.json()["token"] != token
+        assert client.get(f"/api/presentations/{presentation_id}?token={token}").status_code == 403
+        assert client.delete(f"/api/presentations/{presentation_id}/viewer-share", headers=headers).json() == {"ok": True}
+        assert client.get(f"/api/presentations/{presentation_id}?token={replacement.json()['token']}").status_code == 403
+
+        expiring = client.post(f"/api/presentations/{presentation_id}/viewer-share", json={"expiresInDays": 7}, headers=headers).json()
+        with SessionLocal() as db:
+            share = db.query(ShareLink).filter_by(token=expiring["token"]).one()
+            share.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+            db.commit()
+        assert client.get(f"/api/presentations/{presentation_id}?token={expiring['token']}").status_code == 403
+        assert client.get(f"/api/presentations/{presentation_id}/viewer-share", headers=headers).json() is None
+
+
+def test_presentation_viewer_shares_cannot_be_created_for_meetings():
+    email = f"meeting-share-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Meeting Owner", "email": email, "password": "securepass123"})
+        headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
+        meeting = client.post("/api/meetings", json={"title": "Planning", "timingMode": "instant", "durationMode": "unlimited", "accessType": "public"}, headers=headers)
+        response = client.post(f"/api/presentations/{meeting.json()['presentationId']}/viewer-share", json={}, headers=headers)
+    assert response.status_code == 409
 
 
 def test_create_public_instant_meeting_returns_passwordless_audience_link():
