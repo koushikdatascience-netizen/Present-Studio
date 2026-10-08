@@ -41,7 +41,7 @@ def validate_document(document):
                 if key == 'wbLatex' and (not isinstance(item, str) or len(item) > 2000):
                     raise HTTPException(422, 'Invalid editable equation')
                 if key == 'wbMath':
-                    if not isinstance(item, dict) or item.get('version') != 1 or item.get('kind') not in {'graph', 'fraction', 'numberline', 'geometry', 'tangent', 'integral', 'matrix', 'sequence', 'surface3d'}:
+                    if not isinstance(item, dict) or item.get('version') != 1 or item.get('kind') not in {'graph', 'polar', 'fraction', 'numberline', 'geometry', 'tangent', 'integral', 'matrix', 'sequence', 'surface3d'}:
                         raise HTTPException(422, 'Invalid live math object')
                     for name in ('parameter', 'minimum', 'maximum', 'numerator', 'denominator', 'position', 'count', 'angle', 'stretch'):
                         if not isinstance(item.get(name), (int, float)) or isinstance(item.get(name), bool) or not math.isfinite(item[name]):

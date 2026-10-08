@@ -59,6 +59,24 @@ def test_editable_math_metadata_is_preserved_and_validated():
         validate_document(board)
 
 
+def test_polar_math_metadata_is_accepted_and_parameters_are_finite():
+    board = sample_board()
+    polar = {'version': 1, 'kind': 'polar', 'expression': 'a*(1+cos(theta))', 'parameter': 1, 'minimum': 0, 'maximum': 6.283185307179586, 'numerator': 3, 'denominator': 8, 'position': 0, 'count': 12, 'angle': 45, 'stretch': 1.5}
+    board['pages'][0]['scene']['objects'].append({'type': 'group', 'objects': [{'type': 'path'}], 'wbMath': polar})
+    assert validate_document(board)['pages'][0]['scene']['objects'][1]['wbMath'] == polar
+    board['pages'][0]['scene']['objects'][1]['wbMath']['parameter'] = float('inf')
+    with pytest.raises(HTTPException):
+        validate_document(board)
+
+
+def test_unknown_live_math_kind_is_rejected():
+    board = sample_board()
+    model = {'version': 1, 'kind': 'unknown', 'expression': 'x', 'parameter': 1, 'minimum': 0, 'maximum': 1, 'numerator': 3, 'denominator': 8, 'position': 0, 'count': 12, 'angle': 45, 'stretch': 1.5}
+    board['pages'][0]['scene']['objects'].append({'type': 'group', 'objects': [{'type': 'path'}], 'wbMath': model})
+    with pytest.raises(HTTPException):
+        validate_document(board)
+
+
 def test_cohost_can_save_reconnect_then_loses_write_access_on_demotion():
     with TestClient(fastapi_app) as client:
         token = client.post('/api/auth/login', json={'email': 'owner@presentstudio.local', 'password': 'password123'}).json()['accessToken']
