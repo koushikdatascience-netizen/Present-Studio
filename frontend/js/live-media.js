@@ -1621,7 +1621,12 @@
       const activeShares = [];
       sharers.forEach(participant => publications(participant)
         .filter(publication => isSource(publication, "ScreenShare") && publication.track && !publication.isMuted)
-        .forEach(publication => activeShares.push({ participant, track: publication.track })));
+        .forEach(publication => {
+          // Request the highest available screen layer when the SDK supports it.
+          // This prevents a small tile's low layer sticking after it is focused.
+          publication.setVideoQuality?.(livekit.VideoQuality?.HIGH ?? 2);
+          activeShares.push({ participant, track: publication.track });
+        }));
       const availableIdentities = new Set(activeShares.map(item => item.participant.identity));
       if (isController && controllerShareIdentity && !availableIdentities.has(controllerShareIdentity)) {
         controllerShareIdentity = "";
@@ -1672,6 +1677,10 @@
         } else {
           media = featured.track.attach();
           Object.assign(media, { autoplay: true, playsInline: true, muted: featured.participant === room.localParticipant });
+          media.style.imageRendering = "auto";
+          media.addEventListener("loadedmetadata", () => {
+            media.play?.().catch?.(() => {});
+          }, { once: true });
           rememberAttachedTrack(featured.track, media);
         }
         const label = document.createElement("span");
@@ -1712,6 +1721,7 @@
         } else {
           media = track.attach();
           Object.assign(media, { autoplay: true, playsInline: true, muted: participant === room.localParticipant });
+          media.style.imageRendering = "auto";
           rememberAttachedTrack(track, media);
         }
         const caption = document.createElement("figcaption");
@@ -2375,7 +2385,14 @@
       if (enable) screenShareApproved = false;
       screenShareButton.disabled = true;
       try {
-        await room.localParticipant.setScreenShareEnabled(enable);
+        await room.localParticipant.setScreenShareEnabled(enable, enable ? {
+          contentHint: "detail",
+          resolution: { width: 1920, height: 1080, frameRate: 15 }
+        } : undefined, enable ? {
+          screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 15 },
+          degradationPreference: "maintain-resolution",
+          simulcast: false
+        } : undefined);
         screenShareRequestPending = false;
         syncLocalPublishedState(); syncButtons(true); renderParticipants();
         setStatus(screenShareEnabled ? "Screen sharing started" : "Screen sharing stopped", "success");
@@ -2401,7 +2418,15 @@
       const published = [];
       try {
         for (const track of tracks) {
-          await activeRoom.localParticipant.publishTrack(track);
+          if (track.kind === "video") {
+            try { track.mediaStreamTrack.contentHint = "detail"; } catch {}
+          }
+          await activeRoom.localParticipant.publishTrack(track, track.kind === "video" ? {
+            source: livekit.Track?.Source?.ScreenShare,
+            screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 15 },
+            degradationPreference: "maintain-resolution",
+            simulcast: false
+          } : undefined);
           published.push(track);
         }
         syncLocalPublishedState(); syncButtons(true); renderParticipants();

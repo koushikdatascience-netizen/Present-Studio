@@ -3942,7 +3942,8 @@ button.present-back {
 .audience-live-view .present-live-media.is-connected .live-media-tile footer strong {
   max-width: 10ch;
   color: #fff;
-  font-size: .56rem;
+  font-size: clamp(.75rem, 1.2vw, .9rem);
+  line-height: 1.2;
   text-align: center;
 }
 .live-media-tile footer span,

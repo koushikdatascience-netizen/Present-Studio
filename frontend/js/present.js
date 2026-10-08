@@ -299,7 +299,9 @@ function animate(slide) { const frame = $("presentFrame"); const config = slide.
 function animateObjects() { canvas.getObjects().forEach(object => { const type = object.animation || "none"; if (type === "none") return; const duration = Math.max(100, Math.min(5000, Number(object.animationDuration) || 600)); const delay = Math.max(0, Math.min(5000, Number(object.animationDelay) || 0)); const finalState = { opacity: object.opacity ?? 1, left: object.left || 0, top: object.top || 0, scaleX: object.scaleX || 1, scaleY: object.scaleY || 1 }; const startState = {}; if (type === "fade") Object.assign(startState, { opacity: 0 }); if (type === "zoom") Object.assign(startState, { opacity: 0, scaleX: finalState.scaleX * 0.78, scaleY: finalState.scaleY * 0.78 }); if (type === "fly") Object.assign(startState, { opacity: 0, left: finalState.left - 140 }); if (type === "rise") Object.assign(startState, { opacity: 0, top: finalState.top + 90 }); if (type === "wipe") Object.assign(startState, { opacity: 0, scaleX: finalState.scaleX * 0.08 }); object.set(startState); setTimeout(() => { Object.entries(finalState).forEach(([key, value]) => object.animate(key, value, { duration, easing: fabric.util.ease.easeOutCubic, onChange: canvas.renderAll.bind(canvas), onComplete: () => { object.set(finalState); canvas.requestRenderAll(); } })); }, delay); }); }
 function setMediaCycle() { clearInterval(mediaTimer); mediaIndex = 0; if (permission !== "presenter") return; const config = playback(); if (["sequential", "random"].includes(config.media_cycle) && mediaItems(activeSlide()).length > 1) mediaTimer = setInterval(() => { mediaIndex += 1; renderMedia(activeSlide()); }, Number(config.media_interval_ms) || 5000); }
 function sanitizeFabricScene(scene) { (scene.objects || []).forEach(object => { if (object.textBaseline === "alphabetical") object.textBaseline = "alphabetic"; }); return scene; }
+let slideRenderVersion = 0;
 function renderSlide(preserveMedia = false) {
+  const renderVersion = ++slideRenderVersion;
   canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
   const slide = activeSlide();
   const data = slide.canvas || {};
@@ -310,14 +312,53 @@ function renderSlide(preserveMedia = false) {
   currentOutputLabel = slide.title || presentation.title;
   canvas.clear();
   canvas.backgroundColor = data.background || "#f8f4ea";
-  const done = () => { canvas.getObjects().forEach(object => { object.selectable = false; object.evented = false; }); canvas.renderAll(); animateObjects(); };
+  const done = () => {
+    if (renderVersion !== slideRenderVersion) return;
+    canvas.getObjects().forEach(object => { object.selectable = false; object.evented = false; });
+    canvas.renderAll();
+    animateObjects();
+  };
   if (data.fabric) {
     const scene = sanitizeFabricScene(JSON.parse(JSON.stringify(data.fabric)));
-    scene.objects = (scene.objects || []).filter(object => !["video", "youtube"].includes(object.mediaType));
-    canvas.loadFromJSON(scene, done);
+    const imageObjects = (scene.objects || []).filter(object => object.type === "image" && object.src);
+    scene.objects = (scene.objects || []).filter(object => !["video", "youtube", "image"].includes(object.mediaType) && object.type !== "image");
+    // Draw the slide structure immediately. Load remote images independently so
+    // a slow asset cannot hold up slide changes or the audience's live view.
+    canvas.loadFromJSON(scene, () => {
+      done();
+      imageObjects.forEach(serialized => {
+        fabric.Image.fromURL(serialized.src, image => {
+          if (!image || renderVersion !== slideRenderVersion) return;
+          image.set({ ...serialized, selectable: false, evented: false });
+          canvas.add(image);
+          if (serialized.full_bleed || serialized.fitToSlide) canvas.sendToBack(image);
+          canvas.requestRenderAll();
+        }, { crossOrigin: "anonymous" });
+      });
+    });
   } else {
-    (data.elements || []).filter(item => item.type === "text").forEach(item => canvas.add(textObject(item)));
+    const elements = data.elements || [];
+    elements.filter(item => item.type === "text").forEach(item => canvas.add(textObject(item)));
     done();
+    elements.filter(item => item.type === "image" && item.src).forEach(item => {
+      fabric.Image.fromURL(item.src, image => {
+        if (!image || renderVersion !== slideRenderVersion) return;
+        const boxWidth = Math.max(1, Number(item.width || 40) * 12.8);
+        const boxHeight = Math.max(1, Number(item.height || 30) * 7.2);
+        const scale = item.full_bleed || item.fit === "fill" ? null : Math.min(boxWidth / image.width, boxHeight / image.height);
+        image.set({
+          left: Number(item.x || 0) * 12.8,
+          top: Number(item.y || 0) * 7.2,
+          scaleX: scale || boxWidth / image.width,
+          scaleY: scale || boxHeight / image.height,
+          selectable: false,
+          evented: false
+        });
+        canvas.add(image);
+        if (item.full_bleed) canvas.sendToBack(image);
+        canvas.requestRenderAll();
+      }, { crossOrigin: "anonymous" });
+    });
   }
   renderMedia(slide, preserveMedia);
   setMediaCycle();
