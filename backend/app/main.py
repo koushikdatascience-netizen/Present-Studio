@@ -27,9 +27,13 @@ meeting_v2.install_router_guards(presentations)
 settings = get_settings()
 fastapi_app = FastAPI(title=settings.app_name)
 
+cors_origins = [origin for origin in settings.cors_origins if origin != "*"]
+if "https://snapkeystudio.com" not in cors_origins:
+    cors_origins.append("https://snapkeystudio.com")
+
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
