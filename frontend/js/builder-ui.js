@@ -160,7 +160,7 @@
     const style = `left:${left}%;top:${top}%;width:${Math.max(2, width)}%;height:${Math.max(2, height)}%;transform:rotate(${rotation}deg);`;
     const mediaType = object.mediaType || object.type;
     if (mediaType === "image" && object.src) {
-      return `<span class="slide-thumbnail-object is-image" style="${style}"><img src="${esc(object.src)}" alt=""></span>`;
+      return `<span class="slide-thumbnail-object is-image" style="${style}"><img src="${esc(object.src)}" alt="" loading="lazy"><span class="slide-thumbnail-image-error" aria-hidden="true"><i class="bi bi-image"></i></span></span>`;
     }
     if (mediaType === "video" && object.src) {
       return `<span class="slide-thumbnail-object is-video" style="${style}"><video src="${esc(object.src)}" muted preload="metadata" playsinline></video></span>`;
@@ -278,6 +278,11 @@
       const notesLabel = `${hasNotes ? "Edit" : "Add"} notes for slide ${index + 1}`;
       return `<article class="slide-item ${index === currentSlideIndex ? "active" : ""}" data-index="${index}" data-slide-number="${index + 1}" tabindex="0" role="button" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="Open slide ${index + 1}: ${esc(slide.title || "Untitled slide")}. Drag to reorder."><span class="slide-drag-handle" title="Drag to reorder" aria-hidden="true"><i class="bi bi-grip-horizontal"></i></span><div class="slide-thumbnail-stage" style="--slide-thumbnail-bg:${safeColor(data.background, "#fffefb")}">${objects}${audioBadge}</div><div class="slide-actions-inline"><button type="button" class="slide-notes-button${hasNotes ? " has-notes" : ""}" data-slide-notes="${index}" aria-label="${notesLabel}" title="${notesLabel}"><i class="bi bi-journal-text"></i></button><button type="button" data-slide-duplicate="${index}" aria-label="Duplicate slide ${index + 1}" title="Duplicate"><i class="bi bi-copy"></i></button><button class="is-danger" type="button" data-slide-delete="${index}" aria-label="Delete slide ${index + 1}" title="Delete"><i class="bi bi-trash"></i></button></div></article>`;
     }).join("");
+    all("#slideList .slide-thumbnail-object.is-image img").forEach((image) => {
+      const markUnavailable = () => image.closest(".is-image")?.classList.add("is-unavailable");
+      image.addEventListener("error", markUnavailable, { once: true });
+      if (image.complete && image.naturalWidth === 0) markUnavailable();
+    });
     all("#slideList .slide-item").forEach((item) => {
       const open = () => { capture(); currentSlideIndex = Number(item.dataset.index); render(); };
       item.addEventListener("click", (event) => {

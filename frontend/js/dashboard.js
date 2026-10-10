@@ -142,12 +142,14 @@ function renderDecks(presentations) {
         </button>
         <div class="presentation-card-footer">
           <div class="presentation-card-copy"><h3>${title}</h3><p>${slideLabel} · ${escapeHtml(updated)}</p></div>
-          <div class="presentation-options">
-            <button type="button" class="card-menu" data-menu-toggle="${escapeHtml(deck.id)}" aria-label="Presentation actions" aria-expanded="false" title="Presentation actions"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button>
-            <div class="presentation-options-menu" data-deck-menu="${escapeHtml(deck.id)}" hidden>
-              <button type="button" data-share-presentation="${escapeHtml(deck.id)}"><i class="bi bi-link-45deg" aria-hidden="true"></i><span>Share read-only link</span></button>
-              <button type="button" data-download-presentation="${escapeHtml(deck.id)}"><i class="bi bi-download" aria-hidden="true"></i><span>Download HTML presentation</span></button>
-              <button type="button" data-delete="${escapeHtml(deck.id)}"><i class="bi bi-trash" aria-hidden="true"></i><span>Delete presentation</span></button>
+          <div class="presentation-card-actions">
+            <button type="button" class="presentation-card-action" data-share-presentation="${escapeHtml(deck.id)}" aria-label="Share read-only presentation link" title="Share read-only link"><i class="bi bi-link-45deg" aria-hidden="true"></i></button>
+            <button type="button" class="presentation-card-action" data-download-presentation="${escapeHtml(deck.id)}" aria-label="Download HTML presentation" title="Download HTML presentation"><i class="bi bi-download" aria-hidden="true"></i></button>
+            <div class="presentation-options">
+              <button type="button" class="card-menu" data-menu-toggle="${escapeHtml(deck.id)}" aria-label="More presentation actions" aria-expanded="false" title="More actions"><i class="bi bi-three-dots-vertical" aria-hidden="true"></i></button>
+              <div class="presentation-options-menu" data-deck-menu="${escapeHtml(deck.id)}" hidden>
+                <button type="button" data-delete="${escapeHtml(deck.id)}"><i class="bi bi-trash" aria-hidden="true"></i><span>Delete presentation</span></button>
+              </div>
             </div>
           </div>
         </div>

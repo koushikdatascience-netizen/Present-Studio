@@ -3496,6 +3496,22 @@ button.present-back {
   color: #f7f6f1;
   box-shadow: 0 28px 90px rgba(0,0,0,.5);
 }
+.audience-recording-dialog { width: min(520px, calc(100vw - 28px)); max-height: min(84dvh, 620px); overflow-y: auto; border: 1px solid #3d3d37; border-radius: 10px; padding: 20px; color: #f7f6f1; background: #1d1d1a; box-shadow: 0 28px 90px rgba(0,0,0,.5); }
+.audience-recording-dialog::backdrop { background: rgba(7,7,6,.66); backdrop-filter: blur(5px); }
+.audience-recording-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.audience-recording-header span { color: #ffd54a; font: 800 .62rem var(--mono); text-transform: uppercase; }
+.audience-recording-header h2 { margin: 5px 0 0; font-size: 1.2rem; }
+.audience-recording-header > button { width: 34px; height: 34px; border: 1px solid #494943; border-radius: 6px; color: inherit; background: #292925; font-size: 1.25rem; }
+.audience-recording-notice { margin: 16px 0; color: #c4c3bc; font-size: .82rem; line-height: 1.55; }
+.audience-recording-status { min-height: 20px; color: #ffd54a; font-size: .82rem; }
+.audience-recording-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.audience-recording-actions button { min-height: 40px; border: 1px solid #55554e; border-radius: 6px; padding: 0 13px; color: #f7f6f1; background: #292925; font: 700 .8rem var(--sans); }
+.audience-recording-actions [data-audience-record-start] { border-color: #ffd54a; color: #111; background: #ffd54a; }
+.audience-recording-actions [data-audience-record-stop] { border-color: #9d443c; color: #fff; background: #a8322b; }
+.audience-recording-actions button:disabled { opacity: .48; }
+.present-page[data-audience-theme="light"] .audience-recording-dialog { border-color: #d9dde3; color: #202630; background: #fff; }
+.present-page[data-audience-theme="light"] .audience-recording-notice { color: #555d68; }
+.present-page[data-audience-theme="light"] .audience-recording-actions button:not([data-audience-record-start]):not([data-audience-record-stop]) { color: #202630; background: #f5f6f8; }
 .appearance-settings-dialog::backdrop { background: rgba(7,7,6,.66); backdrop-filter: blur(5px); }
 .appearance-settings-header { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 16px 18px; border-bottom: 1px solid #393934; }
 .appearance-settings-header > div > span { display: block; margin-bottom: 3px; color: #ffd54a; font: 800 .58rem var(--mono); letter-spacing: .11em; text-transform: uppercase; }
