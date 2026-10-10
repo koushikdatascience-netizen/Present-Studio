@@ -10,7 +10,9 @@ from app.config import get_settings
 from app.main import fastapi_app, live_session_repair_statements, share_link_repair_statements
 from app.live_state import meeting_control_payload
 from app.models import LiveSession, Meeting, Presentation, ShareLink, User
+from app.routers.presentations import public_share_base_url
 from app.security import hash_password
+from starlette.requests import Request
 
 
 def test_health():
@@ -18,6 +20,28 @@ def test_health():
         response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_public_share_links_use_canonical_app_host_behind_domain_alias():
+    request = Request({
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "https",
+        "path": "/api/presentations/example/viewer-share",
+        "raw_path": b"/api/presentations/example/viewer-share",
+        "query_string": b"",
+        "headers": [
+            (b"host", b"studio.snapkey.in"),
+            (b"x-forwarded-host", b"studio.snapkey.in"),
+        ],
+        "client": ("127.0.0.1", 12345),
+        "server": ("studio.snapkey.in", 443),
+    })
+    settings = get_settings()
+    with patch.object(settings, "public_base_url", "https://connect.snapkeystudio.com"):
+        assert public_share_base_url(request) == "https://connect.snapkeystudio.com"
 
 
 def test_login_and_list_presentations():
