@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal
 from pydantic import BaseModel, Field
 
@@ -70,6 +71,8 @@ class PresentationOut(BaseModel):
 class PresentationPayload(BaseModel):
     presentation: PresentationOut
     permission: SharePermission
+    resumeGuestId: str | None = None
+    resumeDisplayName: str | None = None
 
 
 class ShareLinkCreate(BaseModel):
@@ -85,15 +88,24 @@ class ShareLinkOut(BaseModel):
     screenUrl: str | None = None
     screenToken: str | None = None
     audienceUrl: str | None = None
+    expiresAt: str | None = None
+
+
+class ViewerShareCreate(BaseModel):
+    expiresInDays: Literal[7, 30, 90] | None = None
 
 
 class ShareLinkResolveOut(BaseModel):
     presentationId: str
+    standaloneMeeting: bool = False
+    meetingAccessType: Literal["public", "private"] | None = None
+    scheduledEnd: str | None = None
 
 
 class LiveMediaTokenRequest(BaseModel):
     displayName: str | None = Field(default=None, max_length=80)
     shareToken: str = Field(default="", max_length=200)
+    resumeToken: str = Field(default="", max_length=1200)
     screenAccessCode: str | None = Field(default=None, pattern=r"^\d{4}$")
     clientId: str = Field(default="", max_length=128)
 
@@ -142,3 +154,31 @@ class LiveSessionOut(BaseModel):
     videoVolume: float = 1.0
     audioVolume: float = 1.0
     serverTime: int | None = None
+
+
+class MeetingCreate(BaseModel):
+    title: str = Field(default="New meeting", max_length=255)
+    timingMode: Literal["instant", "scheduled"] = "instant"
+    durationMode: Literal["unlimited", "timed"] = "unlimited"
+    accessType: Literal["public", "private"] = "public"
+    scheduledStart: datetime | None = None
+    scheduledEnd: datetime | None = None
+
+
+class MeetingExtendRequest(BaseModel):
+    minutes: Literal[5, 10, 15, 30, 60] = 15
+
+
+class MeetingOut(BaseModel):
+    id: str
+    presentationId: str
+    title: str
+    timingMode: Literal["instant", "scheduled"]
+    durationMode: Literal["unlimited", "timed"]
+    accessType: Literal["public", "private"]
+    scheduledStart: str
+    scheduledEnd: str | None = None
+    status: str
+    audienceUrl: str
+    controllerUrl: str
+    accessCode: str | None = None

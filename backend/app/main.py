@@ -1,15 +1,22 @@
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import socketio
 from sqlalchemy import inspect, text
 from .config import get_settings
 from .database import Base, SessionLocal, engine
-from .models import User
+from .models import User, ShareLink, Presentation, Meeting, Slide
+from .database import get_db
+from sqlalchemy.orm import Session
+from datetime import datetime, timezone
+from html import escape
+from urllib.parse import urljoin, urlsplit
+import re
 from .socket_manager import sio
 from . import meeting_v2
-from .routers import admin, auth, media, presentations
+from . import breakout
+from .routers import admin, auth, media, meetings, presentations, computation
 from .security import admin_user
 from .seed import seed_demo_data
 
@@ -20,9 +27,13 @@ meeting_v2.install_router_guards(presentations)
 settings = get_settings()
 fastapi_app = FastAPI(title=settings.app_name)
 
+cors_origins = [origin for origin in settings.cors_origins if origin != "*"]
+if "https://snapkeystudio.com" not in cors_origins:
+    cors_origins.append("https://snapkeystudio.com")
+
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -94,6 +105,9 @@ def share_link_repair_statements(dialect_name: str, columns: set[str]) -> list[s
 def repair_live_session_schema() -> None:
     """Keep databases created before media-state persistence usable."""
     inspector = inspect(engine)
+    if "breakout_rooms" in inspector.get_table_names() and "closing_at" not in {column["name"] for column in inspector.get_columns("breakout_rooms")}:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE breakout_rooms ADD COLUMN closing_at FLOAT"))
     if "live_sessions" not in inspector.get_table_names():
         return
     columns = {column["name"] for column in inspector.get_columns("live_sessions")}
@@ -120,8 +134,10 @@ def live_session_repair_statements(dialect_name: str, columns: set[str]) -> list
         "audio_volume": "FLOAT DEFAULT 1 NOT NULL",
         "media_updated_at": timestamp_type,
         "featured_share_identity": "VARCHAR(128)",
+        "featured_camera_identity": "VARCHAR(128)",
         "meeting_muted": f"BOOLEAN DEFAULT {bool_default} NOT NULL",
         "muted_participant_identities": "TEXT DEFAULT '[]' NOT NULL",
+        "whiteboard_document": "TEXT",
     }
     return [
         f"ALTER TABLE live_sessions ADD COLUMN {name} {definition}"
@@ -137,8 +153,10 @@ def health() -> dict[str, str]:
 
 fastapi_app.include_router(auth.router)
 fastapi_app.include_router(presentations.router)
+fastapi_app.include_router(meetings.router)
 fastapi_app.include_router(media.router)
 fastapi_app.include_router(admin.router)
+fastapi_app.include_router(computation.router)
 
 
 @fastapi_app.get("/admin", include_in_schema=False)
@@ -148,9 +166,113 @@ def admin_dashboard(_: User = Depends(admin_user)) -> FileResponse:
 
 
 @fastapi_app.get("/join/{token}", include_in_schema=False)
-def audience_join(token: str) -> FileResponse:
-    """Serve the audience app at a concise, branded URL."""
-    return FileResponse(settings.frontend_dir / "present.html")
+def audience_join(token: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    """Include link-card metadata before the audience app executes."""
+    base = presentations.public_share_base_url(request)
+    title = "Join a meeting | SnapKey Studio"
+    description = "Join the live conversation on SnapKey Studio."
+    image = f"{base}/assets/snapkey.png"
+    share = db.query(ShareLink).filter(ShareLink.token == token, ShareLink.is_active.is_(True)).first()
+    expiry = share.expires_at if share else None
+    if expiry and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    if share and (not expiry or expiry > datetime.now(timezone.utc)):
+        presentation = db.get(Presentation, share.presentation_id)
+        meeting = db.query(Meeting).filter(Meeting.presentation_id == share.presentation_id).first()
+        private = bool(meeting and meeting.access_type == "private") or bool(share.screen_access_code_hash)
+        if presentation:
+            title = f"{presentation.title} | SnapKey Studio"
+            description = "Private meeting. Entry is limited to permitted participants." if private else "You're invited. Join this live meeting on SnapKey Studio."
+            if not private or meeting:
+                slides = db.query(Slide).filter(Slide.presentation_id == presentation.id).order_by(Slide.order).all()
+                for slide in slides:
+                    scene = slide.canvas or {}
+                    items = list(scene.get("elements") or []) + list((scene.get("fabric") or {}).get("objects") or [])
+                    if private:
+                        items = [item for item in items if str(item.get("id", "")).startswith("meeting_media_")]
+                    visual = next((item for item in items if (item.get("mediaType") or item.get("type")) in {"image", "video", "youtube"} and item.get("src")), None)
+                    if not visual:
+                        continue
+                    candidate = visual["src"]
+                    kind = visual.get("mediaType") or visual.get("type")
+                    if kind == "youtube":
+                        video_id = str(visual.get("youtubeId", ""))
+                        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+                            continue
+                        candidate = f"/api/media/youtube/{video_id}/preview"
+                    elif candidate.startswith("/api/media/") and candidate.endswith("/content"):
+                        candidate = candidate.removesuffix("/content") + "/preview"
+                    elif kind == "video":
+                        if "res.cloudinary.com" in candidate:
+                            candidate = candidate.rsplit(".", 1)[0] + ".jpg"
+                        else:
+                            continue
+                    absolute = urljoin(base + "/", candidate)
+                    if urlsplit(absolute).scheme in {"https", "http"}:
+                        image = absolute
+                        break
+    canonical = f"{base}/join/{token}"
+    revision = request.query_params.get("preview", "")
+    if re.fullmatch(r"[a-f0-9]{12}", revision):
+        canonical += f"?preview={revision}"
+    tags = {"og:type": "website", "og:site_name": "SnapKey Studio", "og:title": title, "og:description": description, "og:url": canonical, "og:image": image, "og:image:alt": title}
+    metadata = "\n".join(f'<meta property="{key}" content="{escape(value, quote=True)}">' for key, value in tags.items())
+    metadata += f'\n<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="{escape(image, quote=True)}">'
+    metadata += f'\n<meta name="description" content="{escape(description, quote=True)}">'
+    page = (settings.frontend_dir / "present.html").read_text(encoding="utf-8")
+    page = page.replace("<title>Present Studio - Present</title>", f"<title>{escape(title)}</title>")
+    return HTMLResponse(page.replace("</head>", metadata + "\n</head>"), headers={"Cache-Control": "no-cache"})
+
+
+@fastapi_app.get("/presentation/{token}", include_in_schema=False)
+def shared_presentation(token: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    share = db.query(ShareLink).filter(ShareLink.token == token, ShareLink.is_active.is_(True)).first()
+    expiry = share.expires_at if share else None
+    if expiry and expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    if not share or share.permission != "viewer" or share.screen_access_code_hash or (expiry and expiry <= datetime.now(timezone.utc)):
+        raise HTTPException(status_code=404, detail="This presentation link is invalid or has expired")
+
+    presentation = db.get(Presentation, share.presentation_id)
+    if not presentation or db.query(Meeting).filter_by(presentation_id=share.presentation_id).first():
+        raise HTTPException(status_code=404, detail="This presentation link is unavailable")
+
+    base = presentations.public_share_base_url(request)
+    title = f"{presentation.title} | SnapKey Studio"
+    description = "View this presentation on SnapKey Studio."
+    image = f"{base}/assets/snapkey.png"
+    first_slide = db.query(Slide).filter_by(presentation_id=presentation.id).order_by(Slide.order).first()
+    if first_slide:
+        scene = first_slide.canvas or {}
+        objects = list(scene.get("elements") or []) + list((scene.get("fabric") or {}).get("objects") or [])
+        visual = next((item for item in objects if (item.get("mediaType") or item.get("type")) in {"image", "video", "youtube"} and item.get("src")), None)
+        if visual:
+            candidate = visual["src"]
+            kind = visual.get("mediaType") or visual.get("type")
+            if kind == "youtube":
+                video_id = str(visual.get("youtubeId", ""))
+                if re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+                    candidate = f"/api/media/youtube/{video_id}/preview"
+                else:
+                    candidate = ""
+            elif candidate.startswith("/api/media/") and candidate.endswith("/content"):
+                candidate = candidate.removesuffix("/content") + "/preview"
+            elif kind == "video" and "res.cloudinary.com" in candidate:
+                candidate = candidate.rsplit(".", 1)[0] + ".jpg"
+            elif kind == "video":
+                candidate = ""
+            if candidate:
+                absolute = urljoin(base + "/", candidate)
+                if urlsplit(absolute).scheme in {"https", "http"}:
+                    image = absolute
+
+    canonical = f"{base}/presentation/{token}"
+    tags = {"og:type": "website", "og:site_name": "SnapKey Studio", "og:title": title, "og:description": description, "og:url": canonical, "og:image": image, "og:image:alt": title}
+    metadata = "\n".join(f'<meta property="{key}" content="{escape(value, quote=True)}">' for key, value in tags.items())
+    metadata += f'\n<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="{escape(image, quote=True)}">'
+    page = (settings.frontend_dir / "viewer.html").read_text(encoding="utf-8")
+    page = page.replace("<title>Shared presentation | SnapKey Studio</title>", f"<title>{escape(title)}</title>")
+    return HTMLResponse(page.replace("</head>", metadata + "\n</head>"), headers={"Cache-Control": "no-cache"})
 
 fastapi_app.mount("/", StaticFiles(directory=settings.frontend_dir, html=True), name="frontend")
 

@@ -1,0 +1,35 @@
+.live-media-panel .live-sidebar-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.breakout-panel { overflow-y: auto; min-height: 0; padding: 12px; }
+.breakout-status { font-size: 13px; overflow-wrap: anywhere; }
+.breakout-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.breakout-panel button, .breakout-panel select { min-height: 36px; border: 1px solid #b8bec5; border-radius: 6px; background: #fff; color: #171713; padding: 6px 8px; font-size: 12px; }
+.breakout-controls button:first-child { background: #ffd54a; color: #171713; border-color: #d3aa0d; }
+.breakout-room { border-bottom: 1px solid #777; padding: 12px 0; }
+.breakout-room.is-current { border-left: 3px solid #ffd54a; padding-left: 8px; background: rgba(255,213,74,.08); }
+.breakout-room header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.breakout-room header strong { flex: 1 1 100px; overflow-wrap: anywhere; }
+.breakout-room label { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 8px 0; }
+.breakout-person { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: center; padding-top: 10px; }
+.breakout-person span { overflow-wrap: anywhere; }
+.breakout-person select { grid-column: 2; width: 100%; }
+.breakout-panel[aria-busy="true"] { opacity: .7; pointer-events: none; }
+.breakout-room input { accent-color: #ffd54a; }
+.breakout-dialog { width: min(360px, calc(100vw - 24px)); box-sizing: border-box; border: 1px solid #b8bec5; border-radius: 8px; background: #fff; color: #171713; padding: 20px; }
+.breakout-dialog::backdrop { background: rgba(0,0,0,.55); }
+.breakout-dialog h2 { font-size: 18px; margin: 0 0 16px; }
+.breakout-dialog p { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.breakout-dialog label { display: grid; gap: 8px; font-size: 13px; }
+.breakout-dialog input, .breakout-dialog textarea { width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid #b8bec5; border-radius: 6px; padding: 10px; background: #fff; color: #171713; }
+.breakout-dialog textarea { min-height: 100px; resize: vertical; }
+.breakout-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.breakout-dialog-actions button { min-height: 44px; border: 1px solid #b8bec5; border-radius: 6px; padding: 8px 16px; background: #fff; color: #171713; }
+.breakout-dialog-actions button[type="submit"] { background: #ffd54a; border-color: #d3aa0d; }
+.live-controller-page[data-controller-theme="dark"] .breakout-panel button,
+.live-controller-page[data-controller-theme="dark"] .breakout-panel select,
+.present-page[data-audience-theme="dark"] .breakout-panel button,
+.present-page[data-audience-theme="dark"] .breakout-panel select { background: #282828; color: #fff; border-color: #626262; }
+@media (max-width: 640px) {
+  .breakout-panel button, .breakout-panel select { min-height: 44px; }
+  .breakout-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .breakout-controls button { overflow-wrap: anywhere; }
+}

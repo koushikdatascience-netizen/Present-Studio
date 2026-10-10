@@ -1,12 +1,15 @@
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
+from datetime import datetime, timedelta, timezone
+import asyncio
 import jwt
+from app import socket_manager
 from app.database import SessionLocal
 from app.config import get_settings
 from app.main import fastapi_app, live_session_repair_statements, share_link_repair_statements
 from app.live_state import meeting_control_payload
-from app.models import LiveSession, Presentation, User
+from app.models import LiveSession, Meeting, Presentation, ShareLink, User
 from app.security import hash_password
 
 
@@ -45,6 +48,181 @@ def test_create_presentation_creates_its_live_session():
     assert signup.status_code == 200
     assert response.status_code == 200
     assert response.json()["presentation"]["title"] == "Builder test presentation"
+
+
+def test_read_only_presentation_share_can_expire_and_be_revoked():
+    email = f"viewer-share-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Share Owner", "email": email, "password": "securepass123"})
+        headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
+        created = client.post("/api/presentations", json={"title": "Quarterly review"}, headers=headers)
+        presentation_id = created.json()["presentation"]["id"]
+        assert client.get(f"/api/presentations/{presentation_id}/viewer-share", headers=headers).json() is None
+        link = client.post(f"/api/presentations/{presentation_id}/viewer-share", json={"expiresInDays": 7}, headers=headers)
+        assert link.status_code == 200
+        data = link.json()
+        token = data["token"]
+        assert data["permission"] == "viewer"
+        assert data["expiresAt"]
+        assert data["url"].endswith(f"/presentation/{token}")
+
+        viewer = client.get(f"/api/presentations/{presentation_id}?token={token}")
+        landing = client.get(f"/presentation/{token}")
+        assert viewer.status_code == 200 and viewer.json()["permission"] == "viewer"
+        assert landing.status_code == 200
+        assert "Quarterly review | SnapKey Studio" in landing.text
+        assert 'id="viewerAutoplay"' in landing.text
+        assert "meeting" not in landing.text.lower()
+
+        replacement = client.post(f"/api/presentations/{presentation_id}/viewer-share", json={"expiresInDays": None}, headers=headers)
+        assert replacement.status_code == 200
+        assert replacement.json()["token"] != token
+        assert client.get(f"/api/presentations/{presentation_id}?token={token}").status_code == 403
+        assert client.delete(f"/api/presentations/{presentation_id}/viewer-share", headers=headers).json() == {"ok": True}
+        assert client.get(f"/api/presentations/{presentation_id}?token={replacement.json()['token']}").status_code == 403
+
+        expiring = client.post(f"/api/presentations/{presentation_id}/viewer-share", json={"expiresInDays": 7}, headers=headers).json()
+        with SessionLocal() as db:
+            share = db.query(ShareLink).filter_by(token=expiring["token"]).one()
+            share.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+            db.commit()
+        assert client.get(f"/api/presentations/{presentation_id}?token={expiring['token']}").status_code == 403
+        assert client.get(f"/api/presentations/{presentation_id}/viewer-share", headers=headers).json() is None
+
+
+def test_legacy_active_viewer_presentation_link_remains_read_only_and_usable():
+    email = f"legacy-viewer-share-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Share Owner", "email": email, "password": "securepass123"})
+        headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
+        created = client.post("/api/presentations", json={"title": "Legacy link"}, headers=headers)
+        presentation_id = created.json()["presentation"]["id"]
+        with SessionLocal() as db:
+            db.add(ShareLink(id=f"share_legacy_{uuid4().hex}", presentation_id=presentation_id,
+                             token=f"legacy-viewer-{uuid4().hex}", permission="viewer", is_active=True))
+            db.commit()
+            legacy_token = db.query(ShareLink).filter(ShareLink.presentation_id == presentation_id).one().token
+
+        existing = client.get(f"/api/presentations/{presentation_id}/viewer-share", headers=headers)
+        assert existing.status_code == 200
+        assert existing.json()["token"] == legacy_token
+        landing = client.get(f"/presentation/{legacy_token}")
+        assert landing.status_code == 200
+        assert "Legacy link | SnapKey Studio" in landing.text
+
+        protected = client.post(f"/api/presentations/{presentation_id}/share", json={
+            "permission": "viewer", "screenAccessCode": "2468",
+        }, headers=headers)
+        assert protected.status_code == 200
+        assert client.get(f"/presentation/{protected.json()['token']}").status_code == 404
+
+
+def test_presentation_viewer_shares_cannot_be_created_for_meetings():
+    email = f"meeting-share-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Meeting Owner", "email": email, "password": "securepass123"})
+        headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
+        meeting = client.post("/api/meetings", json={"title": "Planning", "timingMode": "instant", "durationMode": "unlimited", "accessType": "public"}, headers=headers)
+        response = client.post(f"/api/presentations/{meeting.json()['presentationId']}/viewer-share", json={}, headers=headers)
+    assert response.status_code == 409
+
+
+def test_create_public_instant_meeting_returns_passwordless_audience_link():
+    email = f"meeting-owner-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Meeting Owner", "email": email, "password": "securepass123"})
+        headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
+        response = client.post(
+            "/api/meetings",
+            json={"title": "Public team room", "timingMode": "instant", "durationMode": "unlimited", "accessType": "public"},
+            headers=headers,
+        )
+        meetings = client.get("/api/meetings", headers=headers)
+        access = client.get(f"/api/presentations/{response.json()['presentationId']}/screen-access?token={response.json()['audienceUrl'].rsplit('/', 1)[-1]}")
+        settings = get_settings()
+        client.cookies.clear()
+        with patch.object(settings, "livekit_url", "wss://example.livekit.cloud"), patch.object(settings, "livekit_api_key", "key"), patch.object(settings, "livekit_api_secret", "secret"), patch("app.routers.presentations.create_livekit_join_token", return_value="signed-token"), patch("app.routers.presentations.meeting_admission_required", return_value=True), patch("app.routers.presentations.meeting_client_is_admitted", return_value=False):
+            media_access = client.post(
+                f"/api/presentations/{response.json()['presentationId']}/live/media-token",
+                json={"displayName": "Public Guest", "clientId": "public-guest", "shareToken": response.json()['audienceUrl'].rsplit('/', 1)[-1]},
+            )
+    assert response.status_code == 200
+    assert response.json()["accessCode"] is None
+    assert "/join/" in response.json()["audienceUrl"]
+    assert response.json()["controllerUrl"].endswith(f"controller.html?id={response.json()['presentationId']}")
+    assert meetings.status_code == 200
+    assert any(item["id"] == response.json()["id"] for item in meetings.json()["meetings"])
+    assert access.status_code == 200
+    assert access.json() == {"requiresCode": False}
+    assert media_access.status_code == 200
+    assert media_access.json()["permission"] == "viewer"
+
+
+def test_create_private_scheduled_timed_meeting_generates_code_and_range():
+    email = f"scheduled-owner-{uuid4().hex}@example.com"
+    start = datetime.now(timezone.utc) + timedelta(days=1)
+    end = start + timedelta(hours=2)
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Scheduled Owner", "email": email, "password": "securepass123"})
+        response = client.post(
+            "/api/meetings",
+            json={
+                "title": "Private planning room",
+                "timingMode": "scheduled",
+                "durationMode": "timed",
+                "accessType": "private",
+                "scheduledStart": start.isoformat(),
+                "scheduledEnd": end.isoformat(),
+            },
+            headers={"Authorization": f"Bearer {signup.json()['accessToken']}"},
+        )
+        early_join = client.get(f"/api/presentations/shared/{response.json()['audienceUrl'].rsplit('/', 1)[-1]}")
+    assert response.status_code == 200
+    assert response.json()["status"] == "scheduled"
+    assert response.json()["accessCode"].isdigit()
+    assert len(response.json()["accessCode"]) == 4
+    assert response.json()["scheduledEnd"] is not None
+    assert early_join.status_code == 403
+    assert "scheduled for" in early_join.json()["detail"]
+
+
+def test_owner_can_extend_timed_meeting_and_share_expiry_tracks_end():
+    email = f"meeting-extension-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        signup = client.post("/api/auth/signup", json={"name": "Meeting Owner", "email": email, "password": "securepass123"})
+        headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
+        end = datetime.now(timezone.utc) + timedelta(minutes=10)
+        created = client.post("/api/meetings", json={
+            "title": "Timed room", "timingMode": "instant", "durationMode": "timed",
+            "accessType": "public", "scheduledEnd": end.isoformat(),
+        }, headers=headers)
+        meeting_id = created.json()["id"]
+        presentation_id = created.json()["presentationId"]
+        extended = client.post(f"/api/meetings/{meeting_id}/extend", json={"minutes": 15}, headers=headers)
+        resolved = client.get(f"/api/presentations/shared/{created.json()['audienceUrl'].rsplit('/', 1)[-1]}")
+    assert created.status_code == 200
+    assert extended.status_code == 200
+    assert datetime.fromisoformat(extended.json()["scheduledEnd"]) > end + timedelta(minutes=14)
+    assert resolved.status_code == 200
+    assert resolved.json()["scheduledEnd"] == extended.json()["scheduledEnd"]
+    with SessionLocal() as db:
+        meeting = db.query(Meeting).filter_by(id=meeting_id).one()
+        share = db.query(ShareLink).filter_by(presentation_id=presentation_id, permission="viewer").one()
+        assert meeting.scheduled_end == share.expires_at
+
+
+def test_only_owner_can_extend_timed_meeting():
+    owner_email = f"meeting-extension-owner-{uuid4().hex}@example.com"
+    guest_email = f"meeting-extension-guest-{uuid4().hex}@example.com"
+    with TestClient(fastapi_app) as client:
+        owner = client.post("/api/auth/signup", json={"name": "Owner", "email": owner_email, "password": "securepass123"})
+        guest = client.post("/api/auth/signup", json={"name": "Guest", "email": guest_email, "password": "securepass123"})
+        meeting = client.post("/api/meetings", json={
+            "title": "Timed room", "timingMode": "instant", "durationMode": "timed",
+            "accessType": "public", "scheduledEnd": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+        }, headers={"Authorization": f"Bearer {owner.json()['accessToken']}"})
+        response = client.post(f"/api/meetings/{meeting.json()['id']}/extend", json={"minutes": 15}, headers={"Authorization": f"Bearer {guest.json()['accessToken']}"})
+    assert response.status_code == 404
 
 
 def test_share_link_requires_auth():
@@ -385,6 +563,7 @@ def test_live_session_schema_repair_covers_postgres_media_columns():
     assert "ALTER TABLE live_sessions ADD COLUMN media_muted BOOLEAN DEFAULT FALSE NOT NULL" in statements
     assert "ALTER TABLE live_sessions ADD COLUMN media_updated_at TIMESTAMP WITH TIME ZONE" in statements
     assert "ALTER TABLE live_sessions ADD COLUMN featured_share_identity VARCHAR(128)" in statements
+    assert "ALTER TABLE live_sessions ADD COLUMN featured_camera_identity VARCHAR(128)" in statements
     assert "ALTER TABLE live_sessions ADD COLUMN meeting_muted BOOLEAN DEFAULT FALSE NOT NULL" in statements
     assert "ALTER TABLE live_sessions ADD COLUMN muted_participant_identities TEXT DEFAULT '[]' NOT NULL" in statements
 
@@ -394,6 +573,7 @@ def test_meeting_control_payload_restores_persisted_override_state():
         id="live_test",
         presentation_id="pres_test",
         featured_share_identity="participant_screen_owner",
+        featured_camera_identity="participant_camera_owner",
         meeting_muted=True,
         muted_participant_identities='["participant_one","participant_two"]',
     )
@@ -401,9 +581,50 @@ def test_meeting_control_payload_restores_persisted_override_state():
     assert meeting_control_payload(live, "pres_test") == {
         "presentationId": "pres_test",
         "featuredShareIdentity": "participant_screen_owner",
+        "featuredCameraIdentity": "participant_camera_owner",
         "meetingMuted": True,
         "mutedParticipants": ["participant_one", "participant_two"],
     }
+
+
+def test_meeting_control_partial_update_preserves_featured_share():
+    owner_id = f"user_{uuid4().hex}"
+    presentation_id = f"pres_{uuid4().hex}"
+    live_id = f"live_{uuid4().hex}"
+    with SessionLocal() as db:
+        db.add(User(id=owner_id, name="Owner", email=f"{owner_id}@example.com", password_hash=hash_password("secret123")))
+        db.add(Presentation(id=presentation_id, title="Live room", owner_id=owner_id))
+        db.add(LiveSession(id=live_id, presentation_id=presentation_id, featured_share_identity="screen-owner", meeting_muted=False))
+        db.commit()
+
+    try:
+        with patch.object(socket_manager, "can_present_with_credentials", return_value=True), patch.object(
+            socket_manager.sio, "emit", new_callable=AsyncMock
+        ):
+            asyncio.run(socket_manager.meeting_control("host-sid", {
+                "presentationId": presentation_id,
+                "featuredCameraIdentity": "camera-owner",
+                "meetingMuted": True,
+                "mutedParticipants": ["participant-one"],
+            }))
+
+        with SessionLocal() as db:
+            live = db.get(LiveSession, live_id)
+            assert live.featured_share_identity == "screen-owner"
+            assert live.featured_camera_identity == "camera-owner"
+            assert live.meeting_muted is True
+    finally:
+        with SessionLocal() as db:
+            live = db.get(LiveSession, live_id)
+            presentation = db.get(Presentation, presentation_id)
+            owner = db.get(User, owner_id)
+            if live:
+                db.delete(live)
+            if presentation:
+                db.delete(presentation)
+            if owner:
+                db.delete(owner)
+            db.commit()
 
 
 def test_signup_creates_authenticated_user():

@@ -4,19 +4,61 @@ import json
 from urllib.parse import urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, HTTPException, Request
 import jwt
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
 from ..live_state import apply_controller_state, live_session_payload
-from ..models import LiveSession, MeetingParticipantGrant, Presentation, PresentationMember, ShareLink, Slide, User
-from ..schemas import LiveMediaTokenOut, LiveMediaTokenRequest, LiveSessionOut, LiveSlideUpdate, PresentationCreate, PresentationOut, PresentationPayload, PresentationSave, ScreenAccessRequest, ShareLinkCreate, ShareLinkOut, ShareLinkResolveOut, SlideOut
-from ..security import can_edit_presentation, can_view_presentation, current_user, hash_password, new_id, new_share_token, optional_current_user, resolve_share_permission, verify_password
+from ..models import LiveSession, Meeting, MeetingParticipantGrant, Presentation, PresentationMember, ShareLink, Slide, User
+from ..schemas import LiveMediaTokenOut, LiveMediaTokenRequest, LiveSessionOut, LiveSlideUpdate, PresentationCreate, PresentationOut, PresentationPayload, PresentationSave, ScreenAccessRequest, ShareLinkCreate, ShareLinkOut, ShareLinkResolveOut, SlideOut, ViewerShareCreate
+from ..security import can_edit_presentation, can_view_presentation, current_user, hash_password, new_id, new_share_token, optional_current_user, resolve_participant_resume_token, resolve_share_permission, verify_password
 from ..socket_manager import meeting_admission_required, meeting_client_is_admitted, sio
 
 
 router = APIRouter(prefix="/api/presentations", tags=["presentations"])
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+@router.get('/{presentation_id}/whiteboard')
+def get_whiteboard(presentation_id: str, request: Request, db: Session = Depends(get_db)):
+    from ..whiteboard import active_document
+    access = get_presentation(presentation_id, request, db)
+    if access.permission != 'presenter' and not request.query_params.get('resume'):
+        share = active_share_link(db, presentation_id, request.query_params.get('token', ''))
+        if share and share.screen_access_code_hash and not verify_screen_access_code(share, request.query_params.get('screenCode')):
+            raise HTTPException(403, 'Enter the meeting screen access code')
+    live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).first()
+    document = json.loads(live.whiteboard_document) if live and live.whiteboard_document else None
+    return {'document': document if access.permission == 'presenter' else active_document(document)}
+
+
+@router.put('/{presentation_id}/whiteboard')
+async def save_whiteboard(presentation_id: str, payload: dict, request: Request, db: Session = Depends(get_db)):
+    from ..whiteboard import validate_document, active_document
+    from ..security import can_present_with_credentials
+    presentation = db.get(Presentation, presentation_id)
+    auth = request.headers.get('authorization', '')
+    if not presentation or not can_present_with_credentials(db, presentation, auth_token=auth[7:] if auth.lower().startswith('bearer ') else '', share_token=request.query_params.get('token') or ''):
+        raise HTTPException(403, 'Presenter permission required')
+    document = validate_document(payload.get('document'))
+    if type(payload.get('baseRevision')) is not int or payload['baseRevision'] < 0:
+        raise HTTPException(422, 'Invalid board base revision')
+    live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).with_for_update().first()
+    if not live:
+        raise HTTPException(404, 'Live session not found')
+    previous = json.loads(live.whiteboard_document) if live.whiteboard_document else {}
+    revision = previous.get('revision', 0)
+    if payload.get('baseRevision') != revision:
+        raise HTTPException(409, 'Another presenter updated this board. Export your changes, then reload the saved board.')
+    document['revision'] = revision + 1
+    stored = live.whiteboard_document
+    saved = db.execute(update(LiveSession).where(LiveSession.id == live.id, LiveSession.whiteboard_document == stored).values(whiteboard_document=json.dumps(document, allow_nan=False)).execution_options(synchronize_session=False))
+    if saved.rowcount != 1:
+        db.rollback()
+        raise HTTPException(409, 'Another presenter updated this board. Export your changes, then reload the saved board.')
+    db.commit()
+    await sio.emit('whiteboard_document', {'presentationId': presentation_id, 'document': active_document(document), 'partial': True}, room=f'whiteboard:{presentation_id}')
+    return {'revision': document['revision']}
 
 
 def serialize_live_session(live: LiveSession | None, presentation_id: str) -> LiveSessionOut:
@@ -71,17 +113,41 @@ def public_share_base_url(request: Request) -> str:
 def active_share_link(db: Session, presentation_id: str, token: str) -> ShareLink | None:
     if not token:
         return None
-    return db.query(ShareLink).filter(
+    share = db.query(ShareLink).filter(
         ShareLink.token == token,
         ShareLink.presentation_id == presentation_id,
         ShareLink.is_active == True,  # noqa: E712
     ).first()
+    if not share:
+        return None
+    expires_at = _aware_datetime(share.expires_at)
+    if expires_at and expires_at <= datetime.now(timezone.utc):
+        share.is_active = False
+        db.commit()
+        return None
+    return share
 
 
 def verify_screen_access_code(share: ShareLink, code: str | None) -> bool:
     if not share.screen_access_code_hash:
         return True
     return bool(code and verify_password(code, share.screen_access_code_hash))
+
+
+def enforce_meeting_join_window(db: Session, presentation_id: str) -> Meeting | None:
+    meeting = db.query(Meeting).filter(Meeting.presentation_id == presentation_id).first()
+    if not meeting:
+        return None
+    now = datetime.now(timezone.utc)
+    start = _aware_datetime(meeting.scheduled_start)
+    end = _aware_datetime(meeting.scheduled_end)
+    if meeting.status == "closed":
+        raise HTTPException(status_code=410, detail="This meeting has been closed by its owner")
+    if start and now < start:
+        raise HTTPException(status_code=403, detail=f"This meeting is scheduled for {start.isoformat()}")
+    if end and now >= end:
+        raise HTTPException(status_code=410, detail="This timed meeting has ended")
+    return meeting
 
 
 def screen_code_share(db: Session, presentation_id: str, share: ShareLink | None = None) -> ShareLink | None:
@@ -250,7 +316,7 @@ def list_presentations(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, list[PresentationOut]]:
-    presentations = db.query(Presentation).filter(Presentation.owner_id == user.id).order_by(Presentation.updated_at.desc()).all()
+    presentations = db.query(Presentation).filter(Presentation.owner_id == user.id, Presentation.status.notin_(["meeting", "breakout"])).order_by(Presentation.updated_at.desc()).all()
     return {"presentations": [serialize_presentation(item) for item in presentations]}
 
 
@@ -265,7 +331,17 @@ def resolve_shared_presentation(token: str, db: Session = Depends(get_db)) -> Sh
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if not share or (expires_at and expires_at <= datetime.now(timezone.utc)):
         raise HTTPException(status_code=404, detail="This audience link is invalid or has expired")
-    return ShareLinkResolveOut(presentationId=share.presentation_id)
+    enforce_meeting_join_window(db, share.presentation_id)
+    meeting = db.query(Meeting).filter(
+        Meeting.presentation_id == share.presentation_id
+    ).first()
+
+    return ShareLinkResolveOut(
+        presentationId=share.presentation_id,
+        standaloneMeeting=bool(meeting),
+        meetingAccessType=meeting.access_type if meeting else None,
+        scheduledEnd=_aware_datetime(meeting.scheduled_end).isoformat() if meeting and meeting.scheduled_end else None,
+    )
 
 
 @router.post("")
@@ -275,7 +351,7 @@ def create_presentation(
     db: Session = Depends(get_db),
 ) -> PresentationPayload:
     quota_user = db.query(User).filter(User.id == user.id).with_for_update().one()
-    presentation_count = db.query(func.count(Presentation.id)).filter(Presentation.owner_id == user.id).scalar() or 0
+    presentation_count = db.query(func.count(Presentation.id)).filter(Presentation.owner_id == user.id, Presentation.status.notin_(["meeting", "breakout"])).scalar() or 0
     if presentation_count >= quota_user.presentation_limit:
         raise HTTPException(
             status_code=409,
@@ -315,6 +391,18 @@ def get_presentation(
     is_screen_output = request.query_params.get("screen") == "1"
     auth_header = request.headers.get("authorization", "")
     has_explicit_auth = auth_header.lower().startswith("bearer ") and bool(auth_header[7:].strip())
+    resume_token = request.query_params.get("resume") or ""
+
+    if resume_token and not is_screen_output:
+        resumed = resolve_participant_resume_token(db, resume_token, presentation.id)
+        if not resumed:
+            raise HTTPException(status_code=403, detail="Audience resume access has expired")
+        return PresentationPayload(
+            presentation=serialize_presentation(presentation),
+            permission="viewer",
+            resumeGuestId=resumed[0].guest_id,
+            resumeDisplayName=resumed[0].display_name or "Guest",
+        )
 
     if user and has_explicit_auth and can_edit_presentation(db, presentation, user) and not is_screen_output:
         return PresentationPayload(
@@ -327,6 +415,7 @@ def get_presentation(
         share = active_share_link(db, presentation.id, token)
         if not share:
             raise HTTPException(status_code=403, detail="Share link is not valid")
+        enforce_meeting_join_window(db, presentation.id)
         if is_screen_output:
             required_code_share = screen_code_share(db, presentation.id, share)
             if not required_code_share:
@@ -428,6 +517,86 @@ def get_current_share_link(
     )
 
 
+def standalone_viewer_shares(db: Session, presentation_id: str) -> list[ShareLink]:
+    return db.query(ShareLink).filter(
+        ShareLink.presentation_id == presentation_id,
+        ShareLink.permission == "viewer",
+        ShareLink.screen_access_code_hash.is_(None),
+    ).all()
+
+
+def viewer_share_out(request: Request, share: ShareLink) -> ShareLinkOut:
+    base = public_share_base_url(request)
+    expires_at = _aware_datetime(share.expires_at)
+    return ShareLinkOut(
+        url=f"{base}/presentation/{share.token}", token=share.token, permission="viewer",
+        expiresAt=expires_at.isoformat() if expires_at else None,
+    )
+
+
+def require_shareable_presentation(db: Session, presentation_id: str, user: User) -> Presentation:
+    presentation = db.get(Presentation, presentation_id)
+    meeting = db.query(Meeting).filter_by(presentation_id=presentation_id).first()
+    if not presentation or not can_edit_presentation(db, presentation, user):
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    if presentation.status in {"meeting", "breakout"} or meeting:
+        raise HTTPException(status_code=409, detail="Live meeting links are managed separately")
+    return presentation
+
+
+@router.get("/{presentation_id}/viewer-share", response_model=ShareLinkOut | None)
+def get_viewer_share_link(
+    presentation_id: str,
+    request: Request,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ShareLinkOut | None:
+    require_shareable_presentation(db, presentation_id, user)
+    now = datetime.now(timezone.utc)
+    for share in standalone_viewer_shares(db, presentation_id):
+        expiry = _aware_datetime(share.expires_at)
+        if share.is_active and (not expiry or expiry > now):
+            return viewer_share_out(request, share)
+        if share.is_active:
+            share.is_active = False
+    db.commit()
+    return None
+
+
+@router.post("/{presentation_id}/viewer-share", response_model=ShareLinkOut)
+def create_viewer_share_link(
+    presentation_id: str,
+    request: Request,
+    payload: ViewerShareCreate = ViewerShareCreate(),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> ShareLinkOut:
+    require_shareable_presentation(db, presentation_id, user)
+    for share in standalone_viewer_shares(db, presentation_id):
+        share.is_active = False
+    expires_at = datetime.now(timezone.utc) + timedelta(days=payload.expiresInDays) if payload.expiresInDays else None
+    share = ShareLink(
+        id=new_id("vshare"), presentation_id=presentation_id, token=new_share_token(),
+        permission="viewer", is_active=True, expires_at=expires_at,
+    )
+    db.add(share)
+    db.commit()
+    return viewer_share_out(request, share)
+
+
+@router.delete("/{presentation_id}/viewer-share")
+def revoke_viewer_share_link(
+    presentation_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    require_shareable_presentation(db, presentation_id, user)
+    for share in standalone_viewer_shares(db, presentation_id):
+        share.is_active = False
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/{presentation_id}/share")
 def create_share_link(
     presentation_id: str,
@@ -502,22 +671,42 @@ def create_live_media_token(
     user = optional_current_user(request, db)
     permission = None
     default_name = "Guest"
-    if user and can_view_presentation(db, presentation, user):
+    resumed = resolve_participant_resume_token(db, payload.resumeToken, presentation_id) if payload.resumeToken else None
+    if payload.resumeToken:
+        if not resumed or payload.clientId != resumed[0].guest_id:
+            raise HTTPException(status_code=403, detail="Audience resume access has expired")
+        permission = "viewer"
+        default_name = resumed[0].display_name or "Guest"
+    elif user and can_view_presentation(db, presentation, user):
         permission = "presenter" if can_edit_presentation(db, presentation, user) else "viewer"
         default_name = user.name
     elif payload.shareToken:
         share = active_share_link(db, presentation_id, payload.shareToken)
         if share:
+            enforce_meeting_join_window(db, presentation_id)
             permission = share.permission if share.permission in {"viewer", "presenter"} else "viewer"
             default_name = "Presenter" if permission == "presenter" else "Guest"
             if permission == "viewer" and not verify_screen_access_code(share, payload.screenAccessCode):
                 raise HTTPException(status_code=403, detail="Screen access code is required")
     if not permission:
         raise HTTPException(status_code=403, detail="A valid presentation session is required")
-    if permission == "viewer" and meeting_admission_required(presentation_id) and not meeting_client_is_admitted(presentation_id, payload.clientId):
+    managed_meeting = db.query(Meeting).filter(Meeting.presentation_id == presentation_id).first()
+    public_meeting = bool(managed_meeting and managed_meeting.access_type == "public")
+    if permission == "viewer" and not public_meeting and meeting_admission_required(presentation_id) and not meeting_client_is_admitted(presentation_id, payload.clientId):
         raise HTTPException(status_code=403, detail="Waiting for presenter approval")
 
     participant_name = " ".join((payload.displayName or default_name).strip().split())[:80] or default_name
+    from ..breakout import context as breakout_context, enforce_assignment
+    if presentation.status == "breakout":
+        breakout_context(db, presentation_id)
+    if db.query(LiveSession).filter_by(presentation_id=presentation_id, is_live=True).first():
+        if permission == "viewer":
+            enforce_assignment(db, presentation_id, payload.clientId)
+        else:
+            cohost_share = db.query(ShareLink).filter_by(token=payload.shareToken).first() if payload.shareToken else None
+            cohost_grant = db.query(MeetingParticipantGrant).filter_by(cohost_share_id=cohost_share.id).first() if cohost_share else None
+            if cohost_grant:
+                enforce_assignment(db, presentation_id, cohost_grant.guest_id)
     participant_identity = stable_livekit_participant_identity(
         presentation_id,
         permission,
@@ -549,7 +738,10 @@ def screen_access_requirements(
     share = active_share_link(db, presentation_id, token)
     if not share:
         raise HTTPException(status_code=403, detail="Share link is not valid")
+    meeting = enforce_meeting_join_window(db, presentation_id)
     if not share.screen_access_code_hash:
+        if meeting and meeting.access_type == "public":
+            return {"requiresCode": False}
         raise HTTPException(status_code=403, detail="This unprotected screen link is no longer valid. Generate a new protected link")
     return {"requiresCode": True}
 
@@ -566,6 +758,7 @@ def verify_screen_access(
     share = active_share_link(db, presentation_id, payload.token)
     if not share:
         raise HTTPException(status_code=403, detail="Share link is not valid")
+    enforce_meeting_join_window(db, presentation_id)
     required_code_share = screen_code_share(db, presentation_id, share)
     if not required_code_share:
         raise HTTPException(status_code=403, detail="This unprotected screen link is no longer valid. Generate a new protected link")
@@ -575,7 +768,7 @@ def verify_screen_access(
 
 
 @router.post("/{presentation_id}/live/end")
-def end_live_session(
+async def end_live_session(
     presentation_id: str,
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
@@ -583,6 +776,8 @@ def end_live_session(
     presentation = db.get(Presentation, presentation_id)
     if not presentation or not can_edit_presentation(db, presentation, user):
         raise HTTPException(status_code=404, detail="Presentation not found")
+    if presentation.status == "breakout":
+        raise HTTPException(status_code=409, detail="Close breakout rooms from the Rooms panel")
     live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).first()
     if not live:
         live = LiveSession(id=new_id("live"), presentation_id=presentation_id, presenter_user_id=user.id)
@@ -590,7 +785,17 @@ def end_live_session(
     live.is_live = False
     live.media_playing = False
     live.media_updated_at = datetime.now(timezone.utc)
+    from ..models import BreakoutRoom
+    child_ids = []
+    for child in db.query(BreakoutRoom).filter_by(parent_id=presentation_id).all():
+        child.closed = True
+        child_ids.append(child.presentation_id)
+        child_live = db.query(LiveSession).filter_by(presentation_id=child.presentation_id).first()
+        if child_live:
+            child_live.is_live = False
     db.commit()
+    for child_id in child_ids:
+        await sio.emit("session_ended", {"presentationId": child_id}, room=child_id)
     return serialize_live_session(live, presentation_id)
 
 
@@ -648,12 +853,19 @@ async def delete_presentation(
     presentation = db.get(Presentation, presentation_id)
     if not presentation or presentation.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Presentation not found")
+    if presentation.status == "breakout":
+        raise HTTPException(status_code=409, detail="Delete breakout rooms from the Rooms panel")
+    from ..breakout import cleanup_children
+    child_ids = cleanup_children(db, presentation_id)
 
     db.query(PresentationMember).filter(PresentationMember.presentation_id == presentation_id).delete()
+    db.query(Meeting).filter(Meeting.presentation_id == presentation_id).delete()
     db.query(MeetingParticipantGrant).filter(MeetingParticipantGrant.presentation_id == presentation_id).delete()
     db.query(ShareLink).filter(ShareLink.presentation_id == presentation_id).delete()
     db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).delete()
     db.delete(presentation)
     db.commit()
     await sio.emit("presentation_deleted", {"presentationId": presentation_id}, room=presentation_id)
+    for child_id in child_ids:
+        await sio.emit("presentation_deleted", {"presentationId": child_id}, room=child_id)
     return {"ok": True, "presentationId": presentation_id}

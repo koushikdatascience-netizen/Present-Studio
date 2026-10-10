@@ -26,11 +26,27 @@
     signup: (name, email, password) => request("/api/auth/signup", { method: "POST", body: JSON.stringify({ name, email, password }) }).then(persist),
     async logout() { const result = await request("/api/auth/logout", { method: "POST" }); localStorage.removeItem(sessionKey); localStorage.removeItem(tokenKey); return result; },
     getCurrentUser: () => request("/api/auth/me"), getCachedSession: () => { try { return JSON.parse(localStorage.getItem(sessionKey) || "null"); } catch { return null; } },
-    listPresentations: () => request("/api/presentations"), getPresentation: (id, token = "", options = {}) => request(`/api/presentations/${encodeURIComponent(id)}${token ? `?token=${encodeURIComponent(token)}` : ""}`, options),
+    listPresentations: () => request("/api/presentations"), getPresentation: (id, token = "", options = {}, resumeToken = "") => {
+      const query = [];
+      if (token) query.push(`token=${encodeURIComponent(token)}`);
+      if (resumeToken) query.push(`resume=${encodeURIComponent(resumeToken)}`);
+      return request(`/api/presentations/${encodeURIComponent(id)}${query.length ? `?${query.join("&")}` : ""}`, options);
+    },
+    getWhiteboard: (id, token = '', options = {}, resume = '', screenCode = '') => request(`/api/presentations/${encodeURIComponent(id)}/whiteboard?token=${encodeURIComponent(token)}&resume=${encodeURIComponent(resume)}&screenCode=${encodeURIComponent(screenCode)}`, options),
+    saveWhiteboard: (id, document, baseRevision, token = '', options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/whiteboard?token=${encodeURIComponent(token)}`, { method: 'PUT', body: JSON.stringify({ document, baseRevision }), ...options }),
+    computeMath: (id, payload, token = '', options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/compute?token=${encodeURIComponent(token)}`, { method: 'POST', body: JSON.stringify(payload), ...options }),
     resolveShareLink: (token, options = {}) => request(`/api/presentations/shared/${encodeURIComponent(token)}`, options),
     createPresentation: (title) => request("/api/presentations", { method: "POST", body: JSON.stringify({ title }) }), savePresentation: (deck) => request(`/api/presentations/${encodeURIComponent(deck.id)}`, { method: "PUT", body: JSON.stringify(deck) }), deletePresentation: (id) => request(`/api/presentations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    listMeetings: () => request("/api/meetings"),
+    createMeeting: (meeting) => request("/api/meetings", { method: "POST", body: JSON.stringify(meeting) }),
+    extendMeeting: (id, minutes = 15) => request(`/api/meetings/${encodeURIComponent(id)}/extend`, { method: "POST", body: JSON.stringify({ minutes }) }),
+    deleteMeeting: (id) => request(`/api/meetings/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    getMeetingForPresentation: (id) => request(`/api/meetings/by-presentation/${encodeURIComponent(id)}`),
     getCurrentShareLink: (id) => request(`/api/presentations/${encodeURIComponent(id)}/share/current`),
-    createShareLink: (id, permission = "viewer", screenAccessCode = "") => request(`/api/presentations/${encodeURIComponent(id)}/share`, { method: "POST", body: JSON.stringify({ permission, ...(screenAccessCode ? { screenAccessCode } : {}) }) }), getLiveSession: (id) => request(`/api/presentations/${encodeURIComponent(id)}/live`), setLiveSlide: (id, slideId, token = "") => request(`/api/presentations/${encodeURIComponent(id)}/live/slide${token ? `?token=${encodeURIComponent(token)}` : ""}`, { method: "POST", body: JSON.stringify({ slideId }) }), endLiveSession: (id) => request(`/api/presentations/${encodeURIComponent(id)}/live/end`, { method: "POST" }),
+    getViewerShareLink: (id) => request(`/api/presentations/${encodeURIComponent(id)}/viewer-share`),
+    createViewerShareLink: (id, expiresInDays = null) => request(`/api/presentations/${encodeURIComponent(id)}/viewer-share`, { method: "POST", body: JSON.stringify({ expiresInDays }) }),
+    revokeViewerShareLink: (id) => request(`/api/presentations/${encodeURIComponent(id)}/viewer-share`, { method: "DELETE"}),
+    createShareLink: (id, permission = "viewer", screenAccessCode = "") => request(`/api/presentations/${encodeURIComponent(id)}/share`, { method: "POST", body: JSON.stringify({ permission, ...(screenAccessCode ? { screenAccessCode } : {}) }) }), getLiveSession: (id, options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/live`, options), setLiveSlide: (id, slideId, token = "", options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/live/slide${token ? `?token=${encodeURIComponent(token)}` : ""}`, { method: "POST", body: JSON.stringify({ slideId }), ...options }), endLiveSession: (id) => request(`/api/presentations/${encodeURIComponent(id)}/live/end`, { method: "POST" }),
     getLiveMediaToken: (id, payload = {}, options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/live/media-token`, { method: "POST", body: JSON.stringify(payload), ...options }),
     getScreenAccessRequirements: (id, token = "", options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/screen-access${token ? `?token=${encodeURIComponent(token)}` : ""}`, options),
     verifyScreenAccessCode: (id, token, screenAccessCode, options = {}) => request(`/api/presentations/${encodeURIComponent(id)}/screen-access`, { method: "POST", body: JSON.stringify({ token, screenAccessCode }), ...options }),
@@ -219,34 +235,6 @@
     });
   }
 
-  function roleButton(ctx, item) {
-    const button = document.createElement("button");
-    const isCohost = item.role === "cohost";
-    button.type = "button";
-    button.className = `meeting-v2-role-button${isCohost ? " is-cohost" : ""}`;
-    button.dataset.meetingV2Role = String(item.clientId);
-    button.dataset.meetingV2RoleState = isCohost ? "cohost" : "audience";
-    button.innerHTML = isCohost
-      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"></circle><path d="M3.5 19c.3-3 2.2-5 5.5-5s5.2 2 5.5 5M16 12h6"></path></svg>'
-      : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"></circle><path d="M3.5 19c.3-3 2.2-5 5.5-5s5.2 2 5.5 5M19 9v6M16 12h6"></path></svg>';
-    const label = isCohost
-      ? `Remove co-host access from ${item.name || "participant"}`
-      : `Give ${item.name || "participant"} co-host controls`;
-    button.setAttribute("aria-label", label);
-    button.title = label;
-    button.addEventListener("click", event => {
-      event.stopPropagation();
-      ctx.socket.emit("meeting_role_update", {
-        presentationId: ctx.presentationId,
-        authToken: ctx.options.authToken || "",
-        shareToken: ctx.options.shareToken || "",
-        clientId: item.clientId,
-        role: isCohost ? "audience" : "cohost"
-      });
-    });
-    return button;
-  }
-
   function decorateControllerParticipants(ctx) {
     if (!ctx.isController || !ctx.root || !ctx.lastLobby) return;
     const active = Array.isArray(ctx.lastLobby.active) ? ctx.lastLobby.active : [];
@@ -275,25 +263,6 @@
         badge?.remove();
       }
 
-      const actions = tile.querySelector(".live-participant-actions");
-      if (!actions) return;
-
-      // IMPORTANT: keep this decoration idempotent.
-      // The controller watches participant DOM mutations. Replacing this button
-      // on every pass triggers the observer again and creates an infinite
-      // mutation loop as soon as an active participant appears.
-      const selector = `[data-meeting-v2-role="${escapeSelector(item.clientId)}"]`;
-      const existingButton = actions.querySelector(selector);
-      const expectedRole = item.role === "cohost" ? "cohost" : "audience";
-
-      if (!existingButton) {
-        actions.prepend(roleButton(ctx, item));
-      } else if (existingButton.dataset.meetingV2RoleState !== expectedRole) {
-        // Role actually changed (audience <-> co-host), so rebuild once to
-        // refresh the click handler's captured role. The next observer pass is
-        // stable and performs no DOM mutation.
-        existingButton.replaceWith(roleButton(ctx, item));
-      }
     });
 
     maybeAutoFeatureApprovedShare(ctx);

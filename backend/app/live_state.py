@@ -54,6 +54,7 @@ def meeting_control_payload(live: LiveSession | None, presentation_id: str) -> d
     return {
         "presentationId": presentation_id,
         "featuredShareIdentity": live.featured_share_identity if live else None,
+        "featuredCameraIdentity": live.featured_camera_identity if live else None,
         "meetingMuted": bool(live and live.meeting_muted),
         "mutedParticipants": [str(identity)[:128] for identity in muted if identity][:100],
     }

@@ -7,8 +7,8 @@ from urllib.parse import quote
 from . import socket_manager as sm
 from .database import SessionLocal
 from .live_state import utc_now
-from .models import LiveSession, MeetingParticipantGrant, Presentation, ShareLink
-from .security import new_id, new_share_token
+from .models import LiveSession, Meeting, MeetingParticipantGrant, Presentation, ShareLink
+from .security import create_participant_resume_token, new_id, new_share_token, user_from_token
 
 
 _legacy_end_session = sm.end_session
@@ -267,10 +267,16 @@ def _cohost_sid_for(presentation_id: str, guest_id: str) -> str | None:
     return cohost_controller_sids.get(presentation_id, {}).get(guest_id)
 
 
-async def _revoke_cohost_controller(presentation_id: str, guest_id: str, reason: str) -> None:
+async def _revoke_cohost_controller(
+    presentation_id: str,
+    guest_id: str,
+    reason: str,
+    resume_token: str = "",
+) -> None:
     sid = _cohost_sid_for(presentation_id, guest_id)
     if not sid:
         return
+    await sm.sio.leave_room(sid, f'whiteboard:{presentation_id}')
     sm.controller_sids.get(presentation_id, set()).discard(sid)
     if not sm.controller_sids.get(presentation_id):
         sm.controller_sids.pop(presentation_id, None)
@@ -279,7 +285,12 @@ async def _revoke_cohost_controller(presentation_id: str, guest_id: str, reason:
         cohost_controller_sids.pop(presentation_id, None)
     await sm.sio.emit(
         "meeting_controller_revoked",
-        {"presentationId": presentation_id, "clientId": guest_id, "reason": reason},
+        {
+            "presentationId": presentation_id,
+            "clientId": guest_id,
+            "reason": reason,
+            **({"resumeToken": resume_token} if resume_token else {}),
+        },
         room=sid,
     )
 
@@ -305,6 +316,12 @@ async def meeting_controller_register(sid, data):
 
     cohost_guest_id = str(data.get("cohostGuestId") or "").strip()[:128]
     with SessionLocal() as db:
+        managed_meeting = db.query(Meeting).filter(Meeting.presentation_id == presentation_id).first()
+        if managed_meeting:
+            end = _aware(managed_meeting.scheduled_end)
+            if managed_meeting.status == "closed" or (end and datetime.now(timezone.utc) >= end):
+                await sm.sio.emit("presenter_rejected", {"message": "This meeting has ended"}, room=sid)
+                return
         live = _ensure_meeting_instance(db, presentation_id)
         if cohost_guest_id:
             grant = _grant(db, presentation_id, live.meeting_instance_id, cohost_guest_id)
@@ -327,6 +344,20 @@ async def meeting_admission_request(sid, data):
     if not presentation_id or not guest_id:
         return
 
+    with SessionLocal() as db:
+        from .models import BreakoutRoom
+        child = db.query(BreakoutRoom).filter_by(presentation_id=presentation_id).first()
+        if child:
+            session = await sm.sio.get_session(sid)
+            if session.get("breakout_guest_id") != guest_id or session.get("breakout_presentation_id") != presentation_id:
+                return
+            from .breakout import enforce_assignment
+            from fastapi import HTTPException
+            try:
+                enforce_assignment(db, presentation_id, guest_id)
+            except HTTPException:
+                return
+
     # Admission must not depend on join_presentation winning a race in the
     # browser. Put this exact socket in the presentation room here.
     try:
@@ -339,8 +370,12 @@ async def meeting_admission_request(sid, data):
     with SessionLocal() as db:
         if not db.get(Presentation, presentation_id):
             return
-        live = _ensure_meeting_instance(db, presentation_id)
+        live = _current_live(db, presentation_id)
+        if not live or not live.is_live or not live.meeting_instance_id:
+            await sm.sio.emit("session_ended", {"presentationId": presentation_id}, room=sid)
+            return
         grant = _grant(db, presentation_id, live.meeting_instance_id, guest_id)
+        managed_meeting = db.query(Meeting).filter(Meeting.presentation_id == presentation_id).first()
 
         if grant and grant.status == "approved":
             active = {
@@ -358,7 +393,45 @@ async def meeting_admission_request(sid, data):
             await sm._emit_lobby_state(presentation_id)
             return
 
-        if not sm.controller_sids.get(presentation_id):
+        # Public standalone meetings do not use the waiting room.
+        if managed_meeting and managed_meeting.access_type == "public":
+            grant = _upsert_grant(
+                db,
+                presentation_id,
+                live.meeting_instance_id,
+                guest_id,
+                name,
+                status="approved",
+                role="audience",
+            )
+
+            sm.waiting_participants.get(
+                presentation_id, {}
+            ).pop(guest_id, None)
+
+            sm.active_participants.setdefault(
+                presentation_id, {}
+            )[guest_id] = {
+                "clientId": guest_id,
+                "sid": sid,
+                "name": name,
+            }
+
+            grant_id = grant.id
+            db.commit()
+
+            await _emit_decision(
+                sid,
+                presentation_id,
+                guest_id,
+                True,
+                grant_id,
+            )
+
+            await sm._emit_lobby_state(presentation_id)
+            return
+
+        if not sm.controller_sids.get(presentation_id) and not managed_meeting:
             grant = _upsert_grant(
                 db,
                 presentation_id,
@@ -419,6 +492,19 @@ async def meeting_admission_decide(sid, data):
             )
             _revoke_cohost_share(db, grant)
             if accepted:
+                from .models import BreakoutRoom
+                child = db.query(BreakoutRoom).filter_by(presentation_id=presentation_id).first()
+                if child:
+                    original = _grant(db, child.parent_id, child.instance_id, guest_id)
+                    if not original:
+                        grant.status = "revoked"
+                        continue
+                    original.status = "approved"
+                    original.role = "audience"
+                    from .models import BreakoutAssignment
+                    assignment = db.get(BreakoutAssignment, (child.parent_id, child.instance_id, guest_id))
+                    if assignment:
+                        assignment.room_id = child.id
                 active[guest_id] = item
 
             # Save only the scalar id before commit/session close. Passing the
@@ -440,14 +526,58 @@ async def meeting_participant_joined(sid, data):
     if not presentation_id or not guest_id or not identity:
         return
     with SessionLocal() as db:
+        from .breakout import enforce_assignment, authorize
+        from fastapi import HTTPException
+        presentation = db.get(Presentation, presentation_id)
+        if presentation and presentation.status == "breakout":
+            try:
+                _, _, _, controller, verified_guest = authorize(db, data)
+                if verified_guest and verified_guest.guest_id != guest_id:
+                    return
+                if controller and not verified_guest:
+                    share = db.query(ShareLink).filter_by(token=data.get("shareToken") or "").first()
+                    cohost = db.query(MeetingParticipantGrant).filter_by(cohost_share_id=share.id).first() if share else None
+                    if not cohost or cohost.guest_id != guest_id:
+                        return
+                enforce_assignment(db, presentation_id, guest_id)
+            except HTTPException:
+                return
         live = _current_live(db, presentation_id)
         grant = (
             _grant(db, presentation_id, live.meeting_instance_id, guest_id)
             if live and live.is_live and live.meeting_instance_id
             else None
         )
-        if not grant or grant.status != "approved" or grant.role not in {"audience", "cohost"}:
+        # Public standalone users can join directly without first entering
+        # the lobby. Create their approved grant when LiveKit reports them.
+        if not grant and live and live.is_live and live.meeting_instance_id:
+            managed_meeting = db.query(Meeting).filter(
+                Meeting.presentation_id == presentation_id
+            ).first()
+
+            if managed_meeting and managed_meeting.access_type == "public":
+                grant = _upsert_grant(
+                    db,
+                    presentation_id,
+                    live.meeting_instance_id,
+                    guest_id,
+                    name,
+                    status="approved",
+                    role="audience",
+                )
+
+        if (
+            not grant
+            or grant.status != "approved"
+            or grant.role not in {"audience", "cohost"}
+        ):
             return
+        from .models import BreakoutRoom
+        if db.query(BreakoutRoom).filter_by(parent_id=presentation_id, instance_id=live.meeting_instance_id).first():
+            try:
+                enforce_assignment(db, presentation_id, guest_id)
+            except HTTPException:
+                return
         item = sm.active_participants.setdefault(presentation_id, {}).setdefault(
             guest_id,
             {"clientId": guest_id, "sid": sid, "name": name},
@@ -457,6 +587,9 @@ async def meeting_participant_joined(sid, data):
         grant.display_name = name
         grant.updated_at = utc_now()
         db.commit()
+        if grant.role == "audience":
+            await sm.sio.emit("breakout_credential", {"presentationId": presentation_id,
+                "resumeToken": create_participant_resume_token(grant, minutes=720)}, room=sid)
     await sm._emit_lobby_state(presentation_id)
 
 
@@ -491,6 +624,18 @@ async def meeting_remove_participant(sid, data):
                 grant.status = "revoked"
                 grant.role = "audience"
                 grant.updated_at = utc_now()
+                from .models import BreakoutRoom
+                child = db.query(BreakoutRoom).filter_by(presentation_id=presentation_id).first()
+                if child:
+                    original = _grant(db, child.parent_id, child.instance_id, guest_id)
+                    if original:
+                        _revoke_cohost_share(db, original)
+                        original.status = "revoked"
+                        original.role = "audience"
+                    from .models import BreakoutAssignment
+                    assignment = db.get(BreakoutAssignment, (child.parent_id, child.instance_id, guest_id))
+                    if assignment:
+                        assignment.room_id = "main"
                 db.commit()
 
     await _revoke_cohost_controller(presentation_id, guest_id, "removed")
@@ -523,6 +668,7 @@ async def meeting_role_update(sid, data):
     if not active_item:
         return
 
+    resume_token = ""
     with SessionLocal() as db:
         live = _ensure_meeting_instance(db, presentation_id)
         grant = _upsert_grant(
@@ -534,6 +680,14 @@ async def meeting_role_update(sid, data):
             status="approved",
         )
         grant.role = next_role
+        from .models import BreakoutRoom
+        child = db.query(BreakoutRoom).filter_by(presentation_id=presentation_id).first()
+        if child:
+            original = _grant(db, child.parent_id, child.instance_id, guest_id)
+            if original and original.status == "approved":
+                original.role = next_role
+                if next_role == "audience":
+                    _revoke_cohost_share(db, original)
         grant.updated_at = utc_now()
         if next_role == "cohost":
             share = _ensure_cohost_share(db, grant)
@@ -542,15 +696,18 @@ async def meeting_role_update(sid, data):
             _revoke_cohost_share(db, grant)
             controller_url = None
         db.commit()
+        if next_role == "audience":
+            resume_token = create_participant_resume_token(grant)
 
     if next_role == "audience":
-        await _revoke_cohost_controller(presentation_id, guest_id, "demoted")
+        await _revoke_cohost_controller(presentation_id, guest_id, "demoted", resume_token)
 
     payload = {
         "presentationId": presentation_id,
         "clientId": guest_id,
         "role": next_role,
         "controllerUrl": controller_url,
+        **({"resumeToken": resume_token} if resume_token else {}),
     }
     await sm.sio.emit("meeting_role_changed", payload, room=active_item["sid"])
     await sm._emit_lobby_state(presentation_id)
@@ -559,6 +716,11 @@ async def meeting_role_update(sid, data):
 @sm.sio.event
 async def end_session(sid, data):
     presentation_id = data.get("presentationId")
+    with SessionLocal() as db:
+        presentation = db.get(Presentation, presentation_id)
+        if presentation and presentation.status == "breakout":
+            await sm.sio.emit("presenter_rejected", {"message": "Close breakout rooms from the Rooms panel"}, room=sid)
+            return
     allowed = bool(presentation_id and sm._presenter_allowed(data))
     meeting_instance_id = ""
     if allowed:
@@ -572,11 +734,43 @@ async def end_session(sid, data):
 
     if allowed:
         with SessionLocal() as db:
+            from .models import BreakoutRoom
+            children = db.query(BreakoutRoom).filter_by(parent_id=presentation_id, instance_id=meeting_instance_id).all()
+            child_ids = [child.presentation_id for child in children]
+            for child in children:
+                child.closed = True
+                child_live = _current_live(db, child.presentation_id)
+                if child_live:
+                    child_live.is_live = False
+                    _revoke_instance(db, child.presentation_id, child_live.meeting_instance_id)
             if meeting_instance_id:
                 _revoke_instance(db, presentation_id, meeting_instance_id)
-                db.commit()
+            managed_meeting = db.query(Meeting).filter(Meeting.presentation_id == presentation_id).first()
+            if managed_meeting:
+                managed_meeting.status = "closed"
+                managed_meeting.updated_at = utc_now()
+            db.commit()
+        for child_id in child_ids:
+            await sm.sio.emit("session_ended", {"presentationId": child_id}, room=child_id)
         for guest_id in list(cohost_controller_sids.get(presentation_id, {})):
             await _revoke_cohost_controller(presentation_id, guest_id, "session-ended")
+
+
+@sm.sio.event
+async def meeting_close(sid, data):
+    """Close a meeting for everyone. This action belongs to the presentation owner only."""
+    presentation_id = data.get("presentationId")
+    auth_token = data.get("authToken") or ""
+    allowed = False
+    if presentation_id and auth_token and not data.get("cohostGuestId"):
+        with SessionLocal() as db:
+            presentation = db.get(Presentation, presentation_id)
+            user = user_from_token(db, auth_token)
+            allowed = bool(presentation and user and presentation.owner_id == user.id)
+    if not allowed:
+        await sm.sio.emit("presenter_rejected", {"message": "Only the presentation owner can close the meeting"}, room=sid)
+        return
+    await end_session(sid, data)
 
 
 # Make direct imports/tests see the upgraded handlers too.
@@ -589,6 +783,7 @@ sm.meeting_participant_left = meeting_participant_left
 sm.meeting_remove_participant = meeting_remove_participant
 sm.meeting_role_update = meeting_role_update
 sm.end_session = end_session
+sm.meeting_close = meeting_close
 
 
 def install_router_guards(presentations_module) -> None:
@@ -608,6 +803,9 @@ def install_router_guards(presentations_module) -> None:
         ).first()
         if not grant:
             return share
+        from .security import breakout_grant_active
+        if not breakout_grant_active(db, presentation_id, grant.guest_id, "cohost"):
+            return None
 
         live = _current_live(db, presentation_id)
         if (

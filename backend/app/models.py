@@ -19,6 +19,13 @@ class User(Base):
     presentations: Mapped[list["Presentation"]] = relationship(back_populates="owner")
 
 
+class MathComputeUsage(Base):
+    __tablename__ = 'math_compute_usage'
+    owner_id: Mapped[str] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)
+    calls: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Presentation(Base):
     __tablename__ = "presentations"
 
@@ -31,6 +38,23 @@ class Presentation(Base):
 
     owner: Mapped[User] = relationship(back_populates="presentations")
     slides: Mapped[list["Slide"]] = relationship(back_populates="presentation", cascade="all, delete-orphan")
+
+
+class Meeting(Base):
+    __tablename__ = "meetings"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    presentation_id: Mapped[str] = mapped_column(ForeignKey("presentations.id", ondelete="CASCADE"), unique=True, index=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    audience_share_id: Mapped[str] = mapped_column(ForeignKey("share_links.id"), unique=True)
+    timing_mode: Mapped[str] = mapped_column(String(16), default="instant", server_default="instant")
+    duration_mode: Mapped[str] = mapped_column(String(16), default="unlimited", server_default="unlimited")
+    access_type: Mapped[str] = mapped_column(String(16), default="public", server_default="public")
+    scheduled_start: Mapped[str] = mapped_column(DateTime(timezone=True))
+    scheduled_end: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="ready", server_default="ready")
+    created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class Slide(Base):
@@ -96,12 +120,34 @@ class LiveSession(Base):
     audio_volume: Mapped[float] = mapped_column(Float, default=1.0, server_default="1")
     media_updated_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
     featured_share_identity: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    featured_camera_identity: Mapped[str | None] = mapped_column(String(128), nullable=True)
     meeting_muted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     muted_participant_identities: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
+    whiteboard_document: Mapped[str | None] = mapped_column(Text, nullable=True)
     presenter_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     audience_count: Mapped[int] = mapped_column(Integer, default=0)
     is_live: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class BreakoutRoom(Base):
+    __tablename__ = "breakout_rooms"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    parent_id: Mapped[str] = mapped_column(ForeignKey("presentations.id", ondelete="CASCADE"), index=True)
+    instance_id: Mapped[str] = mapped_column(String(64), index=True)
+    presentation_id: Mapped[str] = mapped_column(ForeignKey("presentations.id", ondelete="CASCADE"), unique=True)
+    name: Mapped[str] = mapped_column(String(80))
+    closed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    allow_return: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    closing_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class BreakoutAssignment(Base):
+    __tablename__ = "breakout_assignments"
+    parent_id: Mapped[str] = mapped_column(ForeignKey("presentations.id", ondelete="CASCADE"), primary_key=True)
+    instance_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    guest_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    room_id: Mapped[str] = mapped_column(String(64))
 
 
 class MeetingParticipantGrant(Base):

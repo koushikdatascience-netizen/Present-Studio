@@ -11,6 +11,9 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 class Settings(BaseModel):
     app_name: str = "Present Studio Cloud"
+    compute_service_url: str = os.getenv('COMPUTE_SERVICE_URL', '')
+    compute_service_key: str = os.getenv('COMPUTE_SERVICE_KEY', '')
+    compute_daily_quota: int = int(os.getenv('COMPUTE_DAILY_QUOTA', '30'))
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./present_studio.db")
     frontend_dir: Path = PROJECT_ROOT / "frontend"
     cors_origins: list[str] = ["http://127.0.0.1:8000", "http://localhost:8000"]
@@ -18,6 +21,7 @@ class Settings(BaseModel):
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = int(os.getenv("ACCESS_TOKEN_MINUTES", "1440"))
     public_base_url: str = os.getenv("PUBLIC_BASE_URL", "https://studio.snapkey.in")
+    storage_provider: str = os.getenv("STORAGE_PROVIDER", "s3" if os.getenv("S3_BUCKET_NAME") else "cloudinary")
     cloudinary_cloud_name: str = os.getenv("CLOUDINARY_CLOUD_NAME", "ylhzrgso")
     cloudinary_api_key: str | None = os.getenv("CLOUDINARY_API_KEY")
     cloudinary_api_secret: str | None = os.getenv("CLOUDINARY_API_SECRET")

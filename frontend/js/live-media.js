@@ -20,15 +20,23 @@
     const muteAllButton = root.querySelector("[data-live-mute-all]");
     const enableAudioButton = root.querySelector("[data-live-enable-audio]");
     const leaveButton = root.querySelector("[data-live-leave]");
+    const closeMeetingButton = root.querySelector("[data-live-close]");
     const panelToggle = root.querySelector("[data-live-panel-toggle]");
     const panelRestore = root.querySelector("[data-live-panel-restore]");
     const moreToggle = root.querySelector("[data-live-more-toggle]");
     const moreMenu = root.querySelector("[data-live-more-menu]");
+    const audienceToolsPopover = root.querySelector("[data-live-audience-tools-popover]");
+    const audienceToolsClose = root.querySelector("[data-live-audience-tools-close]");
+    const audienceToolsTrigger = root.querySelector("[data-live-more-action='audiences']");
     const restoreCount = root.querySelector("[data-live-restore-count]");
     const sheetHandle = root.querySelector("[data-live-sheet-handle]");
     const meetingSidebar = root.querySelector(".live-meeting-sidebar");
+    const panelMaximizeButton = root.querySelector("[data-live-panel-maximize]");
+    const panelMaximizeIcon = panelMaximizeButton?.querySelector("[data-live-panel-maximize-icon]");
+    const panelRestoreIcon = panelMaximizeButton?.querySelector("[data-live-panel-restore-icon]");
     const audienceControls = !options.controller && meetingSidebar?.querySelector(".audience-meeting-controls");
     let audienceFeedback = null;
+    let audienceFeedbackTimer = 0;
     if (audienceControls) {
       // Keep personal media controls available while the mobile people sheet is closed.
       audienceFeedback = document.createElement("p");
@@ -37,10 +45,87 @@
       meetingSidebar.after(audienceFeedback, audienceControls);
     }
     const fullscreenButton = root.querySelector("[data-live-fullscreen]");
+    const fullscreenExitButton = root.querySelector("[data-live-fullscreen-exit]");
     const fullscreenTarget = options.fullscreenTarget || null;
     const status = root.querySelector("[data-live-status]");
+    const canExtendMeeting = Boolean(options.controller && options.canExtendMeeting && options.meetingId && api?.extendMeeting);
+    let meetingEndAt = Date.parse(options.meetingEndAt || "") || 0;
+    let meetingCountdownTimer = 0;
+    let meetingTimeAlert = null;
+    let meetingTimeLabel = null;
+    let meetingExtendButton = null;
+    let meetingExtendDuration = null;
+    let renderMeetingCountdown = () => {};
+    if (meetingEndAt) {
+      meetingTimeAlert = document.createElement("aside");
+      meetingTimeAlert.className = "meeting-time-alert";
+      meetingTimeAlert.setAttribute("role", "status");
+      meetingTimeAlert.setAttribute("aria-live", "polite");
+      const copy = document.createElement("div");
+      copy.className = "meeting-time-alert-copy";
+      const heading = document.createElement("strong");
+      heading.textContent = "Meeting ends in";
+      meetingTimeLabel = document.createElement("span");
+      meetingTimeLabel.className = "meeting-time-countdown";
+      copy.append(heading, meetingTimeLabel);
+      meetingTimeAlert.append(copy);
+      if (canExtendMeeting) {
+        meetingExtendDuration = document.createElement("select");
+        meetingExtendDuration.className = "meeting-time-extension-select";
+        meetingExtendDuration.setAttribute("aria-label", "Add time to this meeting");
+        for (const minutes of [5, 10, 15, 30, 60]) {
+          const option = document.createElement("option");
+          option.value = String(minutes);
+          option.textContent = `+${minutes} min`;
+          if (minutes === 15) option.selected = true;
+          meetingExtendDuration.append(option);
+        }
+        meetingExtendButton = document.createElement("button");
+        meetingExtendButton.className = "meeting-time-extension-button";
+        meetingExtendButton.type = "button";
+        meetingExtendButton.textContent = "Add time";
+        meetingTimeAlert.append(meetingExtendDuration, meetingExtendButton);
+      }
+      root.append(meetingTimeAlert);
+      renderMeetingCountdown = () => {
+        if (!meetingTimeAlert || !meetingEndAt) return;
+        const remaining = meetingEndAt - Date.now();
+        const seconds = Math.max(0, Math.ceil(remaining / 1000));
+        const display = seconds >= 3600
+          ? `${Math.floor(seconds / 3600)}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`
+          : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+        meetingTimeLabel.textContent = remaining <= 0 ? "00:00" : display;
+        meetingTimeAlert.hidden = remaining > 5 * 60 * 1000;
+        meetingTimeAlert.classList.toggle("is-urgent", remaining <= 60 * 1000);
+        if (meetingExtendButton) meetingExtendButton.disabled = remaining <= 0;
+      };
+      meetingExtendButton?.addEventListener("click", async () => {
+        if (meetingExtendButton.disabled) return;
+        meetingExtendButton.disabled = true;
+        meetingExtendButton.textContent = "Updating…";
+        try {
+          const result = await api.extendMeeting(options.meetingId, Number(meetingExtendDuration.value));
+          meetingEndAt = Date.parse(result.scheduledEnd) || meetingEndAt;
+          renderMeetingCountdown();
+          setStatus(`Meeting extended. New end time ${new Date(meetingEndAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`, "success");
+        } catch (error) {
+          setStatus(error.message || "Could not extend this meeting.", "error");
+        } finally {
+          meetingExtendButton.textContent = "Add time";
+          meetingExtendButton.disabled = meetingEndAt <= Date.now();
+        }
+      });
+      renderMeetingCountdown();
+      meetingCountdownTimer = window.setInterval(renderMeetingCountdown, 1000);
+    }
     const count = root.querySelector("[data-live-count]");
     const tiles = root.querySelector("[data-live-tiles]");
+    const peopleSearch = root.querySelector("[data-live-people-search]");
+    const peopleFilterButtons = [...root.querySelectorAll("[data-live-people-filter]")];
+    const audioMount = document.createElement("div");
+    audioMount.className = "live-audio-mount";
+    audioMount.setAttribute("aria-hidden", "true");
+    root.append(audioMount);
     const screenShareViewer = root.querySelector("[data-live-screen-share-viewer]");
     const screenShareMedia = root.querySelector("[data-live-screen-share-media]");
     const screenShareLabel = root.querySelector("[data-live-screen-share-label]");
@@ -56,6 +141,16 @@
     const presentationEmpty = root.querySelector("[data-live-presentation-empty]");
     const handButton = root.querySelector("[data-live-hand]");
     const reactionButtons = [...root.querySelectorAll("[data-live-reaction]")];
+    const breakoutRooms = window.SnapKeyBreakoutRooms?.mount(options, {
+      open: () => { setSidebarTab("rooms"); setAudienceSidebarHidden(false); },
+      leave: () => leave({requeue: true, releaseTab: true}),
+      status: message => setStatus(message),
+      remember: () => {
+        try {
+          if (!sessionStorage.getItem("presentStudio.breakoutTransfer")) sessionStorage.setItem("presentStudio.breakoutTransfer", JSON.stringify({name: currentName(), microphone: desiredMicrophoneEnabled, camera: cameraEnabled}));
+        } catch {}
+      }
+    });
     const sidebarTabs = [...root.querySelectorAll("[data-live-tab]")];
     const sidebarPanels = [...root.querySelectorAll("[data-live-panel]")];
     if (options.controller && meetingSidebar) {
@@ -76,6 +171,11 @@
     const chatSubmit = chatForm?.querySelector("button[type='submit']");
     const chatAttachButton = root.querySelector("[data-live-chat-attach]");
     const chatFileInput = root.querySelector("[data-live-chat-file]");
+    const chatPending = root.querySelector("[data-live-chat-pending]");
+    const chatPendingImage = root.querySelector("[data-live-chat-pending-image]");
+    const chatPendingName = root.querySelector("[data-live-chat-pending-name]");
+    const chatPendingSize = root.querySelector("[data-live-chat-pending-size]");
+    const chatPendingRemove = root.querySelector("[data-live-chat-pending-remove]");
     const lobby = root.querySelector("[data-live-lobby]");
     const waitingList = root.querySelector("[data-live-waiting-list]");
     const waitingCount = root.querySelector("[data-live-waiting-count]");
@@ -106,10 +206,16 @@
     let handRaised = false;
     let activeSidebarTab = "people";
     let unreadMessages = 0;
+    let pendingChatFile = null;
+    let pendingChatPreviewUrl = "";
+    let chatUploading = false;
     let raisedHands = new Map();
     let soundContext = null;
     const reactionAudio = new Map();
     let reactionAudioWarmed = false;
+    let admissionAlarmActive = false;
+    let admissionAlarmTimer = 0;
+    let admissionAlarmPulseInFlight = false;
     let joinSoundEnabled = localStorage.getItem("presentStudio.joinSoundEnabled") !== "false";
     let joinSoundButton = null;
     let tabSpeakerMuted = localStorage.getItem("presentStudio.tabSpeakerMuted") === "true";
@@ -120,6 +226,14 @@
     let screenShareApproved = false;
     let pendingScreenShareTracks = [];
     let participantRegistry = new Map();
+    let participantSearchQuery = "";
+    let participantFilter = "all";
+    let activeSpeakerIdentities = new Set();
+    let recentSpeakerIdentities = new Set();
+    let peoplePanelMaximized = false;
+    const speakerReleaseTimers = new Map();
+    const participantGroups = new Map();
+    let peopleEmpty = null;
     let backgroundProcessor = null;
     let backgroundProcessorTrack = null;
     let backgroundProcessorModule = null;
@@ -172,13 +286,25 @@
     };
 
     nameInput.value = options.displayName || "";
+    function updateAudienceFeedback(message, kind = "") {
+      if (!audienceFeedback) return;
+      window.clearTimeout(audienceFeedbackTimer);
+      audienceFeedbackTimer = 0;
+      audienceFeedback.textContent = message;
+      audienceFeedback.dataset.kind = kind;
+      if (kind !== "success") return;
+      audienceFeedbackTimer = window.setTimeout(() => {
+        if (audienceFeedback.textContent !== message || audienceFeedback.dataset.kind !== kind) return;
+        audienceFeedback.textContent = "";
+        audienceFeedback.dataset.kind = "";
+        audienceFeedbackTimer = 0;
+      }, 4000);
+    }
+
     const setStatus = (message, kind = "") => {
       status.textContent = message;
       status.dataset.kind = kind;
-      if (audienceFeedback) {
-        audienceFeedback.textContent = message;
-        audienceFeedback.dataset.kind = kind;
-      }
+      updateAudienceFeedback(message, kind);
     };
 
     function readMeetingLease() {
@@ -352,11 +478,74 @@
       participantRegistry = nextRegistry;
     }
 
+    function stopAdmissionAlarm() {
+      admissionAlarmActive = false;
+      if (!admissionAlarmTimer) return;
+      window.clearInterval(admissionAlarmTimer);
+      admissionAlarmTimer = 0;
+    }
+
+    async function playAdmissionAlarmPulse() {
+      if (!admissionAlarmActive || !isController || admissionAlarmPulseInFlight) return;
+      admissionAlarmPulseInFlight = true;
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        soundContext ||= new AudioContextClass();
+        await soundContext.resume?.();
+        if (!admissionAlarmActive) return;
+        const now = soundContext.currentTime;
+        [880, 1175, 880].forEach((frequency, index) => {
+          const oscillator = soundContext.createOscillator();
+          const gain = soundContext.createGain();
+          const start = now + index * .18;
+          oscillator.type = "sine";
+          oscillator.frequency.setValueAtTime(frequency, start);
+          gain.gain.setValueAtTime(.0001, start);
+          gain.gain.exponentialRampToValueAtTime(.16, start + .02);
+          gain.gain.exponentialRampToValueAtTime(.0001, start + .15);
+          oscillator.connect(gain);
+          gain.connect(soundContext.destination);
+          oscillator.start(start);
+          oscillator.stop(start + .16);
+        });
+      } catch {
+      } finally {
+        admissionAlarmPulseInFlight = false;
+      }
+    }
+
+    function syncAdmissionAlarm(pendingCount) {
+      const shouldRing = isController && Number(pendingCount) > 0;
+      if (!shouldRing) {
+        stopAdmissionAlarm();
+        return;
+      }
+      admissionAlarmActive = true;
+      if (admissionAlarmTimer) return;
+      playAdmissionAlarmPulse();
+      admissionAlarmTimer = window.setInterval(playAdmissionAlarmPulse, 1400);
+    }
+
+    function unlockAdmissionAlarm() {
+      if (!isController) return;
+      document.removeEventListener("pointerdown", unlockAdmissionAlarm, true);
+      document.removeEventListener("keydown", unlockAdmissionAlarm, true);
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        soundContext ||= new AudioContextClass();
+        soundContext.resume?.();
+        if (admissionAlarmActive) playAdmissionAlarmPulse();
+      } catch {}
+    }
+
     function renderLobby(message) {
       if (!isController || !lobby || message?.presentationId !== options.presentationId) return;
       const pending = Array.isArray(message.pending) ? message.pending : [];
       const active = Array.isArray(message.active) ? message.active : [];
       const shareRequests = Array.isArray(message.screenShareRequests) ? message.screenShareRequests : [];
+      syncAdmissionAlarm(pending.length);
       updateParticipantRegistry(active);
       const peopleTab = sidebarTabs.find(button => button.dataset.liveTab === "people");
       peopleTab?.classList.toggle("has-pending", pending.length > 0 || shareRequests.length > 0);
@@ -405,7 +594,7 @@
     }
 
     function setSidebarTab(tab) {
-      activeSidebarTab = tab === "chat" ? "chat" : "people";
+      activeSidebarTab = ["chat", "rooms"].includes(tab) ? tab : "people";
       sidebarTabs.forEach(button => {
         const active = button.dataset.liveTab === activeSidebarTab;
         button.classList.toggle("is-active", active);
@@ -693,6 +882,41 @@
       ensureTabSpeakerControl();
     }
 
+    function arrangeMobileControllerActions() {
+      if (!isController || !moreMenu || !window.matchMedia) return;
+      const dock = root.querySelector(".live-media-actions");
+      const actions = document.createElement("div");
+      actions.className = "live-mobile-menu-actions";
+      actions.setAttribute("role", "group");
+      actions.setAttribute("aria-label", "Host actions");
+      moreMenu.append(actions);
+      const controls = [...dock.querySelectorAll("#controllerRecordButton, [data-live-mute-all], [data-live-close], [data-live-enable-audio], .is-join-sound")].map(button => {
+        const anchor = document.createComment("desktop host action");
+        button.before(anchor);
+        return { button, anchor, role: button.getAttribute("role") };
+      });
+      const mobile = window.matchMedia("(max-width: 640px), (max-width: 960px) and (max-height: 500px)");
+      const arrange = () => {
+        setMoreMenuOpen(false);
+        controls.forEach(({ button, anchor, role }) => {
+          button.classList.toggle("is-mobile-menu-control", mobile.matches);
+          if (mobile.matches) {
+            button.setAttribute("role", "menuitem");
+            actions.append(button);
+          } else {
+            if (role) button.setAttribute("role", role); else button.removeAttribute("role");
+            anchor.after(button);
+          }
+        });
+        actions.hidden = !mobile.matches;
+      };
+      mobile.addEventListener("change", arrange);
+      actions.addEventListener("click", event => {
+        if (event.target.closest("button:not(:disabled)")) setMoreMenuOpen(false);
+      });
+      arrange();
+    }
+
     function playParticipantJoinSound(participant) {
       if (!joinNotificationArmed || !joinSoundEnabled) return;
       if (participant?.identity === currentIdentity()) return;
@@ -773,6 +997,10 @@
     }
 
     function applyRemoteAudioState() {
+      presentationSourceMedia()?.querySelectorAll("iframe[data-youtube-id]").forEach(frame => {
+        frame._tabSpeakerMuted = tabSpeakerMuted;
+        window.SnapKeyYouTube.sync(frame);
+      });
       root.querySelectorAll("audio[data-live-audio-participant]").forEach(audio => {
         audio.muted = tabSpeakerMuted || participantAudioMuted(audio.dataset.liveAudioParticipant);
       });
@@ -792,21 +1020,28 @@
       syncTabSpeakerButton();
     }
 
-    function publishControllerState() {
+    function publishControllerState(overrides = {}) {
       if (!isController || !options.socket) return;
-      options.socket.emit("meeting_control", {
+      const payload = {
         presentationId: options.presentationId,
         authToken: options.authToken || "",
         shareToken: options.shareToken || "",
-        featuredShareIdentity: controllerShareIdentity,
+        featuredCameraIdentity: selectedCameraIdentity,
         meetingMuted,
         mutedParticipants: [...mutedParticipants]
-      });
+      };
+      if (Object.prototype.hasOwnProperty.call(overrides, "featuredShareIdentity")) {
+        payload.featuredShareIdentity = overrides.featuredShareIdentity;
+      }
+      options.socket.emit("meeting_control", payload);
     }
 
     function applyControllerState(message) {
       if (!message || (message.presentationId && message.presentationId !== options.presentationId)) return;
       controllerShareIdentity = String(message.featuredShareIdentity || "");
+      if (Object.prototype.hasOwnProperty.call(message, "featuredCameraIdentity")) {
+        selectedCameraIdentity = String(message.featuredCameraIdentity || "");
+      }
       mutedParticipants = new Set(Array.isArray(message.mutedParticipants) ? message.mutedParticipants.map(String) : []);
       meetingMuted = Boolean(message.meetingMuted);
       if (room && nonPresenterRemoteIdentities().length) recomputeMeetingMuted();
@@ -819,8 +1054,10 @@
       return String(value || "Current presentation output");
     }
 
+    function presentationSourceMedia() { return typeof presentationSource.media === 'function' ? presentationSource.media() : presentationSource.media; }
     function presentationVisualNodes() {
-      return presentationSource.media ? [...presentationSource.media.children].filter(node => ["IMG", "VIDEO", "IFRAME"].includes(node.tagName) || node.matches?.("[data-slide-screen-share]")) : [];
+      const media = presentationSourceMedia();
+      return media ? [...media.children].filter(node => ["IMG", "VIDEO", "IFRAME"].includes(node.tagName) || node.matches?.("[data-slide-screen-share]")) : [];
     }
 
     function setScreenShareSlotEmpty(slot) {
@@ -872,7 +1109,15 @@
       const clones = [...presentationMedia.children];
       sourceNodes.forEach((source, index) => {
         const clone = clones[index];
-        if (!clone || source.tagName !== "VIDEO") return;
+        if (!clone) return;
+        if (source.tagName === "IFRAME" && source.dataset.youtubeId) {
+          const player = source._youtubePlayer;
+          const playing = typeof player?.getPlayerState === "function" ? player.getPlayerState() === 1 : source._youtubeState?.playing;
+          const position = typeof player?.getCurrentTime === "function" ? player.getCurrentTime() : source._youtubeState?.position;
+          window.SnapKeyYouTube.sync(clone, { muted: true, volume: 0, playing, position });
+          return;
+        }
+        if (source.tagName !== "VIDEO") return;
         const sourceTime = Number(source.currentTime);
         if (Number.isFinite(sourceTime) && Math.abs(Number(clone.currentTime) - sourceTime) > .65) {
           try { clone.currentTime = sourceTime; } catch {}
@@ -884,13 +1129,17 @@
 
     function syncPresentationViewer() {
       if (!presentationViewer || !presentationCanvas) return;
-      const sourceCanvas = presentationSource.canvas;
+      const sourceCanvas = typeof presentationSource.canvas === 'function' ? presentationSource.canvas() : presentationSource.canvas;
       const sourceNodes = presentationVisualNodes();
+      sourceNodes.filter(node => node.tagName === "IFRAME" && node.dataset.youtubeId).forEach(frame => {
+        frame._tabSpeakerMuted = tabSpeakerMuted;
+        window.SnapKeyYouTube.sync(frame);
+      });
       const canvasVisible = Boolean(sourceCanvas && !sourceCanvas.hidden);
       const context = presentationCanvas.getContext("2d");
       context.clearRect(0, 0, presentationCanvas.width, presentationCanvas.height);
       if (canvasVisible) {
-        try { context.drawImage(sourceCanvas, 0, 0, presentationCanvas.width, presentationCanvas.height); } catch {}
+        try { context.drawImage(sourceCanvas, 0, 0, presentationCanvas.width, presentationCanvas.height); window.SnapKeyWhiteboard3D?.composite(sourceCanvas, context, presentationCanvas.width, presentationCanvas.height); } catch {}
       }
       syncPresentationMedia(sourceNodes);
       const hasVisual = canvasVisible || sourceNodes.length > 0;
@@ -1064,6 +1313,10 @@
         detachNodeTracks(featuredCameraMedia);
         featuredCameraMedia.replaceChildren();
         featuredCameraViewer.hidden = true;
+        if (isController && selectedCameraIdentity) {
+          selectedCameraIdentity = "";
+          publishControllerState();
+        }
         return;
       }
       const current = featuredCameraMedia.querySelector("video");
@@ -1080,6 +1333,88 @@
       if (featuredCameraLabel) featuredCameraLabel.textContent = (participant.name || "Guest") + " camera";
       featuredCameraViewer.hidden = false;
     }
+
+    function createParticipantActionToggle(tile, participant) {
+      const actionToggle = document.createElement("button");
+      actionToggle.type = "button";
+      actionToggle.className = "live-participant-action-toggle";
+      actionToggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg>';
+      actionToggle.setAttribute("aria-label", `Show actions for ${participant.name || "participant"}`);
+      actionToggle.setAttribute("aria-expanded", "false");
+      actionToggle.addEventListener("click", event => {
+        event.stopPropagation();
+        const open = !tile.classList.contains("is-actions-open");
+        tile.classList.toggle("is-actions-open", open);
+        actionToggle.setAttribute("aria-expanded", String(open));
+      });
+      return actionToggle;
+    }
+
+    function createFeatureCameraButton(participant) {
+      const feature = document.createElement("button");
+      feature.type = "button";
+      feature.className = "live-participant-feature";
+      feature.dataset.liveFeatureCamera = String(participant.identity);
+      feature.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10v10H4zM14 10l6-3v10l-6-3z"></path></svg>';
+      const featuring = selectedCameraIdentity === String(participant.identity);
+      feature.setAttribute("aria-pressed", String(featuring));
+      feature.setAttribute("aria-label", featuring ? "Stop featuring " + (participant.name || "participant") + " camera" : "Feature " + (participant.name || "participant") + " camera");
+      feature.title = feature.getAttribute("aria-label");
+      feature.addEventListener("click", event => {
+        event.stopPropagation();
+        const identity = String(participant.identity);
+        selectedCameraIdentity = selectedCameraIdentity === identity ? "" : identity;
+        publishControllerState();
+        renderFeaturedCamera();
+        renderParticipants();
+      });
+      return feature;
+    }
+
+    function participantMicAudible(participant) {
+      return publications(participant).some(publication =>
+        isSource(publication, "Microphone") && !publication.isMuted
+      ) && !mutedParticipants.has(String(participant.identity));
+    }
+
+    function syncParticipantMuteButton(button, participant, micAudible) {
+      if (!button) return;
+      const muted = !micAudible;
+      const presenterParticipant = isPresenterParticipant(participant);
+      button.disabled = presenterParticipant;
+      const mutedState = String(muted);
+      if (button.dataset.mutedState !== mutedState) {
+        button.dataset.mutedState = mutedState;
+        button.innerHTML = muted
+          ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 11.7 5.2M12 18v3M9 21h6M3 3l18 18"></path></svg>'
+          : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path></svg>';
+      }
+      const muteLabel = presenterParticipant
+        ? "Presenters cannot be muted"
+        : muted ? `Ask ${participant.name || "participant"} to unmute their microphone` : `Mute ${participant.name || "participant"}`;
+      button.setAttribute("aria-label", muteLabel);
+      button.title = muteLabel;
+      button.setAttribute("aria-pressed", String(muted));
+    }
+
+    function syncParticipantTileStatus(tile, participant, facts) {
+      const state = tile.querySelector("[data-live-participant-state]");
+      if (state) state.textContent = `${facts.presenter ? "Presenter" : "Audience"} · ${facts.micOn ? "Mic on" : "Muted"}`;
+      const caption = tile.querySelector("footer");
+      let hand = tile.querySelector("[data-live-raised-hand]");
+      if (facts.raised && !hand && caption) {
+        hand = document.createElement("span");
+        hand.className = "live-raised-hand";
+        hand.dataset.liveRaisedHand = "";
+        hand.textContent = "✋ Hand raised";
+        caption.append(hand);
+      } else if (!facts.raised && hand) {
+        hand.remove();
+      }
+      tile.classList.toggle("has-raised-hand", facts.raised);
+      syncParticipantMuteButton(tile.querySelector(".live-participant-mute"), participant, facts.micOn);
+    }
+
     function addParticipantTile(participant, isLocal = false) {
       const tile = document.createElement("article");
       tile.className = "live-media-tile";
@@ -1098,31 +1433,19 @@
         avatar.textContent = (participant.name || "Guest").trim().slice(0, 1).toUpperCase() || "G";
         media.append(avatar);
       }
-      if (!isLocal) publications(participant).filter(publication => (isSource(publication, "Microphone") || isSource(publication, "ScreenShareAudio")) && publication.track).forEach(publication => {
-        const audio = publication.track.attach();
-        Object.assign(audio, { autoplay: true, hidden: true, muted: participantAudioMuted(participant.identity) });
-        audio.dataset.liveAudioParticipant = participant.identity;
-        tile.append(audio);
-        rememberAttachedTrack(publication.track, audio);
-        audio.play?.().catch(error => {
-          if (error?.name !== "NotAllowedError") return;
-          audioPlaybackBlocked = true;
-          syncAudioRecovery();
-          setStatus("Browser blocked meeting audio. Select Enable Audio.", "error");
-        });
-      });
       const caption = document.createElement("footer");
       const label = document.createElement("strong");
       label.textContent = `${participant.name || "Guest"}${isLocal ? " (You)" : ""}`;
       const state = document.createElement("span");
-      const micOn = publications(participant).some(publication => isSource(publication, "Microphone") && !publication.isMuted);
-      const micAudible = micOn && !mutedParticipants.has(participant.identity);
+      state.dataset.liveParticipantState = "";
+      const micAudible = participantMicAudible(participant);
       state.textContent = `${participantRole(participant) === "presenter" ? "Presenter" : "Audience"} · ${micAudible ? "Mic on" : "Muted"}`;
       caption.append(label, state);
       const raised = raisedHands.get(participant.identity);
       if (raised) {
         const hand = document.createElement("span");
         hand.className = "live-raised-hand";
+        hand.dataset.liveRaisedHand = "";
         hand.textContent = "✋ Hand raised";
         caption.append(hand);
         tile.classList.add("has-raised-hand");
@@ -1130,37 +1453,17 @@
       if (isController && !isLocal) {
         const participantActions = document.createElement("div");
         participantActions.className = "live-participant-actions";
-        const actionToggle = document.createElement("button");
-        actionToggle.type = "button";
-        actionToggle.className = "live-participant-action-toggle";
-        actionToggle.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="12" cy="19" r="1.8"></circle></svg>';
-        actionToggle.setAttribute("aria-label", `Show actions for ${participant.name || "participant"}`);
-        actionToggle.setAttribute("aria-expanded", "false");
-        actionToggle.addEventListener("click", event => {
-          event.stopPropagation();
-          const open = !tile.classList.contains("is-actions-open");
-          tile.classList.toggle("is-actions-open", open);
-          actionToggle.setAttribute("aria-expanded", String(open));
-        });
+        const actionToggle = createParticipantActionToggle(tile, participant);
         caption.append(actionToggle);
         const mute = document.createElement("button");
-        const muted = !micAudible;
         mute.type = "button";
         mute.className = "live-participant-mute";
-        mute.innerHTML = muted
-          ? '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 11.7 5.2M12 18v3M9 21h6M3 3l18 18"></path></svg>'
-          : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"></path></svg>';
         const presenterParticipant = isPresenterParticipant(participant);
-        mute.disabled = presenterParticipant;
-        const muteLabel = presenterParticipant
-          ? "Presenters cannot be muted"
-          : muted ? `Ask ${participant.name || "participant"} to unmute their microphone` : `Mute ${participant.name || "participant"}`;
-        mute.setAttribute("aria-label", muteLabel);
-        mute.title = muteLabel;
-        mute.setAttribute("aria-pressed", String(muted));
+        syncParticipantMuteButton(mute, participant, micAudible);
         mute.addEventListener("click", event => {
           event.stopPropagation();
           if (presenterParticipant) return;
+          const muted = !participantMicAudible(participant);
           if (muted) mutedParticipants.delete(participant.identity); else mutedParticipants.add(participant.identity);
           recomputeMeetingMuted();
           applyRemoteAudioState();
@@ -1174,21 +1477,7 @@
         });
         participantActions.append(mute);
         if (videoPublication?.track && !videoPublication.isMuted) {
-          const feature = document.createElement("button");
-          feature.type = "button";
-          feature.className = "live-participant-feature";
-          feature.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10v10H4zM14 10l6-3v10l-6-3z"></path></svg>';
-          const featuring = selectedCameraIdentity === String(participant.identity);
-          feature.setAttribute("aria-pressed", String(featuring));
-          feature.setAttribute("aria-label", featuring ? "Stop featuring " + (participant.name || "participant") + " camera" : "Feature " + (participant.name || "participant") + " camera");
-          feature.title = feature.getAttribute("aria-label");
-          feature.addEventListener("click", event => {
-            event.stopPropagation();
-            selectedCameraIdentity = featuring ? "" : String(participant.identity);
-            renderFeaturedCamera();
-            renderParticipants();
-          });
-          participantActions.append(feature);
+          participantActions.append(createFeatureCameraButton(participant));
         }
         const registryItem = participantRegistry.get(String(participant.identity));
         if (registryItem?.clientId) {
@@ -1236,8 +1525,85 @@
         }
         caption.append(participantActions);
       }
+      if (isController && isLocal && videoPublication?.track && !videoPublication.isMuted) {
+        const participantActions = document.createElement("div");
+        participantActions.className = "live-participant-actions";
+        participantActions.append(createFeatureCameraButton(participant));
+        caption.append(createParticipantActionToggle(tile, participant), participantActions);
+      }
       tile.append(media, caption);
       return tile;
+    }
+
+    function publicationTrackKey(publication) {
+      return String(publication?.trackSid || publication?.sid || publication?.track?.sid || publication?.track?.mediaStreamTrack?.id || "");
+    }
+
+    function syncParticipantAudio(participant, isLocal = false) {
+      const identity = String(participant.identity);
+      const existing = new Map([...audioMount.querySelectorAll("audio[data-live-audio-track]")]
+        .filter(audio => audio.dataset.liveAudioParticipant === identity)
+        .map(audio => [audio.dataset.liveAudioTrack, audio]));
+      if (isLocal) {
+        existing.forEach(audio => { try { audio._liveTrack?.detach?.(audio); } catch {} audio.remove(); });
+        return;
+      }
+      const desired = publications(participant).filter(publication =>
+        (isSource(publication, "Microphone") || isSource(publication, "ScreenShareAudio")) && publication.track
+      );
+      const activeKeys = new Set();
+      desired.forEach(publication => {
+        const key = publicationTrackKey(publication);
+        if (!key) return;
+        activeKeys.add(key);
+        let audio = existing.get(key);
+        if (audio && (audio._liveTrack !== publication.track || !audio.isConnected)) {
+          try { audio._liveTrack?.detach?.(audio); } catch {}
+          audio.remove();
+          audio = null;
+        }
+        if (!audio) {
+          audio = publication.track.attach();
+          Object.assign(audio, { autoplay: true, hidden: true });
+          audio.dataset.liveAudioTrack = key;
+          audio.dataset.liveAudioParticipant = identity;
+          audioMount.append(audio);
+          rememberAttachedTrack(publication.track, audio);
+          audio.play?.().catch(error => {
+            if (error?.name !== "NotAllowedError") return;
+            audioPlaybackBlocked = true;
+            syncAudioRecovery();
+            setStatus("Browser blocked meeting audio. Select Enable Audio.", "error");
+          });
+        }
+        audio.dataset.liveAudioParticipant = identity;
+        audio.muted = tabSpeakerMuted || participantAudioMuted(identity);
+        audio.play?.().catch(error => {
+          if (error?.name !== "NotAllowedError") return;
+          audioPlaybackBlocked = true;
+          syncAudioRecovery();
+        });
+      });
+      existing.forEach((audio, key) => {
+        if (activeKeys.has(key)) return;
+        try { audio._liveTrack?.detach?.(audio); } catch {}
+        audio.remove();
+      });
+    }
+
+    function syncFeaturedCameraControls() {
+      tiles.querySelectorAll("[data-live-feature-camera]").forEach(button => {
+        const identity = String(button.dataset.liveFeatureCamera || "");
+        const participant = identity && room
+          ? [room.localParticipant, ...room.remoteParticipants.values()].find(item => String(item.identity) === identity)
+          : null;
+        const featuring = identity === selectedCameraIdentity;
+        button.setAttribute("aria-pressed", String(featuring));
+        button.setAttribute("aria-label", featuring
+          ? `Stop featuring ${participant?.name || "participant"} camera`
+          : `Feature ${participant?.name || "participant"} camera`);
+        button.title = button.getAttribute("aria-label");
+      });
     }
 
     function renderScreenShares() {
@@ -1255,11 +1621,16 @@
       const activeShares = [];
       sharers.forEach(participant => publications(participant)
         .filter(publication => isSource(publication, "ScreenShare") && publication.track && !publication.isMuted)
-        .forEach(publication => activeShares.push({ participant, track: publication.track })));
+        .forEach(publication => {
+          // Request the highest available screen layer when the SDK supports it.
+          // This prevents a small tile's low layer sticking after it is focused.
+          publication.setVideoQuality?.(livekit.VideoQuality?.HIGH ?? 2);
+          activeShares.push({ participant, track: publication.track });
+        }));
       const availableIdentities = new Set(activeShares.map(item => item.participant.identity));
       if (isController && controllerShareIdentity && !availableIdentities.has(controllerShareIdentity)) {
         controllerShareIdentity = "";
-        publishControllerState();
+        publishControllerState({ featuredShareIdentity: "" });
       }
       const controllerOverrideActive = availableIdentities.has(controllerShareIdentity);
       const requestedIdentity = controllerShareIdentity || selectedShareIdentity;
@@ -1280,19 +1651,42 @@
       screenShareRenderSignature = renderSignature;
       detachNodeTracks(screenShareMedia);
       screenShareMedia.replaceChildren();
+      const isHiddenLocalShare = participant => participant === room.localParticipant;
+      const createLocalSharePlaceholder = () => {
+        const placeholder = document.createElement("div");
+        placeholder.className = "live-local-share-placeholder";
+        const icon = document.createElement("span");
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = "▣";
+        const title = document.createElement("strong");
+        title.textContent = "You are sharing this screen";
+        const help = document.createElement("small");
+        help.textContent = "Local preview is hidden to prevent a recursive screen-capture loop.";
+        placeholder.append(icon, title, help);
+        return placeholder;
+      };
       embeddedSlots.forEach(slot => {
         detachNodeTracks(slot);
         const featured = activeShares.find(item => item.participant.identity === featuredIdentity);
         if (!featured) { setScreenShareSlotEmpty(slot); return; }
         slot.replaceChildren();
         slot.classList.add("is-live");
-        const video = featured.track.attach();
-        Object.assign(video, { autoplay: true, playsInline: true, muted: featured.participant === room.localParticipant });
-        rememberAttachedTrack(featured.track, video);
+        let media;
+        if (isHiddenLocalShare(featured.participant)) {
+          media = createLocalSharePlaceholder();
+        } else {
+          media = featured.track.attach();
+          Object.assign(media, { autoplay: true, playsInline: true, muted: featured.participant === room.localParticipant });
+          media.style.imageRendering = "auto";
+          media.addEventListener("loadedmetadata", () => {
+            media.play?.().catch?.(() => {});
+          }, { once: true });
+          rememberAttachedTrack(featured.track, media);
+        }
         const label = document.createElement("span");
         label.className = "slide-screen-share-label";
         label.textContent = `${featured.participant.name || "Guest"}${featured.participant === room.localParticipant ? " (You)" : ""}`;
-        slot.append(video, label);
+        slot.append(media, label);
         if (isController && activeShares.length > 1) {
           const picker = document.createElement("div");
           picker.className = "slide-screen-share-picker";
@@ -1305,7 +1699,7 @@
               event.stopPropagation();
               selectedShareIdentity = participant.identity;
               controllerShareIdentity = participant.identity;
-              publishControllerState();
+              publishControllerState({ featuredShareIdentity: controllerShareIdentity });
               renderParticipants();
             });
             picker.append(select);
@@ -1321,9 +1715,15 @@
         const figure = document.createElement("figure");
         figure.dataset.participantIdentity = participant.identity;
         figure.classList.toggle("is-featured", participant.identity === featuredIdentity);
-        const video = track.attach();
-        Object.assign(video, { autoplay: true, playsInline: true, muted: participant === room.localParticipant });
-        rememberAttachedTrack(track, video);
+        let media;
+        if (isHiddenLocalShare(participant)) {
+          media = createLocalSharePlaceholder();
+        } else {
+          media = track.attach();
+          Object.assign(media, { autoplay: true, playsInline: true, muted: participant === room.localParticipant });
+          media.style.imageRendering = "auto";
+          rememberAttachedTrack(track, media);
+        }
         const caption = document.createElement("figcaption");
         caption.textContent = `${participant.name || "Guest"}${participant === room.localParticipant ? " (You)" : ""}`;
         const actions = document.createElement("div");
@@ -1341,19 +1741,21 @@
             selectedShareIdentity = participant.identity;
             if (isController) {
               controllerShareIdentity = participant.identity;
-              publishControllerState();
+              publishControllerState({ featuredShareIdentity: controllerShareIdentity });
             }
             renderParticipants();
           });
           actions.append(select);
         }
-        const fullscreen = document.createElement("button");
-        fullscreen.type = "button";
-        fullscreen.textContent = "⛶";
-        fullscreen.setAttribute("aria-label", `View ${participant.name || "Guest"}'s screen fullscreen`);
-        fullscreen.title = fullscreen.getAttribute("aria-label");
-        fullscreen.addEventListener("click", () => figure.requestFullscreen?.().catch(() => {}));
-        actions.append(fullscreen);
+        if (!isHiddenLocalShare(participant)) {
+          const fullscreen = document.createElement("button");
+          fullscreen.type = "button";
+          fullscreen.textContent = "⛶";
+          fullscreen.setAttribute("aria-label", `View ${participant.name || "Guest"}'s screen fullscreen`);
+          fullscreen.title = fullscreen.getAttribute("aria-label");
+          fullscreen.addEventListener("click", () => figure.requestFullscreen?.().catch(() => {}));
+          actions.append(fullscreen);
+        }
         if (isController && participant !== room.localParticipant) {
           const revoke = document.createElement("button");
           revoke.type = "button";
@@ -1366,7 +1768,7 @@
           }));
           actions.append(revoke);
         }
-        figure.append(video, caption, actions);
+        figure.append(media, caption, actions);
         if (participant.identity === featuredIdentity) screenShareMedia.append(figure);
         else gallery.append(figure);
       });
@@ -1374,7 +1776,9 @@
     }
 
     function participantRenderSignature(participant, isLocal) {
-      const publicationState = publications(participant).map(publication => [
+      const publicationState = publications(participant).filter(publication =>
+        isSource(publication, "Camera")
+      ).map(publication => [
         publication.trackSid || publication.sid || publication.track?.sid || publication.track?.mediaStreamTrack?.id || "track",
         publication.source || "",
         publication.isMuted ? "muted" : "live",
@@ -1382,11 +1786,139 @@
       ].join(":")).sort().join("|");
       const registryItem = participantRegistry.get(String(participant.identity));
       return [participant.identity, participant.name, participant.metadata, isLocal, publicationState,
-        raisedHands.has(participant.identity), meetingMuted, mutedParticipants.has(participant.identity), registryItem?.clientId || ""].join("::");
+        registryItem?.clientId || "", registryItem?.role || ""].join("::");
+    }
+
+    function ensureParticipantDirectory() {
+      if (participantGroups.size) return;
+      const definitions = [
+        ["people", "Participants"]
+      ];
+      definitions.forEach(([key, label]) => {
+        const section = document.createElement("section");
+        section.className = "live-participant-group";
+        section.dataset.liveParticipantGroup = key;
+        section.hidden = true;
+        const heading = document.createElement("header");
+        const title = document.createElement("strong");
+        title.textContent = label;
+        const groupCount = document.createElement("span");
+        groupCount.dataset.liveParticipantGroupCount = "";
+        groupCount.textContent = "0";
+        heading.append(title, groupCount);
+        const grid = document.createElement("div");
+        grid.className = "live-participant-group-grid";
+        section.append(heading, grid);
+        tiles.append(section);
+        participantGroups.set(key, { section, grid, count: groupCount });
+      });
+      peopleEmpty = document.createElement("p");
+      peopleEmpty.className = "live-people-empty";
+      peopleEmpty.textContent = "No participants match this view.";
+      peopleEmpty.hidden = true;
+      tiles.append(peopleEmpty);
+    }
+
+    function participantDirectoryFacts(participant, isLocal) {
+      const identity = String(participant.identity);
+      const participantPublications = publications(participant);
+      const micOn = participantPublications.some(publication =>
+        isSource(publication, "Microphone") && !publication.isMuted
+      ) && !mutedParticipants.has(identity);
+      const cameraOn = participantPublications.some(publication =>
+        isSource(publication, "Camera") && publication.track && !publication.isMuted
+      );
+      const screenSharing = participantPublications.some(publication =>
+        isSource(publication, "ScreenShare") && publication.track && !publication.isMuted
+      );
+      const isActivelySpeaking = activeSpeakerIdentities.has(identity);
+      const speaking = isActivelySpeaking || recentSpeakerIdentities.has(identity);
+      const raised = raisedHands.has(identity);
+      const presenter = isPresenterParticipant(participant);
+      return {
+        identity,
+        name: String(participant.name || "Guest"),
+        isLocal,
+        micOn,
+        cameraOn,
+        isActivelySpeaking,
+        speaking,
+        raised,
+        presenter,
+        screenSharing,
+        group: "people"
+      };
+    }
+
+    function participantMatchesDirectory(facts) {
+      if (participantSearchQuery && !facts.name.toLocaleLowerCase().includes(participantSearchQuery)) return false;
+      if (participantFilter === "speaking") return facts.speaking;
+      if (participantFilter === "hands") return facts.raised;
+      if (participantFilter === "unmuted") return facts.micOn;
+      if (participantFilter === "camera") return facts.cameraOn;
+      return true;
+    }
+
+    function updatePeopleFilters(factsList) {
+      const totals = {
+        all: factsList.length,
+        speaking: factsList.filter(facts => facts.speaking).length,
+        hands: factsList.filter(facts => facts.raised).length,
+        unmuted: factsList.filter(facts => facts.micOn).length,
+        camera: factsList.filter(facts => facts.cameraOn).length
+      };
+      peopleFilterButtons.forEach(button => {
+        const key = button.dataset.livePeopleFilter || "all";
+        const active = key === participantFilter;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+        const badge = button.querySelector("span");
+        if (badge) badge.textContent = String(totals[key] || 0);
+      });
+    }
+
+    function syncAdaptiveGalleryDimensions(participantCount) {
+      const count = Math.max(0, Number(participantCount) || 0);
+      let columns = 1;
+      let rows = 1;
+      if (count > 16) {
+        columns = 5;
+        rows = Math.ceil(count / columns);
+      } else if (count > 12) {
+        columns = 4;
+        rows = 4;
+      } else if (count > 9) {
+        columns = 4;
+        rows = 3;
+      } else if (count > 6) {
+        columns = 3;
+        rows = 3;
+      } else if (count > 4) {
+        columns = 3;
+        rows = 2;
+      } else if (count > 2) {
+        columns = 2;
+        rows = 2;
+      } else if (count > 1) {
+        columns = 2;
+      }
+      root.style.setProperty("--live-gallery-columns", String(columns));
+      root.style.setProperty("--live-gallery-rows", String(rows));
+      root.dataset.galleryLayout = `${columns}x${rows}`;
     }
 
     function renderParticipants() {
-      if (!room) { count.textContent = "0 connected"; if (restoreCount) restoreCount.textContent = "0"; return; }
+      ensureParticipantDirectory();
+      if (!room) {
+        participantGroups.forEach(group => { group.grid.replaceChildren(); group.section.hidden = true; group.count.textContent = "0"; });
+        peopleEmpty.hidden = true;
+        updatePeopleFilters([]);
+        count.textContent = "0 connected";
+        if (restoreCount) restoreCount.textContent = "0";
+        root.dataset.gallerySize = "single";
+        syncAdaptiveGalleryDimensions(0);
+        return;
+      }
       if (isController && mutedParticipants.size) {
         const connectedIdentities = new Set([room.localParticipant.identity, ...[...room.remoteParticipants.values()].map(participant => participant.identity)]);
         const activeMuted = new Set([...mutedParticipants].filter(identity => connectedIdentities.has(identity)));
@@ -1403,7 +1935,8 @@
       const participants = [{ participant: room.localParticipant, isLocal: true }, ...[...room.remoteParticipants.values()].map(participant => ({ participant, isLocal: false }))];
       const existingTiles = new Map([...tiles.querySelectorAll("[data-participant-identity]")].map(tile => [tile.dataset.participantIdentity, tile]));
       const activeIdentities = new Set();
-      participants.forEach(({ participant, isLocal }, index) => {
+      const directoryEntries = [];
+      participants.forEach(({ participant, isLocal }) => {
         const identity = String(participant.identity);
         const signature = participantRenderSignature(participant, isLocal);
         let tile = existingTiles.get(identity);
@@ -1411,11 +1944,16 @@
           const replacement = addParticipantTile(participant, isLocal);
           replacement.dataset.renderSignature = signature;
           if (tile) { detachNodeTracks(tile); tile.replaceWith(replacement); }
-          else tiles.append(replacement);
           tile = replacement;
         }
-        const currentAtIndex = tiles.children[index];
-        if (currentAtIndex !== tile) tiles.insertBefore(tile, currentAtIndex || null);
+        syncParticipantAudio(participant, isLocal);
+        const facts = participantDirectoryFacts(participant, isLocal);
+        syncParticipantTileStatus(tile, participant, facts);
+        tile.classList.toggle("is-speaking", facts.isActivelySpeaking);
+        tile.classList.toggle("is-unmuted", facts.micOn);
+        tile.classList.toggle("is-muted", !facts.micOn);
+        tile.classList.toggle("has-camera", facts.cameraOn);
+        directoryEntries.push({ tile, facts });
         activeIdentities.add(identity);
       });
       existingTiles.forEach((tile, identity) => {
@@ -1423,12 +1961,46 @@
         detachNodeTracks(tile);
         tile.remove();
       });
+      audioMount.querySelectorAll("audio[data-live-audio-participant]").forEach(audio => {
+        if (activeIdentities.has(audio.dataset.liveAudioParticipant)) return;
+        try { audio._liveTrack?.detach?.(audio); } catch {}
+        audio.remove();
+      });
+      updatePeopleFilters(directoryEntries.map(entry => entry.facts));
+      const groupedEntries = new Map([...participantGroups.keys()].map(key => [key, []]));
+      directoryEntries.forEach(entry => {
+        entry.matchesDirectory = participantMatchesDirectory(entry.facts);
+        entry.tile.hidden = !entry.matchesDirectory;
+        groupedEntries.get(entry.facts.group)?.push(entry);
+      });
+      let visibleCount = 0;
+      participantGroups.forEach((group, key) => {
+        const entries = groupedEntries.get(key) || [];
+        entries.sort((left, right) =>
+          Number(right.facts.presenter) - Number(left.facts.presenter) ||
+          Number(right.facts.screenSharing) - Number(left.facts.screenSharing) ||
+          left.facts.name.localeCompare(right.facts.name, undefined, { sensitivity: "base" }) ||
+          left.facts.identity.localeCompare(right.facts.identity)
+        );
+        entries.forEach((entry, index) => {
+          const currentAtIndex = group.grid.children[index];
+          if (currentAtIndex !== entry.tile) group.grid.insertBefore(entry.tile, currentAtIndex || null);
+        });
+        const matchingCount = entries.filter(entry => entry.matchesDirectory).length;
+        group.count.textContent = String(matchingCount);
+        group.section.hidden = matchingCount === 0;
+        visibleCount += matchingCount;
+      });
+      peopleEmpty.hidden = visibleCount !== 0;
+      root.dataset.gallerySize = visibleCount <= 1 ? "single" : visibleCount <= 2 ? "pair" : visibleCount <= 4 ? "quad" : visibleCount <= 9 ? "medium" : "large";
+      syncAdaptiveGalleryDimensions(visibleCount);
       renderScreenShares();
       const total = room.remoteParticipants.size + 1;
       count.textContent = `${total} connected`;
       if (peopleBadge) peopleBadge.textContent = String(total);
       if (restoreCount) restoreCount.textContent = String(total);
       renderFeaturedCamera();
+      syncFeaturedCameraControls();
       options.onParticipantTilesRendered?.();
     }
 
@@ -1441,13 +2013,32 @@
     }
 
     function highlightSpeakers(speakers) {
-      const active = new Set((speakers || []).map(participant => participant.identity));
-      tiles.querySelectorAll("[data-participant-identity]").forEach(tile => tile.classList.toggle("is-speaking", active.has(tile.dataset.participantIdentity)));
+      const next = new Set((speakers || []).map(participant => String(participant.identity)));
+      next.forEach(identity => {
+        const releaseTimer = speakerReleaseTimers.get(identity);
+        if (releaseTimer) window.clearTimeout(releaseTimer);
+        speakerReleaseTimers.delete(identity);
+        recentSpeakerIdentities.add(identity);
+      });
+      activeSpeakerIdentities.forEach(identity => {
+        if (next.has(identity) || speakerReleaseTimers.has(identity)) return;
+        speakerReleaseTimers.set(identity, window.setTimeout(() => {
+          speakerReleaseTimers.delete(identity);
+          recentSpeakerIdentities.delete(identity);
+          scheduleParticipantRender();
+        }, 3500));
+      });
+      activeSpeakerIdentities = next;
+      scheduleParticipantRender();
     }
 
     function syncButtons(connected) {
       root.classList.toggle("is-connected", connected);
-      if (!connected) setAudienceSidebarHidden(false);
+      if (!connected) {
+        setPeoplePanelMaximized(false);
+        setAudienceSidebarHidden(false);
+      }
+      if (panelMaximizeButton) panelMaximizeButton.disabled = !connected;
       joinButton.hidden = connected;
       joinButton.disabled = joining || (!isController && admissionState === "waiting");
       joinButton.textContent = !isController && admissionState === "waiting" ? "Waiting for presenter…" : (isController ? "Join audio/video" : "Ask to join meeting");
@@ -1462,10 +2053,9 @@
       }
       if (handButton) handButton.disabled = !connected;
       reactionButtons.forEach(button => { button.disabled = !connected; });
-      if (chatInput) chatInput.disabled = !connected;
-      if (chatSubmit) chatSubmit.disabled = !connected;
-      if (chatAttachButton) chatAttachButton.disabled = !connected;
+      syncChatComposer(connected);
       leaveButton.disabled = !connected;
+      if (closeMeetingButton) closeMeetingButton.disabled = !connected;
       setControlLabel(microphoneButton, isController ? (microphoneEnabled ? "Mic on" : "Mic off") : (microphoneEnabled ? "Mute" : "Unmute"), microphoneEnabled ? "Microphone is on. Select to mute" : "Microphone is off. Select to unmute");
       setControlLabel(cameraButton, cameraEnabled ? "Camera off" : "Camera on", cameraEnabled ? "Turn camera off" : "Turn camera on");
       if (screenShareEnabled) setControlLabel(screenShareButton, "Stop share", "Stop sharing your screen");
@@ -1481,6 +2071,7 @@
 
     function setAudienceSidebarHidden(hidden, moveFocus = false) {
       const collapsed = Boolean(hidden);
+      if (collapsed && peoplePanelMaximized) setPeoplePanelMaximized(false);
       root.classList.toggle("is-sidebar-hidden", collapsed);
       if (meetingSidebar) {
         meetingSidebar.inert = collapsed;
@@ -1498,11 +2089,49 @@
 
     function setMoreMenuOpen(open) {
       if (!moreToggle || !moreMenu) return;
+      if (open) setAudienceToolsOpen(false);
       moreMenu.hidden = !open;
       moreToggle.setAttribute("aria-expanded", String(open));
     }
 
+    function setAudienceToolsOpen(open, moveFocus = false) {
+      if (!audienceToolsPopover) return;
+      const expanded = Boolean(open);
+      audienceToolsPopover.hidden = !expanded;
+      audienceToolsTrigger?.setAttribute("aria-expanded", String(expanded));
+      if (expanded) {
+        setSidebarTab("people");
+        setAudienceSidebarHidden(false);
+        if (moveFocus) peopleSearch?.focus();
+      } else if (moveFocus) {
+        moreToggle?.focus();
+      }
+    }
+
+    function setPeoplePanelMaximized(active, announce = false) {
+      if (!panelMaximizeButton) return;
+      peoplePanelMaximized = Boolean(active && room);
+      root.classList.toggle("is-people-panel-maximized", peoplePanelMaximized);
+      panelMaximizeButton.setAttribute("aria-pressed", String(peoplePanelMaximized));
+      const label = peoplePanelMaximized ? "Restore people panel" : "Maximize people panel";
+      panelMaximizeButton.setAttribute("aria-label", label);
+      panelMaximizeButton.title = label;
+      panelMaximizeButton.dataset.tooltip = label;
+      if (panelMaximizeIcon) panelMaximizeIcon.hidden = peoplePanelMaximized;
+      if (panelRestoreIcon) panelRestoreIcon.hidden = !peoplePanelMaximized;
+      if (peoplePanelMaximized) {
+        setAudienceSidebarHidden(false);
+        setAudienceToolsOpen(false);
+      }
+      if (announce) setStatus(peoplePanelMaximized ? "People panel maximized" : "People panel restored", "success");
+    }
+
     function activateMoreAction(action) {
+      if (action === "audiences") {
+        setMoreMenuOpen(false);
+        setAudienceToolsOpen(true, true);
+        return;
+      }
       if (action === "panel") panelToggle?.click();
       else if (action === "fullscreen") fullscreenButton?.click();
       else if (action === "settings") {
@@ -1589,11 +2218,17 @@
         stopPendingScreenShare();
         joinNotificationArmed = false;
         microphoneEnabled = false; cameraEnabled = false; screenShareEnabled = false; audioPlaybackBlocked = false; detachMountedTracks(); room = null;
+        speakerReleaseTimers.forEach(timer => window.clearTimeout(timer));
+        speakerReleaseTimers.clear();
+        activeSpeakerIdentities.clear();
+        recentSpeakerIdentities.clear();
         wakeLockWanted = false;
         releaseMeetingWakeLock().catch(() => {});
         backgroundProcessor = null; backgroundProcessorTrack = null;
-        tiles.replaceChildren(); screenShareMedia.replaceChildren(); screenShareViewer.hidden = true; enableAudioButton.hidden = true;
+        tiles.replaceChildren(); participantGroups.clear(); peopleEmpty = null; audioMount.replaceChildren();
+        screenShareMedia.replaceChildren(); screenShareViewer.hidden = true; enableAudioButton.hidden = true;
         root.classList.remove("has-screen-share"); count.textContent = "0 connected"; setStatus("Left the live room"); syncButtons(false);
+        renderParticipants();
       });
     }
 
@@ -1624,6 +2259,7 @@
       if ((isController && !isCohostController) || !room?.localParticipant?.identity) return;
       if (refreshAdmission && !isCohostController) emitAdmissionRequest();
       options.socket?.emit("meeting_participant_joined", {
+        ...moderationCredentials(), resumeToken: options.resumeToken || "",
         presentationId: options.presentationId,
         clientId: isCohostController ? options.cohostGuestId : meetingClientId,
         identity: room.localParticipant.identity,
@@ -1651,10 +2287,19 @@
         let audioUnlock = Promise.resolve(false);
         try { audioUnlock = Promise.resolve(room.startAudio()).then(() => true).catch(() => false); } catch {}
         const credentials = await api.getLiveMediaToken(options.presentationId, {
-          displayName: nameInput.value.trim(), shareToken: options.shareToken || "", screenAccessCode: options.getScreenAccessCode?.() || options.screenAccessCode || undefined,
+          displayName: nameInput.value.trim(), shareToken: options.shareToken || "", resumeToken: options.resumeToken || "", screenAccessCode: options.getScreenAccessCode?.() || options.screenAccessCode || undefined,
           clientId: meetingClientId
         }, options.requestOptions || {});
         await room.connect(credentials.url, credentials.token, { autoSubscribe: true });
+        try {
+          const transfer = JSON.parse(sessionStorage.getItem("presentStudio.breakoutTransfer") || "null");
+          if (transfer) {
+            sessionStorage.removeItem("presentStudio.breakoutTransfer");
+            if (transfer.microphone) { await room.localParticipant.setMicrophoneEnabled(true); desiredMicrophoneEnabled = true; }
+            if (transfer.camera) await room.localParticipant.setCameraEnabled(true);
+            syncLocalPublishedState();
+          }
+        } catch (error) { setStatus("Room joined; enable your microphone or camera manually if needed", "error"); }
         const gestureUnlocked = await audioUnlock;
         const connectedAudioReady = await enableAudio(false);
         const audioReady = connectedAudioReady || (gestureUnlocked && !audioPlaybackBlocked && room.canPlayAudio !== false);
@@ -1740,7 +2385,14 @@
       if (enable) screenShareApproved = false;
       screenShareButton.disabled = true;
       try {
-        await room.localParticipant.setScreenShareEnabled(enable);
+        await room.localParticipant.setScreenShareEnabled(enable, enable ? {
+          contentHint: "detail",
+          resolution: { width: 1920, height: 1080, frameRate: 15 }
+        } : undefined, enable ? {
+          screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 15 },
+          degradationPreference: "maintain-resolution",
+          simulcast: false
+        } : undefined);
         screenShareRequestPending = false;
         syncLocalPublishedState(); syncButtons(true); renderParticipants();
         setStatus(screenShareEnabled ? "Screen sharing started" : "Screen sharing stopped", "success");
@@ -1766,7 +2418,15 @@
       const published = [];
       try {
         for (const track of tracks) {
-          await activeRoom.localParticipant.publishTrack(track);
+          if (track.kind === "video") {
+            try { track.mediaStreamTrack.contentHint = "detail"; } catch {}
+          }
+          await activeRoom.localParticipant.publishTrack(track, track.kind === "video" ? {
+            source: livekit.Track?.Source?.ScreenShare,
+            screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 15 },
+            degradationPreference: "maintain-resolution",
+            simulcast: false
+          } : undefined);
           published.push(track);
         }
         syncLocalPublishedState(); syncButtons(true); renderParticipants();
@@ -1908,18 +2568,75 @@
       setMoreMenuOpen(false);
     }));
     sidebarTabs.forEach(button => button.addEventListener("click", () => setSidebarTab(button.dataset.liveTab)));
-    async function uploadMeetingAttachment(file) {
+    function formatChatFileSize(bytes) {
+      const size = Math.max(0, Number(bytes) || 0);
+      if (size < 1024) return `${size} B`;
+      if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
+      return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function syncChatComposer(connected = Boolean(room)) {
+      if (chatInput) chatInput.disabled = !connected || chatUploading;
+      if (chatAttachButton) chatAttachButton.disabled = !connected || chatUploading;
+      if (chatSubmit) chatSubmit.disabled = !connected || chatUploading || (!chatInput?.value.trim() && !pendingChatFile);
+      if (chatPendingRemove) chatPendingRemove.disabled = chatUploading;
+    }
+
+    function clearPendingChatAttachment() {
+      if (pendingChatPreviewUrl) window.URL?.revokeObjectURL?.(pendingChatPreviewUrl);
+      pendingChatPreviewUrl = "";
+      pendingChatFile = null;
+      if (chatPending) {
+        chatPending.hidden = true;
+        chatPending.classList.remove("has-image");
+      }
+      if (chatPendingImage) {
+        chatPendingImage.hidden = true;
+        chatPendingImage.removeAttribute("src");
+      }
+      if (chatPendingName) chatPendingName.textContent = "";
+      if (chatPendingSize) chatPendingSize.textContent = "";
+      if (chatFileInput) chatFileInput.value = "";
+      syncChatComposer();
+    }
+
+    function stageChatAttachment(file) {
       if (!room || !file) return;
       if (file.size > 100 * 1024 * 1024) {
         setStatus("Chat files must be 100 MB or smaller", "error");
         return;
+      }
+      clearPendingChatAttachment();
+      pendingChatFile = file;
+      const isImage = Boolean(file.type?.startsWith("image/"));
+      if (isImage && chatPendingImage) {
+        pendingChatPreviewUrl = window.URL?.createObjectURL?.(file) || "";
+        if (pendingChatPreviewUrl) chatPendingImage.src = pendingChatPreviewUrl;
+        chatPendingImage.hidden = !pendingChatPreviewUrl;
+      }
+      if (chatPending) {
+        chatPending.hidden = false;
+        chatPending.classList.toggle("has-image", Boolean(pendingChatPreviewUrl));
+      }
+      if (chatPendingName) chatPendingName.textContent = file.name || "Pasted image";
+      if (chatPendingSize) chatPendingSize.textContent = `${formatChatFileSize(file.size)} · Ready to send`;
+      setSidebarTab("chat");
+      syncChatComposer();
+    }
+
+    async function uploadMeetingAttachment(file, text = "") {
+      if (!room || !file) return;
+      if (file.size > 100 * 1024 * 1024) {
+        setStatus("Chat files must be 100 MB or smaller", "error");
+        return false;
       }
       const form = new FormData();
       form.append("presentation_id", options.presentationId);
       form.append("client_id", meetingClientId);
       form.append("share_token", options.shareToken || "");
       form.append("file", file, file.name || "attachment");
-      chatAttachButton && (chatAttachButton.disabled = true);
+      chatUploading = true;
+      syncChatComposer();
       setStatus(`Uploading ${file.name || "attachment"}…`);
       try {
         const headers = {};
@@ -1931,37 +2648,49 @@
           presentationId: options.presentationId,
           identity: currentIdentity(),
           name: currentName(),
-          text: "",
+          text,
           attachment: payload.attachment
         });
         setSidebarTab("chat");
         setStatus("File shared", "success");
+        return true;
       } catch (error) {
         setStatus(error.message || "File upload failed", "error");
+        return false;
       } finally {
-        if (chatFileInput) chatFileInput.value = "";
-        if (chatAttachButton) chatAttachButton.disabled = !room;
+        chatUploading = false;
+        syncChatComposer();
       }
     }
 
-    chatForm?.addEventListener("submit", event => {
+    chatForm?.addEventListener("submit", async event => {
       event.preventDefault();
       const text = chatInput.value.trim();
-      if (!room || !text) return;
-      options.socket?.emit("meeting_chat", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), text });
+      const file = pendingChatFile;
+      if (!room || (!text && !file) || chatUploading) return;
+      if (file) {
+        const sent = await uploadMeetingAttachment(file, text);
+        if (!sent) return;
+        clearPendingChatAttachment();
+      } else {
+        options.socket?.emit("meeting_chat", { presentationId: options.presentationId, identity: currentIdentity(), name: currentName(), text });
+      }
       chatInput.value = "";
       chatInput.focus();
+      syncChatComposer();
     });
     chatAttachButton?.addEventListener("click", () => chatFileInput?.click());
     chatFileInput?.addEventListener("change", () => {
       const file = chatFileInput.files?.[0];
-      if (file) uploadMeetingAttachment(file);
+      if (file) stageChatAttachment(file);
     });
+    chatPendingRemove?.addEventListener("click", clearPendingChatAttachment);
+    chatInput?.addEventListener("input", () => syncChatComposer());
     chatInput?.addEventListener("paste", event => {
       const file = [...(event.clipboardData?.files || [])].find(item => item.type?.startsWith("image/"));
       if (!file) return;
       event.preventDefault();
-      uploadMeetingAttachment(file);
+      stageChatAttachment(file);
     });
     chatMessages?.addEventListener("dragover", event => {
       if (!room || !event.dataTransfer?.types?.includes("Files")) return;
@@ -1975,10 +2704,18 @@
       const file = event.dataTransfer?.files?.[0];
       if (!room || !file) return;
       event.preventDefault();
-      uploadMeetingAttachment(file);
+      stageChatAttachment(file);
     });
     enableAudioButton.addEventListener("click", () => enableAudio(true));
     leaveButton.addEventListener("click", leave);
+    closeMeetingButton?.addEventListener("click", () => {
+      if (!room || closeMeetingButton.hidden) return;
+      const confirmed = window.confirm("Close this meeting for everyone? All participants and co-hosts will be disconnected.");
+      if (!confirmed) return;
+      closeMeetingButton.disabled = true;
+      setStatus("Closing the meeting for everyone…");
+      options.socket?.emit("meeting_close", moderationCredentials());
+    });
     fullscreenButton?.addEventListener("click", async () => {
       if (!fullscreenTarget) return;
       if (document.fullscreenElement === fullscreenTarget) {
@@ -1994,20 +2731,37 @@
       try { await requestFullscreen.call(fullscreenTarget); }
       catch (error) { setStatus(error.message || "Fullscreen was blocked", "error"); }
     });
+    fullscreenExitButton?.addEventListener("click", event => {
+      event.stopPropagation();
+      document.exitFullscreen?.().catch(() => {});
+    });
     document.addEventListener("fullscreenchange", () => {
-      if (!fullscreenButton) return;
       const active = document.fullscreenElement === fullscreenTarget;
-      fullscreenButton.textContent = active ? "×" : "⛶";
-      fullscreenButton.setAttribute("aria-label", active ? "Exit presentation fullscreen" : "Enter presentation fullscreen");
-      fullscreenButton.title = active ? "Exit fullscreen" : "Enter fullscreen";
+      if (fullscreenButton) {
+        fullscreenButton.textContent = active ? "×" : "⛶";
+        fullscreenButton.setAttribute("aria-label", active ? "Exit presentation fullscreen" : "Enter presentation fullscreen");
+        fullscreenButton.title = active ? "Exit fullscreen" : "Enter fullscreen";
+      }
+      if (fullscreenExitButton) fullscreenExitButton.hidden = !active;
+      if (active) requestAnimationFrame(syncPresentationViewer);
     });
     featuredCameraClose?.addEventListener("click", () => {
       selectedCameraIdentity = "";
+      publishControllerState();
       renderFeaturedCamera();
       renderParticipants();
     });
     panelToggle?.addEventListener("click", () => setAudienceSidebarHidden(true, true));
     panelRestore?.addEventListener("click", () => setAudienceSidebarHidden(false, true));
+    panelMaximizeButton?.addEventListener("click", () => setPeoplePanelMaximized(!peoplePanelMaximized, true));
+    peopleSearch?.addEventListener("input", () => {
+      participantSearchQuery = peopleSearch.value.trim().toLocaleLowerCase();
+      renderParticipants();
+    });
+    peopleFilterButtons.forEach(button => button.addEventListener("click", () => {
+      participantFilter = button.dataset.livePeopleFilter || "all";
+      renderParticipants();
+    }));
     moreToggle?.addEventListener("click", event => {
       event.stopPropagation();
       setMoreMenuOpen(moreMenu?.hidden !== false);
@@ -2016,13 +2770,24 @@
       const button = event.target.closest("[data-live-more-action]");
       if (button) activateMoreAction(button.dataset.liveMoreAction);
     });
+    audienceToolsClose?.addEventListener("click", () => setAudienceToolsOpen(false, true));
     document.addEventListener("click", event => {
-      if (moreMenu?.hidden !== false || moreMenu.contains(event.target) || moreToggle?.contains(event.target)) return;
-      setMoreMenuOpen(false);
+      if (moreMenu?.hidden === false && !moreMenu.contains(event.target) && !moreToggle?.contains(event.target)) setMoreMenuOpen(false);
+      if (
+        audienceToolsPopover?.hidden === false &&
+        !audienceToolsPopover.contains(event.target) &&
+        !audienceToolsTrigger?.contains(event.target)
+      ) setAudienceToolsOpen(false);
     });
     document.addEventListener("keydown", event => {
-      if (event.key === "Escape") setMoreMenuOpen(false);
+      if (event.key !== "Escape") return;
+      if (audienceToolsPopover?.hidden === false) setAudienceToolsOpen(false, true);
+      else setMoreMenuOpen(false);
     });
+    if (isController) {
+      document.addEventListener("pointerdown", unlockAdmissionAlarm, { capture: true, passive: true });
+      document.addEventListener("keydown", unlockAdmissionAlarm, { capture: true });
+    }
     if (sheetHandle && !isController) {
       let startY = null;
       sheetHandle.addEventListener("pointerdown", event => {
@@ -2047,6 +2812,13 @@
       });
     }
     options.socket?.on("meeting_control_state", applyControllerState);
+    options.socket?.on("meeting_time_extended", event => {
+      if (event?.presentationId !== options.presentationId || !event.scheduledEnd || !meetingTimeAlert) return;
+      const nextEndAt = Date.parse(event.scheduledEnd);
+      if (!Number.isFinite(nextEndAt)) return;
+      meetingEndAt = nextEndAt;
+      renderMeetingCountdown();
+    });
     options.socket?.on("meeting_participant_audio_command", applyParticipantAudioCommand);
     options.socket?.on("meeting_chat_message", message => { if (message?.presentationId === options.presentationId) appendChatMessage(message); });
     options.socket?.on("meeting_reaction_event", message => { if (message?.presentationId === options.presentationId) showReaction(message); });
@@ -2056,30 +2828,90 @@
       renderParticipants();
     });
     options.socket?.on("meeting_lobby_state", renderLobby);
+    options.socket?.on("disconnect", stopAdmissionAlarm);
+    let cohostAudienceTransitionStarted = false;
+
+    function returnCohostToAudience(message = {}) {
+      if (!isController || !options.cohostGuestId) return false;
+      if (message?.presentationId !== options.presentationId) return false;
+      if (message.clientId !== options.cohostGuestId) return false;
+
+      // Demotion currently produces both meeting_controller_revoked and
+      // meeting_role_changed. Only the first event may navigate.
+      if (cohostAudienceTransitionStarted) return true;
+      cohostAudienceTransitionStarted = true;
+
+      const returnKey = `presentStudio.cohostReturn.${options.presentationId}`;
+      let returnUrl = "";
+
+      try {
+        returnUrl = sessionStorage.getItem(returnKey) || "";
+      } catch {}
+
+      setStatus(
+        message.reason === "demoted"
+          ? "You are now an audience participant."
+          : "Co-host access ended. Returning to the audience view…"
+      );
+
+      window.setTimeout(() => {
+        try { sessionStorage.removeItem(returnKey); } catch {}
+        const fallbackUrl = `/present.html?id=${encodeURIComponent(options.presentationId)}`;
+        let destination = returnUrl || fallbackUrl;
+        const resumeToken = String(message.resumeToken || "");
+        if (resumeToken) {
+          const resumedUrl = new URL(destination, location.origin);
+          resumedUrl.searchParams.set("resume", resumeToken);
+          destination = resumedUrl.href;
+        }
+        location.replace(destination);
+      }, 450);
+
+      return true;
+    }
+
     options.socket?.on("meeting_role_changed", message => {
       if (message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
+
       if (message.role === "cohost" && message.controllerUrl && !isController) {
-        try { sessionStorage.setItem(`presentStudio.cohostReturn.${options.presentationId}`, location.href); } catch {}
-        setStatus("You have been promoted to co-host. Opening presenter controls…", "success");
+        try {
+          sessionStorage.setItem(
+            `presentStudio.cohostReturn.${options.presentationId}`,
+            location.href
+          );
+          const code = String(options.getScreenAccessCode?.() || options.screenAccessCode || "").trim();
+          sessionStorage.setItem(
+            `presentStudio.cohostReturnState.${options.presentationId}`,
+            JSON.stringify({
+              displayName: nameInput.value.trim().slice(0, 80),
+              screenAccessCode: /^\d{4}$/.test(code) ? code : "",
+              autoRejoin: true
+            })
+          );
+        } catch {}
+
+        setStatus(
+          "You have been promoted to co-host. Opening presenter controls…",
+          "success"
+        );
+
         window.setTimeout(() => location.replace(message.controllerUrl), 450);
         return;
       }
-      if (message.role === "audience" && isController && options.cohostGuestId === message.clientId) {
-        const returnKey = `presentStudio.cohostReturn.${options.presentationId}`;
-        let returnUrl = "";
-        try { returnUrl = sessionStorage.getItem(returnKey) || ""; sessionStorage.removeItem(returnKey); } catch {}
-        setStatus("Co-host access ended. Returning to the audience view…");
-        window.setTimeout(() => location.replace(returnUrl || `/present.html?id=${encodeURIComponent(options.presentationId)}`), 450);
+
+      if (
+        message.role === "audience" &&
+        isController &&
+        options.cohostGuestId === message.clientId
+      ) {
+        returnCohostToAudience({ ...message, reason: "demoted" });
       }
     });
+
     options.socket?.on("meeting_controller_revoked", message => {
-      if (!isController || !options.cohostGuestId || message?.presentationId !== options.presentationId || message.clientId !== options.cohostGuestId) return;
-      const returnKey = `presentStudio.cohostReturn.${options.presentationId}`;
-      let returnUrl = "";
-      try { returnUrl = sessionStorage.getItem(returnKey) || ""; sessionStorage.removeItem(returnKey); } catch {}
-      setStatus(message.reason === "demoted" ? "You are now an audience participant." : "Your co-host access has ended.");
-      window.setTimeout(() => location.replace(returnUrl || `/present.html?id=${encodeURIComponent(options.presentationId)}`), 450);
+      returnCohostToAudience(message);
     });
+
     options.socket?.on("connect", () => announceParticipantIdentity({ refreshAdmission: true }));
     options.socket?.on("meeting_admission_decision", message => {
       if (isController || message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
@@ -2102,6 +2934,18 @@
       await leave({ requeue: true });
       setStatus("The presenter moved you to the waiting room.");
       syncButtons(false);
+    });
+    options.socket?.on("session_ended", async message => {
+      if (message?.presentationId && message.presentationId !== options.presentationId) return;
+      admissionState = "closed";
+      if (meetingCountdownTimer) window.clearInterval(meetingCountdownTimer);
+      if (meetingTimeAlert) meetingTimeAlert.hidden = true;
+      await leave({ releaseTab: true });
+      options.socket?.disconnect?.();
+      syncButtons(false);
+      joinButton.hidden = true;
+      if (closeMeetingButton) closeMeetingButton.disabled = true;
+      setStatus(isController ? "Meeting closed. Everyone has been disconnected." : "The meeting owner closed this meeting.", "error");
     });
     options.socket?.on("meeting_screen_share_decision", async message => {
       if (isController || message?.presentationId !== options.presentationId || message.clientId !== meetingClientId) return;
@@ -2147,18 +2991,23 @@
       recoverMeetingAfterBackground().catch(() => {});
     });
     window.addEventListener("beforeunload", () => {
+      stopAdmissionAlarm();
       releaseMeetingTab();
       try { meetingTabChannel?.close(); } catch {}
     });
 
     if (isController) ensureJoinSoundControl();
+    arrangeMobileControllerActions();
     ensureTabSpeakerControl();
+    ensureParticipantDirectory();
+    updatePeopleFilters([]);
     syncButtons(false);
     setSidebarTab("people");
     function getLocalMicrophoneMediaTrack() {
       return localMicrophonePublication()?.track?.mediaStreamTrack || null;
     }
 
+    if (isController && new URLSearchParams(location.search).get("breakoutJoin") === "1") queueMicrotask(() => join(true));
     return { join, leave, getLocalMicrophoneMediaTrack };
   }
 

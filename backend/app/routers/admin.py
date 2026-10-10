@@ -38,6 +38,7 @@ def usage_maps(db: Session) -> tuple[dict[str, int], dict[str, int]]:
     presentation_counts = {
         owner_id: count
         for owner_id, count in db.query(Presentation.owner_id, func.count(Presentation.id))
+        .filter(Presentation.status != "meeting")
         .group_by(Presentation.owner_id)
         .all()
     }
@@ -90,7 +91,7 @@ def update_presentation_limit(
     user.presentation_limit = payload.presentationLimit
     db.commit()
     db.refresh(user)
-    presentation_used = db.query(func.count(Presentation.id)).filter(Presentation.owner_id == user.id).scalar() or 0
+    presentation_used = db.query(func.count(Presentation.id)).filter(Presentation.owner_id == user.id, Presentation.status != "meeting").scalar() or 0
     storage_used = db.query(func.coalesce(func.sum(MediaAsset.size), 0)).filter(MediaAsset.owner_id == user.id).scalar() or 0
     return {"user": serialize_admin_user(user, presentation_used, int(storage_used))}
 
@@ -108,7 +109,7 @@ def update_storage_limit(
     user.storage_limit_bytes = payload.storageLimitBytes
     db.commit()
     db.refresh(user)
-    presentation_used = db.query(func.count(Presentation.id)).filter(Presentation.owner_id == user.id).scalar() or 0
+    presentation_used = db.query(func.count(Presentation.id)).filter(Presentation.owner_id == user.id, Presentation.status != "meeting").scalar() or 0
     storage_used = db.query(func.coalesce(func.sum(MediaAsset.size), 0)).filter(MediaAsset.owner_id == user.id).scalar() or 0
     return {"user": serialize_admin_user(user, presentation_used, int(storage_used))}
 

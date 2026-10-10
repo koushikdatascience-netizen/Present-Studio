@@ -6,7 +6,8 @@
   const cohostGuestId = params.get("cohostGuestId") || "";
   const cohostName = params.get("cohostName") || "";
   const isCohost = params.get("cohost") === "1" && Boolean(cohostGuestId);
-  const authToken = localStorage.getItem("presentStudio.accessToken") || "";
+  const authToken = isCohost ? "" : (localStorage.getItem("presentStudio.accessToken") || "");
+  const cohostRequestOptions = isCohost ? { publicAccess: true } : {};
   const socket = window.io ? window.io() : null;
   const $ = (selector) => document.querySelector(selector);
   let presentation;
@@ -26,6 +27,8 @@
   let previewToolPointer = null;
   let previewTextPoint = null;
   let previewToolbarTimer;
+  let meetingClosed = false;
+  let meetingExpiryTimer = 0;
   let interactiveToolZoom = 1;
   let interactiveToolPan = { x: 0, y: 0 };
   let interactiveToolPointer = null;
@@ -41,6 +44,9 @@
   let volumeEmitTimer;
   let restoredMediaState = null;
   let outputBlanked = false;
+  let previewWhiteboardActive = false;
+  let whiteboardWorkspace = null;
+  let whiteboardPreviewCanvas = null;
   let localRecording = null;
   let recordingUiMinimized = false;
   let recordingMiniOpen = false;
@@ -49,6 +55,7 @@
   let localRecordingDownloadUrl = "";
   let localRecordingCleanupTimer = 0;
   let localRecordingTempCleanup = null;
+  const previewShapeTools = new Set(["line", "arrow", "rectangle", "circle"]);
 
   function escapeHtml(value) { return String(value || "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char])); }
   function toast(message) { const node = $("#toast"); node.textContent = message; node.classList.add("show"); clearTimeout(toast.timer); toast.timer = setTimeout(() => node.classList.remove("show"), 2600); }
@@ -62,10 +69,51 @@
   }
   function annotationPayload(type, payload = {}) { socket?.emit("annotation_event", { ...credentials(), type, payload }); }
 
-  function recordingMimeType() {
+  function setPreviewWhiteboard(active, send = true) {
+    const changed = previewWhiteboardActive !== Boolean(active);
+    previewWhiteboardActive = Boolean(active);
+    const surface = $("#previewWhiteboardSurface");
+    surface.hidden = !previewWhiteboardActive;
+    $("#previewStage").classList.toggle("is-whiteboard", previewWhiteboardActive);
+    document.querySelectorAll("[data-preview-whiteboard]").forEach(button => {
+      const label = previewWhiteboardActive ? "Close whiteboard" : "Open whiteboard";
+      button.classList.toggle("is-active", previewWhiteboardActive);
+      button.setAttribute("aria-pressed", String(previewWhiteboardActive));
+      button.setAttribute("aria-label", label);
+      button.title = label;
+    });
+    const launchButton = $("#openWhiteboard");
+    launchButton.classList.toggle("is-active", previewWhiteboardActive);
+    launchButton.setAttribute("aria-pressed", String(previewWhiteboardActive));
+    launchButton.setAttribute("aria-label", previewWhiteboardActive ? "Close Whiteboard" : "Open Whiteboard");
+    launchButton.dataset.tooltip = previewWhiteboardActive ? "Close Whiteboard" : "Whiteboard";
+    if (changed && previewWhiteboardActive) {
+      outputBlanked = false;
+      stopLoop(false);
+      previewMediaElements().forEach(media => media.pause());
+      $('#controllerPreviewMedia').querySelectorAll('iframe[data-youtube-id]').forEach(frame => window.SnapKeyYouTube.sync(frame, { playing: false }));
+      clearPreviewToolAnnotations(send);
+      previewToolZoom = 1;
+      previewToolPan = { x: 0, y: 0 };
+      applyPreviewToolViewport(send);
+    }
+    if (changed && !previewWhiteboardActive) clearPreviewToolAnnotations(send);
+    if (changed && send) emitControllerState();
+    if (previewWhiteboardActive) {
+      $("#previewTitle").textContent = "Whiteboard";
+      return;
+    }
+    const target = targets.find(item => item.id === activeTargetId);
+    $("#previewTitle").textContent = outputBlanked ? "Screen cleared" : target?.title || "Screen ready";
+  }
+
+  function recordingMimeType(hasAudio = true) {
     return [
-      "video/webm;codecs=vp9,opus",
-      "video/webm;codecs=vp8,opus",
+      hasAudio ? "video/mp4;codecs=avc1.424028,mp4a.40.2" : "video/mp4;codecs=avc1.424028",
+      hasAudio ? "video/mp4;codecs=avc1,mp4a.40.2" : "video/mp4;codecs=avc1",
+      "video/mp4",
+      hasAudio ? "video/webm;codecs=vp8,opus" : "video/webm;codecs=vp8",
+      hasAudio ? "video/webm;codecs=vp9,opus" : "video/webm;codecs=vp9",
       "video/webm"
     ].find(type => window.MediaRecorder?.isTypeSupported?.(type)) || "";
   }
@@ -77,7 +125,7 @@
       .trim()
       .slice(0, 80) || "meeting-recording";
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    return `${safeTitle}-${stamp}.${mimeType.includes("mp4") ? "mp4" : "webm"}`;
+    return `${safeTitle}-${stamp}.${String(mimeType).toLowerCase().includes("mp4") ? "mp4" : "webm"}`;
   }
 
   function formatRecordingTime(milliseconds) {
@@ -220,12 +268,14 @@
     }
   }
 
-  function downloadRecording(blob) {
+  function downloadRecording(blob, mimeType = blob.type) {
     releaseRecordingDownloadUrl(true);
-    localRecordingDownloadUrl = URL.createObjectURL(blob);
+    // OPFS File MIME types can be empty or inferred from the temporary filename.
+    const downloadBlob = blob.slice(0, blob.size, mimeType || blob.type || "video/webm");
+    localRecordingDownloadUrl = URL.createObjectURL(downloadBlob);
     const link = document.createElement("a");
     link.href = localRecordingDownloadUrl;
-    link.download = recordingFilename(blob.type);
+    link.download = recordingFilename(downloadBlob.type);
     link.hidden = true;
     document.body.append(link);
     link.click();
@@ -321,7 +371,7 @@
         }
       }
       const recordingStream = new MediaStream([...displayStream.getVideoTracks(), ...(mixedAudioTrack ? [mixedAudioTrack] : audioTracks)]);
-      const mimeType = recordingMimeType();
+      const mimeType = recordingMimeType(recordingStream.getAudioTracks().length > 0);
       const recorder = new MediaRecorder(recordingStream, {
         ...(mimeType ? { mimeType } : {}),
         videoBitsPerSecond: 6_000_000,
@@ -453,7 +503,7 @@
   }
 
   function setControllerTheme(theme, remember = true) {
-    const nextTheme = theme === "light" ? "light" : "dark";
+    const nextTheme = theme === "dark" ? "dark" : "light";
     document.body.dataset.controllerTheme = nextTheme;
     document.querySelectorAll("[data-controller-theme-option]").forEach(button => {
       const selected = button.dataset.controllerThemeOption === nextTheme;
@@ -467,8 +517,7 @@
   function bindControllerTheme() {
     const settingsButton = $("#controllerSettingsButton");
     const settingsDialog = $("#controllerSettingsDialog");
-    let initialTheme = "dark";
-    try { initialTheme = localStorage.getItem("presentStudio.controllerTheme") || initialTheme; } catch {}
+    const initialTheme = window.SnapKeyAppearance?.theme("presentStudio.controllerTheme") || "light";
     setControllerTheme(initialTheme, false);
     document.querySelectorAll("[data-controller-theme-option]").forEach(button => button.addEventListener("click", () => setControllerTheme(button.dataset.controllerThemeOption)));
     settingsButton.addEventListener("click", () => settingsDialog.showModal());
@@ -482,7 +531,12 @@
     const status = $("#connectionStatus");
     const settingsButton = $("#controllerSettingsButton");
     const links = nextMode === "interactive" ? $("#interactiveWorkspaceLinks") : $("#controllerWorkspaceLinks");
-    links.append(modeSwitch, settingsButton, editorLink, status);
+    if (window.matchMedia("(max-width: 640px), (max-width: 960px) and (max-height: 500px)").matches) {
+      $(".live-controller-header").append(modeSwitch);
+      $(".live-controller-actions").append(status, settingsButton, editorLink);
+    } else {
+      links.append(modeSwitch, settingsButton, editorLink, status);
+    }
     document.querySelectorAll("[data-controller-mode-view]").forEach(view => { view.hidden = view.dataset.controllerModeView !== nextMode; });
     document.querySelectorAll("[data-controller-mode-target]").forEach(button => {
       const active = button.dataset.controllerModeTarget === nextMode;
@@ -551,6 +605,7 @@
     setControllerSidebarHidden(sidebarHidden, false);
     setLibraryPanel(initialPanel, false);
     setControllerMode(initialMode, false);
+    window.matchMedia("(max-width: 640px), (max-width: 960px) and (max-height: 500px)").addEventListener("change", () => setControllerMode(document.body.dataset.controllerMode, false));
   }
 
   function setPreviewDockMinimized(minimized) {
@@ -587,11 +642,13 @@
       fullscreenButton.querySelector("[data-preview-fullscreen-label]").textContent = active ? "Exit" : "Fullscreen";
       if (active) {
         showPreviewToolbar();
+        requestAnimationFrame(() => previewCanvas?.requestRenderAll());
       } else {
         clearTimeout(previewToolbarTimer);
         $("#previewFullscreenTools").classList.remove("is-visible");
         closePreviewTextEditor();
         stage.classList.remove("is-preview-grabbing");
+        $("#previewWhiteboardCursor").hidden = true;
         previewToolPointer = null;
         if (previewToolZoom !== 1 || previewToolPan.x || previewToolPan.y) {
           previewToolZoom = 1;
@@ -609,11 +666,14 @@
     bindFullscreenPreviewTools();
   }
 
-  function previewHighlighterColor() {
-    const value = $("#previewToolColor").value || "#ffd54a";
+  function translucentAnnotationColor(value) {
     const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(value);
     if (!match) return "rgba(255, 213, 74, .38)";
     return `rgba(${parseInt(match[1], 16)}, ${parseInt(match[2], 16)}, ${parseInt(match[3], 16)}, .38)`;
+  }
+
+  function previewHighlighterColor() {
+    return translucentAnnotationColor($("#previewToolColor").value || "#ffd54a");
   }
 
   function previewToolPoint(event) {
@@ -626,23 +686,9 @@
   }
 
   function drawPreviewToolPath(points, color, size) {
-    if (points.length < 2) return;
+    if (!points.length) return;
     const canvas = $("#previewAnnotationCanvas");
-    const context = canvas.getContext("2d");
-    context.save();
-    context.strokeStyle = color;
-    context.lineWidth = size;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.beginPath();
-    points.forEach((point, index) => {
-      const x = point.x * canvas.width;
-      const y = point.y * canvas.height;
-      if (index) context.lineTo(x, y);
-      else context.moveTo(x, y);
-    });
-    context.stroke();
-    context.restore();
+    drawAnnotationPath(canvas, points, color, size);
   }
 
   function addPreviewToolText(text, point, color, size) {
@@ -656,14 +702,26 @@
   }
 
   function drawInteractiveToolPath(points, color, size) {
-    if (points.length < 2) return;
+    if (!points.length) return;
     const canvas = $("#interactiveAnnotationCanvas");
+    drawAnnotationPath(canvas, points, color, size);
+  }
+
+  function drawAnnotationPath(canvas, points, color, size) {
     const context = canvas.getContext("2d");
     context.save();
     context.strokeStyle = color;
+    context.fillStyle = color;
     context.lineWidth = size;
     context.lineCap = "round";
     context.lineJoin = "round";
+    if (points.length === 1) {
+      context.beginPath();
+      context.arc(points[0].x * canvas.width, points[0].y * canvas.height, Math.max(1, size / 2), 0, Math.PI * 2);
+      context.fill();
+      context.restore();
+      return;
+    }
     context.beginPath();
     points.forEach((point, index) => {
       const x = point.x * canvas.width;
@@ -673,6 +731,58 @@
     });
     context.stroke();
     context.restore();
+  }
+
+  function drawAnnotationShape(canvas, shape, start, end, color, size) {
+    if (!previewShapeTools.has(shape) || !start || !end) return;
+    const context = canvas.getContext("2d");
+    const startX = start.x * canvas.width;
+    const startY = start.y * canvas.height;
+    const endX = end.x * canvas.width;
+    const endY = end.y * canvas.height;
+    const width = endX - startX;
+    const height = endY - startY;
+    if (Math.hypot(width, height) < 2) return;
+    context.save();
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.lineWidth = Math.max(2, Number(size) || 2);
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.beginPath();
+    if (shape === "rectangle") context.rect(startX, startY, width, height);
+    else if (shape === "circle") context.ellipse(startX + width / 2, startY + height / 2, Math.abs(width / 2), Math.abs(height / 2), 0, 0, Math.PI * 2);
+    else {
+      context.moveTo(startX, startY);
+      context.lineTo(endX, endY);
+    }
+    context.stroke();
+    if (shape === "arrow") {
+      const angle = Math.atan2(endY - startY, endX - startX);
+      const head = Math.max(12, Math.min(34, context.lineWidth * 2.2));
+      context.beginPath();
+      context.moveTo(endX, endY);
+      context.lineTo(endX - head * Math.cos(angle - Math.PI / 6), endY - head * Math.sin(angle - Math.PI / 6));
+      context.lineTo(endX - head * Math.cos(angle + Math.PI / 6), endY - head * Math.sin(angle + Math.PI / 6));
+      context.closePath();
+      context.fill();
+    }
+    context.restore();
+  }
+
+  function updateWhiteboardCursor(cursor, event, bounds, color, size) {
+    if (!cursor || previewTool !== "highlighter" || document.fullscreenElement === null ||
+        event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+      if (cursor) cursor.hidden = true;
+      return;
+    }
+    const stageBounds = cursor.parentElement.getBoundingClientRect();
+    cursor.hidden = false;
+    cursor.style.left = `${event.clientX - stageBounds.left}px`;
+    cursor.style.top = `${event.clientY - stageBounds.top}px`;
+    cursor.style.width = `${Math.max(8, Number(size) || 18)}px`;
+    cursor.style.height = cursor.style.width;
+    cursor.style.setProperty("--whiteboard-cursor-color", color);
   }
 
   function addInteractiveToolText(text, point, color, size) {
@@ -732,15 +842,18 @@
     visual.style.setProperty("--preview-zoom", String(previewToolZoom));
     visual.style.setProperty("--preview-pan-x", `${previewToolPan.x}px`);
     visual.style.setProperty("--preview-pan-y", `${previewToolPan.y}px`);
+    visual.classList.toggle("has-viewport-transform", previewToolZoom !== 1 || Boolean(previewToolPan.x || previewToolPan.y));
     $("#previewZoomValue").textContent = `${Math.round(previewToolZoom * 100)}%`;
     if (send) annotationPayload("viewport", { zoom: previewToolZoom, x: previewToolPan.x, y: previewToolPan.y });
   }
 
   function applyInteractiveToolViewport(send = true) {
     const stage = $("#controllerLiveMedia").querySelector(".interactive-main-stage");
+    const frame = stage.querySelector(".live-presentation-feed-frame");
     stage.style.setProperty("--audience-zoom", String(interactiveToolZoom));
     stage.style.setProperty("--audience-pan-x", `${interactiveToolPan.x}px`);
     stage.style.setProperty("--audience-pan-y", `${interactiveToolPan.y}px`);
+    frame?.classList.toggle("has-viewport-transform", interactiveToolZoom !== 1 || Boolean(interactiveToolPan.x || interactiveToolPan.y));
     $("#interactiveZoomValue").textContent = `${Math.round(interactiveToolZoom * 100)}%`;
     if (send) annotationPayload("viewport", { zoom: interactiveToolZoom, x: interactiveToolPan.x, y: interactiveToolPan.y });
   }
@@ -755,9 +868,15 @@
     const stage = $("#previewStage");
     stage.classList.toggle("is-preview-highlighting", tool === "highlighter");
     stage.classList.toggle("is-preview-panning", tool === "pan");
+    stage.classList.toggle("is-preview-shaping", previewShapeTools.has(tool));
     const interactiveStage = $("#controllerLiveMedia")?.querySelector(".interactive-main-stage");
     interactiveStage?.classList.toggle("is-preview-highlighting", tool === "highlighter");
     interactiveStage?.classList.toggle("is-preview-panning", tool === "pan");
+    interactiveStage?.classList.toggle("is-preview-shaping", previewShapeTools.has(tool));
+    if (tool !== "highlighter") {
+      $("#previewWhiteboardCursor").hidden = true;
+      $("#interactiveWhiteboardCursor").hidden = true;
+    }
   }
 
   function showPreviewToolbar() {
@@ -776,12 +895,17 @@
     const toolbar = $("#previewFullscreenTools");
     const color = () => $("#previewToolColor").value || "#ffd54a";
     const size = () => Number($("#previewToolSize").value) || 18;
+    document.querySelectorAll("[data-preview-whiteboard]").forEach(button => button.onclick = () => whiteboardWorkspace ? whiteboardWorkspace.open() : setPreviewWhiteboard(!previewWhiteboardActive));
     document.querySelectorAll("[data-preview-tool]").forEach(button => button.onclick = () => setPreviewTool(button.dataset.previewTool));
     $("#previewZoomOut").onclick = () => { previewToolZoom = Math.max(.5, previewToolZoom - .1); applyPreviewToolViewport(); };
     $("#previewZoomIn").onclick = () => { previewToolZoom = Math.min(3, previewToolZoom + .1); applyPreviewToolViewport(); };
     $("#previewResetView").onclick = () => { previewToolZoom = 1; previewToolPan = { x: 0, y: 0 }; applyPreviewToolViewport(); };
     $("#previewClearAnnotations").onclick = () => clearPreviewToolAnnotations(true);
     $("#previewFullscreenNotes").onclick = () => $("#previewNotes").click();
+    $("#previewExitFullscreen").onclick = event => {
+      event.stopPropagation();
+      document.exitFullscreen?.().catch(() => {});
+    };
     $("#previewTextCancel").onclick = closePreviewTextEditor;
     $("#previewTextEditor").onsubmit = event => {
       event.preventDefault();
@@ -797,8 +921,10 @@
     stage.addEventListener("pointerdown", showPreviewToolbar, { passive: true });
     stage.addEventListener("touchstart", showPreviewToolbar, { passive: true });
     stage.addEventListener("pointermove", event => {
-      if (document.fullscreenElement !== stage) return;
+      if (document.fullscreenElement !== stage && !previewWhiteboardActive) return;
       showPreviewToolbar();
+      const visualBounds = $("#controllerPreviewVisual").getBoundingClientRect();
+      updateWhiteboardCursor($("#previewWhiteboardCursor"), event, visualBounds, color(), size());
       if (!previewToolPointer || previewToolPointer.id !== event.pointerId) return;
       if (previewTool === "pan") {
         previewToolPan = {
@@ -810,33 +936,44 @@
       }
       const point = previewToolPoint(event);
       if (!point) return;
+      if (previewShapeTools.has(previewTool)) {
+        previewToolPointer.endPoint = point;
+        return;
+      }
+      if (previewTool !== "highlighter") return;
       const previous = previewToolPointer.points.at(-1);
       previewToolPointer.points.push(point);
       drawPreviewToolPath([previous, point], previewHighlighterColor(), size());
     });
     stage.addEventListener("pointerdown", event => {
-      if (document.fullscreenElement !== stage || event.button !== 0 || event.target.closest("#previewFullscreenTools, #previewTextEditor")) return;
+      if ((document.fullscreenElement !== stage && !previewWhiteboardActive) || event.button !== 0 || event.target.closest("#previewFullscreenTools, #previewTextEditor")) return;
       const point = previewToolPoint(event);
       if (previewTool !== "pan" && !point) return;
       if (previewTool === "text") {
         openPreviewTextEditor(point);
         return;
       }
-      previewToolPointer = { id: event.pointerId, startX: event.clientX, startY: event.clientY, pan: { ...previewToolPan }, points: point ? [point] : [] };
+      previewToolPointer = { id: event.pointerId, startX: event.clientX, startY: event.clientY, pan: { ...previewToolPan }, points: point ? [point] : [], startPoint: point, endPoint: point };
+      if (previewTool === "highlighter" && point) drawPreviewToolPath([point], previewHighlighterColor(), size());
       stage.setPointerCapture(event.pointerId);
       stage.classList.toggle("is-preview-grabbing", previewTool === "pan");
       event.preventDefault();
     });
     const finishPointer = event => {
       if (!previewToolPointer || previewToolPointer.id !== event.pointerId) return;
-      if (previewTool === "highlighter" && previewToolPointer.points.length > 1) {
+      if (previewTool === "highlighter" && previewToolPointer.points.length) {
         annotationPayload("draw", { points: previewToolPointer.points, color: previewHighlighterColor(), size: size() });
+      } else if (previewShapeTools.has(previewTool) && previewToolPointer.startPoint && previewToolPointer.endPoint) {
+        const payload = { shape: previewTool, start: previewToolPointer.startPoint, end: previewToolPointer.endPoint, color: color(), size: size() };
+        drawAnnotationShape($("#previewAnnotationCanvas"), payload.shape, payload.start, payload.end, payload.color, payload.size);
+        annotationPayload("shape", payload);
       }
       previewToolPointer = null;
       stage.classList.remove("is-preview-grabbing");
     };
     stage.addEventListener("pointerup", finishPointer);
     stage.addEventListener("pointercancel", finishPointer);
+    stage.addEventListener("pointerleave", () => { $("#previewWhiteboardCursor").hidden = true; });
     setPreviewTool(previewTool);
     applyPreviewToolViewport(false);
   }
@@ -946,6 +1083,8 @@
     stage.addEventListener("pointermove", event => {
       if (document.fullscreenElement !== stage) return;
       showInteractiveToolbar();
+      const drawingBounds = $("#controllerLiveMedia").querySelector(".live-presentation-feed-frame").getBoundingClientRect();
+      updateWhiteboardCursor($("#interactiveWhiteboardCursor"), event, drawingBounds, color(), size());
       if (!interactiveToolPointer || interactiveToolPointer.id !== event.pointerId) return;
       if (previewTool === "pan") {
         interactiveToolPan = {
@@ -957,9 +1096,14 @@
       }
       const point = interactiveToolPoint(event);
       if (!point) return;
+      if (previewShapeTools.has(previewTool)) {
+        interactiveToolPointer.endPoint = point;
+        return;
+      }
+      if (previewTool !== "highlighter") return;
       const previous = interactiveToolPointer.points.at(-1);
       interactiveToolPointer.points.push(point);
-      drawInteractiveToolPath([previous, point], color(), size());
+      drawInteractiveToolPath([previous, point], translucentAnnotationColor(color()), size());
     });
     stage.addEventListener("pointerdown", event => {
       if (document.fullscreenElement !== stage || event.button !== 0 || event.target.closest("#interactiveFullscreenTools, #interactiveTextEditor")) return;
@@ -969,21 +1113,27 @@
         openInteractiveTextEditor(point);
         return;
       }
-      interactiveToolPointer = { id: event.pointerId, startX: event.clientX, startY: event.clientY, pan: { ...interactiveToolPan }, points: point ? [point] : [] };
+      interactiveToolPointer = { id: event.pointerId, startX: event.clientX, startY: event.clientY, pan: { ...interactiveToolPan }, points: point ? [point] : [], startPoint: point, endPoint: point };
+      if (previewTool === "highlighter" && point) drawInteractiveToolPath([point], translucentAnnotationColor(color()), size());
       stage.setPointerCapture(event.pointerId);
       stage.classList.toggle("is-preview-grabbing", previewTool === "pan");
       event.preventDefault();
     });
     const finishPointer = event => {
       if (!interactiveToolPointer || interactiveToolPointer.id !== event.pointerId) return;
-      if (previewTool === "highlighter" && interactiveToolPointer.points.length > 1) {
-        annotationPayload("draw", { points: interactiveToolPointer.points, color: color(), size: size() });
+      if (previewTool === "highlighter" && interactiveToolPointer.points.length) {
+        annotationPayload("draw", { points: interactiveToolPointer.points, color: translucentAnnotationColor(color()), size: size() });
+      } else if (previewShapeTools.has(previewTool) && interactiveToolPointer.startPoint && interactiveToolPointer.endPoint) {
+        const payload = { shape: previewTool, start: interactiveToolPointer.startPoint, end: interactiveToolPointer.endPoint, color: color(), size: size() };
+        drawAnnotationShape($("#interactiveAnnotationCanvas"), payload.shape, payload.start, payload.end, payload.color, payload.size);
+        annotationPayload("shape", payload);
       }
       interactiveToolPointer = null;
       stage.classList.remove("is-preview-grabbing");
     };
     stage.addEventListener("pointerup", finishPointer);
     stage.addEventListener("pointercancel", finishPointer);
+    stage.addEventListener("pointerleave", () => { $("#interactiveWhiteboardCursor").hidden = true; });
     document.addEventListener("fullscreenchange", () => {
       const active = document.fullscreenElement === stage;
       if (active) showInteractiveToolbar();
@@ -992,7 +1142,13 @@
         toolbar.classList.remove("is-visible");
         closeInteractiveTextEditor();
         interactiveToolPointer = null;
+        $("#interactiveWhiteboardCursor").hidden = true;
         stage.classList.remove("is-preview-grabbing");
+        if (interactiveToolZoom !== 1 || interactiveToolPan.x || interactiveToolPan.y) {
+          interactiveToolZoom = 1;
+          interactiveToolPan = { x: 0, y: 0 };
+          applyInteractiveToolViewport();
+        }
       }
     });
     applyInteractiveToolViewport(false);
@@ -1045,14 +1201,20 @@
     replayButton.disabled = !media && !hasYoutube;
     audioButton.disabled = !media && !hasYoutube;
     const playing = Boolean(media && !media.paused && !media.ended || !media && hasYoutube && restoredMediaState?.playing);
-    pauseButton.querySelector("strong").textContent = playing ? "Pause" : "Play";
+    const playbackLabel = playing ? "Pause" : "Play";
+    pauseButton.querySelector("strong").textContent = playbackLabel;
     pauseButton.querySelector("[data-control-icon]").textContent = playing ? "Ⅱ" : "▶";
     pauseButton.classList.toggle("is-active", playing);
     pauseButton.setAttribute("aria-pressed", String(playing));
-    audioButton.querySelector("strong").textContent = audienceAudioMuted ? "Enable Audio" : "Mute Audio";
+    pauseButton.setAttribute("aria-label", playbackLabel);
+    pauseButton.dataset.tooltip = playbackLabel;
+    const audioLabel = audienceAudioMuted ? "Enable Audio" : "Mute Audio";
+    audioButton.querySelector("strong").textContent = audioLabel;
     audioButton.querySelector("[data-control-icon]").textContent = audienceAudioMuted ? "🔇" : "🔊";
     audioButton.classList.toggle("is-active", Boolean((media || hasYoutube) && !audienceAudioMuted));
     audioButton.setAttribute("aria-pressed", String(Boolean((media || hasYoutube) && !audienceAudioMuted)));
+    audioButton.setAttribute("aria-label", audioLabel);
+    audioButton.dataset.tooltip = audioLabel;
     audioButton.querySelector("small").textContent = audienceAudioMuted
       ? "Audience and preview muted"
       : previewAudioEnabled ? "Audience and preview audio on" : "Audience audio on · preview muted";
@@ -1129,10 +1291,10 @@
     return {
       ...credentials(),
       slideId: target.slideId,
-      kind: outputBlanked ? "blank" : target.kind,
-      mediaId: outputBlanked ? null : (target.mediaId || null),
+      kind: previewWhiteboardActive ? "whiteboard" : outputBlanked ? "blank" : target.kind,
+      mediaId: outputBlanked || previewWhiteboardActive ? null : (target.mediaId || null),
       position: media && media.readyState >= 1 ? Number(media.currentTime) || 0 : fallbackPosition,
-      playing: !outputBlanked && (media && media.readyState >= 1 ? !media.paused && !media.ended : Boolean(restoredMediaState?.playing)),
+      playing: !outputBlanked && !previewWhiteboardActive && (media && media.readyState >= 1 ? !media.paused && !media.ended : Boolean(restoredMediaState?.playing)),
       muted: audienceAudioMuted,
       videoVolume,
       audioVolume
@@ -1140,8 +1302,59 @@
   }
 
   function emitControllerState() {
+    if (meetingClosed) return;
     const state = controllerStatePayload();
     if (state && socket?.connected) socket.emit("controller_state", state);
+  }
+
+  function applyCanonicalControllerState(state) {
+    if (!state || (state.presentationId && state.presentationId !== presentationId)) return;
+    const stateVolume = normalizedVolume(state.videoVolume ?? state.audioVolume);
+    videoVolume = stateVolume;
+    audioVolume = stateVolume;
+    audienceAudioMuted = Boolean(state.muted);
+    previewAudioEnabled = !audienceAudioMuted;
+    previewAudioManuallyMuted = audienceAudioMuted;
+    applyPreviewVolumes();
+    syncVolumeControls();
+
+    const target = targetForLiveState(state);
+    if (!target) return;
+    const nextBlanked = state.kind === "blank";
+    const selectionChanged = activeTargetId !== target.id || outputBlanked !== nextBlanked || previewWhiteboardActive !== (state.kind === "whiteboard");
+    activeTargetId = target.id;
+    outputBlanked = nextBlanked;
+    restoredMediaState = { ...state, slideId: state.slideId || state.activeSlideId };
+    document.querySelectorAll(".controller-target-card").forEach(card => card.classList.toggle("active", card.dataset.targetId === activeTargetId));
+    if (selectionChanged) {
+      setPreviewWhiteboard(false, false);
+      renderTargetPreview(target);
+    }
+    if (outputBlanked) {
+      if (selectionChanged) showPreviewPlaceholder("Black screen");
+      return;
+    }
+    if (state.kind === "whiteboard") {
+      setPreviewWhiteboard(true, false);
+      return;
+    }
+    applyRestoredMediaState(restoredMediaState);
+  }
+
+  function scheduleMeetingExpiry(meeting) {
+    if (isCohost || !meeting?.scheduledEnd) return;
+    const endAt = new Date(meeting.scheduledEnd).getTime();
+    if (!Number.isFinite(endAt)) return;
+    const arm = () => {
+      const remaining = endAt - Date.now();
+      if (remaining <= 0) {
+        socket?.emit("meeting_close", credentials());
+        return;
+      }
+      meetingExpiryTimer = window.setTimeout(arm, Math.min(remaining, 2147483647));
+    };
+    window.clearTimeout(meetingExpiryTimer);
+    arm();
   }
 
   function controlPreviewMedia(action, position) {
@@ -1295,7 +1508,7 @@
     } else {
       const elements = data.elements || [];
       elements.filter(item => item.type === "text").forEach(item => previewCanvas.add(legacyPreviewText(item)));
-      elements.filter(item => ["image", "video"].includes(item.type)).forEach(item => addPositionedPreviewMedia(item));
+      elements.filter(item => ["image", "video", "youtube"].includes(item.type)).forEach(item => addPositionedPreviewMedia(item));
       finish();
     }
     if (data.audio?.src) addPreviewAudio(data.audio.src);
@@ -1317,6 +1530,14 @@
       return;
     }
     if (!target.src) return showPreviewPlaceholder(target.title);
+    if (target.youtubeId) {
+      const frame = window.SnapKeyYouTube.frame(target);
+      frame.className = "controller-preview-direct";
+      mediaLayer.append(frame);
+      window.SnapKeyYouTube.sync(frame, { volume: videoVolume, muted: !previewAudioEnabled });
+      updatePreviewMediaState();
+      return;
+    }
     const node = document.createElement(target.kind === "video" ? "video" : "img");
     node.src = target.src;
     node.className = "controller-preview-direct";
@@ -1329,16 +1550,18 @@
   function collectTargets() {
     const result = [];
     presentation.slides.forEach((slide, slideIndex) => {
-      const objects = slide.canvas?.fabric?.objects || [];
+      const objects = [...(slide.canvas?.fabric?.objects || []), ...(slide.canvas?.elements || []).filter(item => ["image", "video", "youtube"].includes(item.type)).map(item => ({ ...item, mediaType: item.type }))];
       const firstImage = objects.find(object => object.mediaType === "image");
       result.push({ id: `slide:${slide.id}`, kind: "slide", slideId: slide.id, mediaId: "", title: slide.title || `Slide ${slideIndex + 1}`, src: firstImage?.src || "", audioSrc: "" });
       const track = slide.canvas?.audio;
       if (track?.src) result.push({ id: `audio:${slide.id}:${track.id || "track"}`, kind: "audio", slideId: slide.id, mediaId: track.id || "track", title: track.name || `${slide.title || `Slide ${slideIndex + 1}`} · Music`, src: track.src, audioSrc: track.src });
       objects.forEach((object, mediaIndex) => {
-        if (!object.mediaType || !["image", "video"].includes(object.mediaType) || !object.src) return;
+        if (!object.mediaType || !["image", "video", "youtube"].includes(object.mediaType) || !object.src) return;
+        const kind = object.mediaType === "youtube" ? "video" : object.mediaType;
         result.push({
-          id: `${object.mediaType}:${slide.id}:${object.id || mediaIndex}`,
-          kind: object.mediaType,
+          id: `${kind}:${slide.id}:${object.id || mediaIndex}`,
+          kind,
+          youtubeId: object.mediaType === "youtube" ? window.SnapKeyYouTube.idFor(object) : "",
           slideId: slide.id,
           mediaId: object.id || String(mediaIndex),
           title: object.audioName || `${slide.title || `Slide ${slideIndex + 1}`} · ${object.mediaType === "image" ? "Image" : "Video"} ${mediaIndex + 1}`,
@@ -1354,7 +1577,7 @@
   function targetForLiveState(state) {
     const slideId = state?.slideId || state?.activeSlideId;
     if (!slideId) return null;
-    if (state?.kind && !["slide", "blank"].includes(state.kind)) {
+    if (state?.kind && !["slide", "blank", "whiteboard"].includes(state.kind)) {
       const mediaTarget = targets.find(target => target.slideId === slideId && target.kind === state.kind && String(target.mediaId) === String(state.mediaId));
       if (mediaTarget) return mediaTarget;
     }
@@ -1367,7 +1590,7 @@
       : target.kind === "audio"
         ? '<span class="controller-slide-number">♫</span>'
         : target.src
-          ? (target.kind === "video" ? `<video src="${escapeHtml(target.src)}" muted preload="metadata"></video><span class="controller-play-mark">▶</span>` : `<img src="${escapeHtml(target.src)}" alt="">`)
+          ? (target.youtubeId ? `<img src="https://i.ytimg.com/vi/${escapeHtml(target.youtubeId)}/hqdefault.jpg" alt="YouTube video"><span class="controller-play-mark">▶</span>` : target.kind === "video" ? `<video src="${escapeHtml(target.src)}" muted preload="metadata"></video><span class="controller-play-mark">▶</span>` : `<img src="${escapeHtml(target.src)}" alt="">`)
           : `<span class="controller-slide-number">${escapeHtml(target.title.slice(0, 2))}</span>`;
     const card = `<button class="controller-target-card" type="button" data-target-id="${escapeHtml(target.id)}"><span class="controller-target-thumb">${visual}</span><span><strong>${escapeHtml(target.title)}</strong><small>${target.kind}${target.audioSrc ? " · linked audio" : ""}</small></span></button>`;
     if (target.kind !== "slide") return card;
@@ -1400,11 +1623,42 @@
       thumbnail.backgroundColor = data.background || "#f8f4ea";
       if (data.fabric) {
         const scene = JSON.parse(JSON.stringify(data.fabric));
-        scene.objects = (scene.objects || []).filter(object => object.mediaType !== "video");
+        scene.objects = (scene.objects || []).filter(object => !["video", "youtube", "screen-share"].includes(object.mediaType || object.type));
         thumbnail.loadFromJSON(scene, finish);
       } else {
-        (data.elements || []).filter(item => item.type === "text").forEach(item => thumbnail.add(legacyPreviewText(item)));
-        finish();
+        const elements = data.elements || [];
+        const images = elements.filter(item => item.type === "image" && item.src);
+        Promise.all(images.map(item => new Promise(resolve => {
+          fabric.Image.fromURL(item.src, image => resolve(image || null));
+        }))).then(loadedImages => {
+          if (version !== slideThumbnailRenderVersion || !slideThumbnailCanvases.includes(thumbnail)) return;
+          let imageIndex = 0;
+          elements.forEach(item => {
+            if (item.type === "text") {
+              thumbnail.add(legacyPreviewText(item));
+              return;
+            }
+            if (item.type !== "image" || !item.src) return;
+            const image = loadedImages[imageIndex++];
+            if (!image) return;
+            const boxWidth = Math.max(1, Number(item.width || 100) * 12.8);
+            const boxHeight = Math.max(1, Number(item.height || 100) * 7.2);
+            const scale = item.full_bleed || item.fit === "fill"
+              ? null
+              : Math.min(boxWidth / image.width, boxHeight / image.height);
+            image.set({
+              left: Number(item.x || 0) * 12.8,
+              top: Number(item.y || 0) * 7.2,
+              scaleX: scale || boxWidth / image.width,
+              scaleY: scale || boxHeight / image.height,
+              selectable: false,
+              evented: false
+            });
+            thumbnail.add(image);
+            if (item.full_bleed) thumbnail.sendToBack(image);
+          });
+          finish();
+        }).catch(() => finish());
       }
     });
   }
@@ -1442,7 +1696,7 @@
   async function persistSlide(target) {
     if (target.kind !== "slide") return;
     try {
-      await api.setLiveSlide(presentationId, target.slideId, shareToken);
+      await api.setLiveSlide(presentationId, target.slideId, shareToken, cohostRequestOptions);
     } catch (error) {
       toast(error.message || "Could not update the live screen.");
     }
@@ -1450,6 +1704,7 @@
 
   function selectTarget(target) {
     if (!target) return;
+    setPreviewWhiteboard(false, false);
     activeTargetId = target.id;
     restoredMediaState = null;
     outputBlanked = false;
@@ -1537,12 +1792,16 @@
 
   try {
     if (!window.fabric) throw new Error("The slide preview library could not be loaded.");
-    const [result, live] = await Promise.all([
-      api.getPresentation(presentationId, shareToken),
-      api.getLiveSession(presentationId).catch(() => ({ activeSlideId: "" }))
+    const [result, live, meetingPlan] = await Promise.all([
+      api.getPresentation(presentationId, shareToken, cohostRequestOptions),
+      api.getLiveSession(presentationId, cohostRequestOptions).catch(() => ({ activeSlideId: "" })),
+      !isCohost && api.getMeetingForPresentation ? api.getMeetingForPresentation(presentationId).catch(() => null) : Promise.resolve(null)
     ]);
     if (result.permission !== "presenter") throw new Error("A trusted presenter link is required for this controller.");
     presentation = result.presentation;
+    const closeMeetingButton = $("#controllerLiveMedia")?.querySelector("[data-live-close]");
+    const cachedUser = api.getCachedSession?.();
+    if (closeMeetingButton) closeMeetingButton.hidden = isCohost || !cachedUser?.id || cachedUser.id !== presentation.ownerId;
     const initialVolume = normalizedVolume(live.videoVolume ?? live.audioVolume);
     videoVolume = initialVolume;
     audioVolume = initialVolume;
@@ -1555,14 +1814,19 @@
       shareToken,
       authToken,
       socket,
+      requestOptions: cohostRequestOptions,
       displayName: resolvedPresenterName,
       cohostGuestId,
+      meetingId: meetingPlan?.id || "",
+      meetingEndAt: meetingPlan?.scheduledEnd || "",
+      canExtendMeeting: Boolean(!isCohost && cachedUser?.id && cachedUser.id === result.presentation.ownerId),
       fullscreenTarget: $("#controllerLiveMedia").querySelector(".interactive-main-stage"),
       fullscreenOnJoin: false,
       controller: true,
+      onBeforeRoomSwitch: () => finishLocalRecording({download: true}),
       presentationSource: {
-        canvas: $("#controllerPreviewCanvas"),
-        media: $("#controllerPreviewMedia"),
+        canvas: () => previewWhiteboardActive && whiteboardPreviewCanvas ? whiteboardPreviewCanvas.lowerCanvasEl : $("#controllerPreviewCanvas"),
+        media: () => previewWhiteboardActive ? null : $("#controllerPreviewMedia"),
         label: () => $("#previewTitle").textContent || presentation.title
       }
     });
@@ -1576,8 +1840,19 @@
     if (joinButton) joinButton.hidden = true;
     if (joinStatus) joinStatus.textContent = isCohost ? "Joining as co-host…" : "Joining as presentation owner…";
     queueMicrotask(() => liveMediaSession?.join?.(true));
+    scheduleMeetingExpiry(meetingPlan);
 
     previewCanvas = new fabric.StaticCanvas("controllerPreviewCanvas", { width: 1280, height: 720, selection: false, renderOnAddRemove: false });
+    if (window.SnapKeyWhiteboard) {
+      const surface = $('#previewWhiteboardSurface');
+      const canvasElement = document.createElement('canvas'); canvasElement.width = 1280; canvasElement.height = 720; surface.append(canvasElement);
+      whiteboardPreviewCanvas = new fabric.StaticCanvas(canvasElement, { width: 1280, height: 720, selection: false });
+      const launch = document.createElement('button'); launch.type = 'button'; launch.textContent = 'Open workspace'; launch.onclick = () => whiteboardWorkspace.open(); surface.append(launch);
+      document.body.classList.add('has-premium-whiteboard');
+      whiteboardWorkspace = window.SnapKeyWhiteboard.create({ api, presentationId, token: shareToken, requestOptions: cohostRequestOptions, socket, notify: toast, onActivate: () => setPreviewWhiteboard(true), onStop: () => setPreviewWhiteboard(false), onDocument: document => window.SnapKeyWhiteboardView.render(whiteboardPreviewCanvas, document) });
+      const savedBoard = await api.getWhiteboard(presentationId, shareToken, cohostRequestOptions).catch(() => ({ document: null }));
+      if (savedBoard.document) window.SnapKeyWhiteboardView.render(whiteboardPreviewCanvas, savedBoard.document);
+    }
     $("#backToEditor").href = `/builder.html?id=${encodeURIComponent(presentation.id)}`;
     renderControllerTargets();
     const initialTarget = targetForLiveState(live) || targets.find(target => target.kind === "slide");
@@ -1586,7 +1861,8 @@
       document.querySelector(`[data-target-id="${CSS.escape(activeTargetId)}"]`)?.classList.add("active");
       outputBlanked = live.kind === "blank";
       renderTargetPreview(initialTarget);
-      if (outputBlanked) showPreviewPlaceholder("Black screen");
+      if (live.kind === "whiteboard") setPreviewWhiteboard(true, false);
+      else if (outputBlanked) showPreviewPlaceholder("Black screen");
       else applyRestoredMediaState({ ...live, slideId: live.activeSlideId });
     }
     $("#startImageLoop").onclick = () => startLoop("image", "#imageLoopList");
@@ -1595,11 +1871,12 @@
     $("#pauseMedia").onclick = () => sendMediaControl("toggle");
     $("#previewAudio").onclick = togglePreviewAudio;
     $("#replayMedia").onclick = () => sendMediaControl("replay");
+    $("#openWhiteboard").onclick = () => whiteboardWorkspace ? whiteboardWorkspace.open() : setPreviewWhiteboard(!previewWhiteboardActive);
     $("#stopMedia").onclick = () => {
       stopLoop(false);
       outputBlanked = true;
       restoredMediaState = null;
-      $("#previewTitle").textContent = "Screen cleared";
+      setPreviewWhiteboard(false, false);
       showPreviewPlaceholder("Black screen");
       emitControllerState();
       socket?.emit("media_control", { ...credentials(), action: "stop", position: 0, legacyOnly: true });
@@ -1623,20 +1900,13 @@
       }
     };
     if (!socket) setConnectionStatus("Sync ready");
-    const joinRoom = () => { setConnectionStatus("Live"); socket?.emit("join_presentation", { presentationId }); };
+    const joinRoom = () => { setConnectionStatus("Live"); socket?.emit("join_presentation", credentials()); };
     socket?.on("connect", joinRoom);
     if (socket?.connected) joinRoom();
     socket?.on("connect_error", () => setConnectionStatus("Sync backup"));
     socket?.on("disconnect", () => setConnectionStatus("Sync backup"));
     socket?.on("presenter_rejected", event => toast(event.message || "Presenter permission required."));
-    socket?.on("presentation_state", state => {
-      if (state.presentationId && state.presentationId !== presentationId) return;
-      const stateVolume = normalizedVolume(state.videoVolume ?? state.audioVolume);
-      videoVolume = stateVolume;
-      audioVolume = stateVolume;
-      applyPreviewVolumes();
-      syncVolumeControls();
-    });
+    socket?.on("presentation_state", applyCanonicalControllerState);
     socket?.on("presentation_updated", event => {
       if (event.presentationId !== presentationId || !event.presentation) return;
       const previousState = controllerStatePayload();
@@ -1659,8 +1929,21 @@
       showPreviewPlaceholder("This presentation is no longer available.");
       document.querySelectorAll("button").forEach(button => { if (button.id !== "backToEditor") button.disabled = true; });
     });
-    setInterval(emitControllerState, 1000);
+    socket?.on("session_ended", event => {
+      if (event?.presentationId && event.presentationId !== presentationId) return;
+      meetingClosed = true;
+      window.clearTimeout(meetingExpiryTimer);
+      stopLoop(false);
+      setConnectionStatus("Closed");
+      toast("Meeting closed. All participants were disconnected.");
+      document.querySelectorAll("#controllerLiveMedia button, .controller-console-actions button").forEach(button => { button.disabled = true; });
+    });
+    socket?.on("meeting_time_extended", event => {
+      if (event?.presentationId !== presentationId || !event.scheduledEnd) return;
+      scheduleMeetingExpiry({ scheduledEnd: event.scheduledEnd });
+    });
   } catch (error) {
+    if (window.SnapKeyBreakoutRooms?.recover(presentationId)) return;
     $("#controllerTitle").textContent = "Controller unavailable";
     showPreviewPlaceholder(error.message);
   }

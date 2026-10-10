@@ -1,0 +1,126 @@
+@media (max-width: 640px), (max-width: 960px) and (max-height: 500px) {
+  .live-controller-page[data-controller-mode] .live-controller-header { display: grid; }
+  .live-controller-page[data-controller-mode="control"] { height: auto; overflow-y: auto; }
+  .live-controller-page[data-controller-mode="control"] .live-controller-shell { height: auto; min-height: 100dvh; grid-template-rows: auto auto; }
+  .live-controller-page[data-controller-mode="control"] .controller-console-layout { display: flex; gap: 12px; }
+  .live-controller-page[data-controller-mode="control"] .controller-console-preview { height: auto; min-height: 0; }
+  .live-controller-page[data-controller-mode="control"] .controller-console-sidebar { gap: 12px; }
+  html:has(.live-controller-page) { height: auto; overflow-y: auto; }
+  .live-controller-page { --mobile-header-height: 108px; height: auto; min-height: 100dvh; overflow-x: hidden; background: #f4f5f6; }
+  .live-controller-page .live-controller-shell { width: 100%; min-height: 100dvh; height: auto; gap: 0; padding: 0; }
+  .live-controller-page .live-controller-header { position: sticky; top: 0; z-index: 80; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 48px 44px; gap: 4px 10px; min-height: var(--mobile-header-height); padding: 6px 12px; border: 0; border-bottom: 1px solid #dedfe3; border-radius: 0; background: #fff; box-shadow: none; }
+  .live-controller-page .controller-brand { grid-column: 1; grid-row: 1; min-width: 0; }
+  .live-controller-page .controller-brand .eyebrow { display: none; }
+  .live-controller-page .controller-brand h1 { margin: 0; overflow: hidden; font-size: 17px; line-height: 1.3; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
+  .live-controller-page .live-controller-actions { grid-column: 2; grid-row: 1; gap: 5px; }
+  .live-controller-page .controller-connection { width: 16px; min-width: 16px; overflow: hidden; font-size: 0; }
+  .live-controller-page .controller-connection i { width: 7px; height: 7px; }
+  .live-controller-page .controller-settings-button, .live-controller-page #backToEditor { width: 38px; min-width: 38px; min-height: 38px; border: 1px solid #e5e6e9; border-radius: 6px; padding: 0; }
+  .live-controller-page .controller-editor-label { display: none; }
+  .live-controller-page .controller-mode-switch { grid-column: 1 / -1; grid-row: 2; width: 100%; height: 40px; gap: 4px; border: 0; border-radius: 6px; padding: 3px; background: #f1f2f4; box-shadow: none; }
+  .live-controller-page .controller-mode-switch button { flex: 1; min-height: 34px; padding: 0 12px; font: 700 13px/1.2 var(--sans); letter-spacing: 0; text-transform: none; }
+  .live-controller-page .controller-mode-switch button.is-active { background: #ffd54a; box-shadow: none; }
+  .live-controller-page .controller-control-view { padding: 12px 12px 24px; }
+  .live-controller-page .controller-console-layout { display: flex; flex-direction: column; gap: 12px; height: auto; }
+  .live-controller-page .controller-console-preview { min-height: 0; height: auto; display: block; }
+  .live-controller-page .controller-console-preview .controller-preview-panel { height: auto; min-height: 0; display: block; border-radius: 8px; box-shadow: none; }
+  .live-controller-page .controller-preview-bar:has(#controllerSidebarRestore[hidden]) { display: none; }
+  .live-controller-page .controller-console-preview .controller-preview-body { display: flex; flex-direction: column; padding: 0; gap: 0; }
+  .live-controller-page .controller-console-preview .controller-preview-stage { width: 100%; height: auto; min-height: 0; aspect-ratio: 16 / 9; border-radius: 6px; }
+  .live-controller-page .controller-console-preview .controller-preview-body.has-inline-notes { display: flex; flex-direction: column; }
+  .live-controller-page .controller-inline-notes { max-height: 220px; border: 0; border-radius: 0; }
+  .live-controller-page .controller-console-sidebar { gap: 12px; overflow: visible; }
+  .live-controller-page .controller-sidebar-controls { border-radius: 8px; box-shadow: none; }
+  .live-controller-page .controller-sidebar-controls-header { min-height: 42px; padding: 8px 10px; }
+  .live-controller-page .controller-sidebar-heading, .live-controller-page .controller-preview-summary { display: none; }
+  .live-controller-page .controller-workspace-links { min-width: 0; flex: 1; }
+  .live-controller-page .controller-sidebar-controls-header .controller-preview-window-actions { gap: 4px; }
+  .live-controller-page .controller-sidebar-controls-header .controller-preview-window-actions button { min-height: 36px; min-width: 36px; }
+  .live-controller-page .controller-control-ribbon { height: 54px; overflow: visible; }
+  .live-controller-page .controller-control-ribbon button { height: 54px; min-height: 54px; }
+  .live-controller-page .controller-control-ribbon button:hover .controller-control-icon { transform: none; }
+  .live-controller-page .controller-control-ribbon button::after { display: none; }
+  .live-controller-page .controller-volume-controls { padding: 10px 12px; }
+  .live-controller-page input[type="range"] { min-height: 30px; }
+  .live-controller-page .controller-library { border-radius: 8px; box-shadow: none; }
+  .live-controller-page .controller-library-header { padding: 10px 12px; }
+  .live-controller-page .controller-library-header .eyebrow { display: none; }
+  .live-controller-page .controller-library-header h2 { margin: 0; font-size: 16px; }
+  .live-controller-page .controller-library-tabs { position: static; min-height: 46px; background: #f4f5f6; }
+  .live-controller-page .controller-library-tabs button { min-height: 44px; padding: 0 6px; border-radius: 6px; font-size: 12px; letter-spacing: 0; }
+  .live-controller-page .controller-library-tabs button small { display: none; }
+  .live-controller-page .controller-library-panels { height: auto; min-height: 170px; max-height: none; overflow: visible; }
+  .live-controller-page .controller-library-panel { overflow: visible; padding: 12px; }
+  .live-controller-page .controller-library-panel .controller-target-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .live-controller-page .controller-target-card { border-radius: 6px; }
+  .live-controller-page .controller-target-card strong { font-size: 12px; line-height: 1.4; }
+  .live-controller-page .controller-target-card small { font-size: 11px; }
+  .live-controller-page .controller-loop-layout { grid-template-columns: 1fr; }
+  .live-controller-page .controller-inline-notes p, .live-controller-page .controller-notes-content { font-size: 13px; }
+  .live-controller-page .controller-preview-text-editor { width: calc(100% - 24px); max-width: none; left: 12px; right: 12px; transform: none; }
+
+  .live-controller-page[data-controller-mode="interactive"] { height: 100dvh; overflow: hidden; }
+  .live-controller-page[data-controller-mode="interactive"] .live-controller-shell { height: 100dvh; min-height: 0; grid-template-rows: var(--mobile-header-height) minmax(0, 1fr); }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-workspace { --controller-meeting-dock-height: calc(76px + env(safe-area-inset-bottom)); position: relative; height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) var(--controller-meeting-dock-height); gap: 0; overflow: hidden; border: 0; border-radius: 0; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-main-stage { grid-column: 1; grid-row: 1; height: 100%; min-height: 0; padding: 0; background: #111214; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-main-stage .live-presentation-feed { height: 100%; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+  .live-controller-page[data-controller-mode="interactive"] .live-presentation-feed-heading { min-width: 0; padding: 8px 12px; gap: 8px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-presentation-feed-heading strong { font-size: 11px; letter-spacing: 0; }
+  .live-controller-page[data-controller-mode="interactive"] .live-presentation-feed-heading span { min-width: 0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-session-sidebar { position: absolute; z-index: 40; top: auto; right: 0; bottom: var(--controller-meeting-dock-height); left: 0; width: 100%; height: min(38dvh, 310px); max-height: calc(100% - var(--controller-meeting-dock-height) - 48px); min-height: 0; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); border: 0; border-top: 1px solid #dddfe4; border-radius: 8px 8px 0 0; padding-bottom: 0; box-shadow: 0 -6px 24px rgba(0,0,0,.12); }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-session-sidebar-header { min-height: 42px; height: 42px; padding: 7px 12px; gap: 8px; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-session-sidebar-header > div:first-child { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-session-sidebar-header strong { font-size: 13px; white-space: nowrap; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-session-sidebar-header [data-live-count] { font-size: 11px; white-space: nowrap; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-session-sidebar-header .interactive-workspace-links { display: none; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-session-sidebar-header button { width: 34px; min-width: 34px; min-height: 34px; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-session-setup { padding: 8px 12px; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-session-setup .eyebrow { display: none; }
+  .live-controller-page[data-controller-mode="interactive"] .live-media-status { font-size: 11px; line-height: 1.4; }
+  .live-controller-page[data-controller-mode="interactive"] .is-connected .interactive-session-setup { display: none; }
+  .live-controller-page[data-controller-mode="interactive"] .live-sidebar-tabs { min-height: 40px; height: 40px; padding: 0 12px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-sidebar-tabs button { min-height: 40px; font-size: 12px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-sidebar-panels, .live-controller-page[data-controller-mode="interactive"] .controller-people-panel { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-participant-grid { padding: 8px 12px 12px; gap: 8px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-participant-group-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-participant-group-grid .live-media-tile { width: auto; min-width: 0; aspect-ratio: 16 / 10; border-radius: 6px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-media-tile footer strong { font-size: 11px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-media-tile footer span { font-size: 10px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-media-avatar { width: 36px; height: 36px; font-size: 16px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-chat-composer textarea { font-size: 16px; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-workspace > .interactive-control-dock.live-icon-control-dock { grid-column: 1; grid-row: 2; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); height: var(--controller-meeting-dock-height); min-height: var(--controller-meeting-dock-height); gap: 3px; padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); border-top: 1px solid #dddfe4; background: #fff; box-shadow: none; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-workspace > .interactive-control-dock.live-icon-control-dock > .live-control-button, .live-controller-page[data-controller-mode="interactive"] .interactive-control-dock > .live-more-menu-wrap > .live-control-button { width: 100%; min-width: 0; max-width: none; min-height: 62px; margin: 0; padding: 3px 0; gap: 5px; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-control-dock > .live-more-menu-wrap { width: 100%; min-width: 0; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-workspace > .interactive-control-dock.live-icon-control-dock { position: relative; z-index: 60; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-control-dock .live-control-icon { width: 38px; height: 38px; flex-basis: 38px; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-control-dock .live-control-button.is-leave .live-control-icon { width: 44px; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-control-dock .live-control-button > [data-live-control-label] { max-width: 100%; font: 600 10px/1.2 var(--sans); letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .live-controller-page[data-controller-mode="interactive"] .live-more-menu { position: fixed; right: 10px; left: 10px; bottom: calc(84px + env(safe-area-inset-bottom)); width: auto; max-height: min(65dvh, 500px); overflow-y: auto; overscroll-behavior: contain; border-radius: 8px; padding: 8px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-more-menu::after { display: none; }
+  .live-controller-page[data-controller-mode="interactive"] .live-more-menu { z-index: 120; background: #fff; backdrop-filter: none; }
+  .live-controller-page[data-controller-mode="interactive"] .live-more-menu button { min-height: 44px; font-size: 13px; }
+  .live-controller-page[data-controller-mode="interactive"] .live-mobile-menu-actions { display: grid; border-top: 1px solid #dddfe4; margin-top: 6px; padding-top: 6px; }
+  .live-controller-page .live-mobile-menu-actions > [hidden] { display: none !important; }
+  .live-controller-page[data-controller-mode="interactive"] .live-more-menu .is-mobile-menu-control { display: flex; align-items: center; justify-content: flex-start; gap: 12px; width: 100%; max-width: none; min-width: 0; min-height: 44px; margin: 0; padding: 6px 10px; border: 0; background: transparent; }
+  .live-controller-page[data-controller-mode="interactive"] .live-more-menu .is-mobile-menu-control .live-control-icon { width: 24px; height: 24px; flex-basis: 24px; border: 0; background: transparent; box-shadow: none; }
+  .live-controller-page[data-controller-mode="interactive"] .live-more-menu .is-mobile-menu-control > [data-live-control-label] { position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; font: 600 13px/1.3 var(--sans); color: inherit; }
+  .live-controller-page[data-controller-mode="interactive"] .live-more-menu .is-close-meeting { color: #b83b32; }
+  .live-controller-page[data-controller-mode="interactive"] .live-mobile-menu-actions > .is-mobile-menu-control { flex-direction: row !important; justify-content: flex-start !important; width: 100% !important; height: 44px !important; min-height: 44px !important; margin: 0 !important; }
+  .live-controller-page[data-controller-mode="interactive"] .live-mobile-menu-actions > .is-mobile-menu-control .live-control-icon { margin: 0; flex-shrink: 0; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-workspace.is-people-panel-maximized .interactive-session-sidebar { top: 0; height: auto; max-height: none; border-radius: 0; }
+  .live-controller-page[data-controller-theme="dark"] .live-controller-header { background: #17181b; border-color: #303238; }
+  .live-controller-page[data-controller-theme="dark"] .controller-mode-switch { background: #24262b; }
+  .live-controller-page[data-controller-theme="dark"] .live-more-menu { background: #17181b; }
+  .live-controller-page[data-controller-theme="dark"] .interactive-control-dock.live-icon-control-dock { background: #17181b; border-color: #303238; }
+  .live-controller-page .appearance-settings-dialog, .live-controller-page .local-recording-dialog { width: calc(100vw - 24px); max-height: calc(100dvh - 32px); overflow-y: auto; border-radius: 8px; }
+  .live-controller-page .controller-fullscreen-tools { max-width: calc(100% - 16px); overflow-x: auto; flex-wrap: nowrap; justify-content: flex-start; }
+  .live-controller-page .controller-fullscreen-tools .controller-tool-group { flex: 0 0 auto; }
+}
+
+@media (max-width: 640px) and (orientation: landscape), (max-width: 960px) and (max-height: 500px) {
+  .live-controller-page { --mobile-header-height: 58px; }
+  .live-controller-page .live-controller-header { grid-template-columns: minmax(0, 1fr) 190px auto; grid-template-rows: 44px; }
+  .live-controller-page .controller-mode-switch { grid-column: 2; grid-row: 1; }
+  .live-controller-page .live-controller-actions { grid-column: 3; }
+  .live-controller-page[data-controller-mode="interactive"] .interactive-session-sidebar { top: 0; left: auto; width: 240px; height: auto; max-height: none; border-radius: 0; }
+}

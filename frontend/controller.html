@@ -4,9 +4,11 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio — Live Controller</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20260925-more-reactions">
+    <link rel="stylesheet" href="/css/styles.css?v=20261007-slide-thumbnails">
+    <link rel="stylesheet" href="/css/controller-mobile.css?v=20261004-mobile-workspace">
+    <link rel="stylesheet" href="/css/whiteboard.css?v=20261006-polar-keyboard">
   </head>
-  <body class="live-controller-page" data-controller-mode="control">
+  <body class="live-controller-page" data-controller-mode="control" data-controller-theme="light">
     <main class="live-controller-shell">
       <header class="live-controller-header">
         <div class="controller-brand"><p class="eyebrow">Private presenter panel</p><h1 id="controllerTitle">Live Controller</h1></div>
@@ -32,19 +34,39 @@
                     <canvas id="controllerPreviewCanvas" width="1280" height="720" aria-label="Current slide preview"></canvas>
                     <div class="controller-preview-media" id="controllerPreviewMedia"></div>
                     <span class="controller-preview-placeholder" id="controllerPreviewPlaceholder">Waiting for a selection</span>
+                    <div class="controller-preview-whiteboard" id="previewWhiteboardSurface" aria-label="Whiteboard annotation surface" hidden></div>
                     <canvas class="controller-preview-annotation-canvas" id="previewAnnotationCanvas" width="1280" height="720" aria-hidden="true"></canvas>
                     <div class="controller-preview-annotation-text" id="previewAnnotationText" aria-live="polite"></div>
                   </div>
                   <div class="controller-fullscreen-tools" id="previewFullscreenTools" role="toolbar" aria-label="Fullscreen presentation tools">
-                    <button type="button" data-preview-tool="highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
-                    <button type="button" data-preview-tool="text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
-                    <button type="button" data-preview-tool="pan" aria-label="Grab and move" title="Grab and move" aria-pressed="false">✥</button>
-                    <button type="button" id="previewFullscreenNotes" aria-label="Open notes for the current slide" title="Open slide notes">▤</button>
-                    <label class="controller-preview-tool-field" title="Highlighter color"><span>Color</span><input id="previewToolColor" type="color" value="#ffdc2d" aria-label="Highlighter color"></label>
-                    <label class="controller-preview-tool-field" title="Highlighter size"><span>Size</span><select id="previewToolSize" aria-label="Highlighter size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
-                    <button type="button" id="previewZoomOut" aria-label="Zoom out" title="Zoom out">−</button><span id="previewZoomValue" aria-live="polite">100%</span><button type="button" id="previewZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
-                    <button type="button" id="previewResetView" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button><button type="button" id="previewClearAnnotations" aria-label="Clear annotations" title="Clear annotations">⌫</button>
+                    <div class="controller-tool-group controller-tool-group-mode" role="group" aria-label="Board mode">
+                      <button type="button" class="is-whiteboard-toggle" data-preview-whiteboard data-tooltip="Whiteboard" aria-label="Open whiteboard" title="Open whiteboard" aria-pressed="false">▱</button>
+                    </div>
+                    <div class="controller-tool-group" role="group" aria-label="Drawing tools">
+                      <button type="button" data-preview-tool="highlighter" data-tooltip="Highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
+                      <button type="button" data-preview-tool="text" data-tooltip="Text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
+                      <button type="button" data-preview-tool="line" data-tooltip="Line" aria-label="Draw line" title="Line" aria-pressed="false">╱</button>
+                      <button type="button" data-preview-tool="arrow" data-tooltip="Arrow" aria-label="Draw arrow" title="Arrow" aria-pressed="false">➜</button>
+                      <button type="button" data-preview-tool="rectangle" data-tooltip="Rectangle" aria-label="Draw rectangle" title="Rectangle" aria-pressed="false">□</button>
+                      <button type="button" data-preview-tool="circle" data-tooltip="Circle" aria-label="Draw circle" title="Circle" aria-pressed="false">○</button>
+                      <button type="button" data-preview-tool="pan" data-tooltip="Pan canvas" aria-label="Grab and move" title="Grab and move" aria-pressed="false">✥</button>
+                    </div>
+                    <div class="controller-tool-group" role="group" aria-label="Presentation tools">
+                      <button type="button" id="previewFullscreenNotes" data-tooltip="Slide notes" aria-label="Open notes for the current slide" title="Open slide notes">▤</button>
+                    </div>
+                    <div class="controller-tool-group controller-tool-style-group" role="group" aria-label="Drawing style">
+                      <label class="controller-preview-tool-field" title="Drawing color"><span>Color</span><input id="previewToolColor" type="color" value="#ffdc2d" aria-label="Drawing color"></label>
+                      <label class="controller-preview-tool-field" title="Stroke size"><span>Size</span><select id="previewToolSize" aria-label="Stroke size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
+                    </div>
+                    <div class="controller-tool-group controller-tool-view-group" role="group" aria-label="Canvas view">
+                      <button type="button" id="previewZoomOut" data-tooltip="Zoom out" aria-label="Zoom out" title="Zoom out">−</button><span id="previewZoomValue" aria-label="Current zoom" aria-live="polite">100%</span><button type="button" id="previewZoomIn" data-tooltip="Zoom in" aria-label="Zoom in" title="Zoom in">+</button>
+                      <button type="button" id="previewResetView" data-tooltip="Reset view" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button>
+                    </div>
+                    <div class="controller-tool-group controller-tool-action-group" role="group" aria-label="Whiteboard actions">
+                      <button type="button" id="previewClearAnnotations" data-tooltip="Clear annotations" aria-label="Clear annotations" title="Clear annotations">⌫</button><button type="button" id="previewExitFullscreen" class="fullscreen-exit-tool" data-tooltip="Exit fullscreen" aria-label="Exit preview fullscreen" title="Exit fullscreen">×</button>
+                    </div>
                   </div>
+                  <span class="controller-whiteboard-cursor" id="previewWhiteboardCursor" aria-hidden="true" hidden></span>
                   <form class="controller-preview-text-editor" id="previewTextEditor" hidden><label for="previewTextInput">Add text to the live screen</label><input id="previewTextInput" type="text" maxlength="180" autocomplete="off" placeholder="Type your text"><div><button type="button" id="previewTextCancel">Cancel</button><button type="submit" class="is-primary">Add text</button></div></form>
                 </div>
                 <aside class="controller-inline-notes" id="controllerNotesPanel" aria-labelledby="controllerNotesTitle" aria-describedby="controllerNotesDescription" hidden>
@@ -61,11 +83,12 @@
               <header class="controller-sidebar-controls-header"><div class="controller-sidebar-heading"><p class="eyebrow">Live controls</p><h2 id="presenterControlsTitle">Presenter controls</h2></div><div class="controller-workspace-links" id="controllerWorkspaceLinks"></div><div class="controller-preview-summary"><strong id="previewTitle" aria-live="polite">Screen ready</strong></div><div class="controller-preview-window-actions" role="toolbar" aria-label="Preview tools"><button type="button" id="previewNotes" aria-label="Open notes for the current slide" aria-pressed="false" title="Open slide notes" disabled><span aria-hidden="true">▤</span><span>Notes</span></button><button type="button" id="previewFullscreen" aria-label="Open preview in fullscreen" title="Open preview in fullscreen"><span aria-hidden="true">⛶</span><span data-preview-fullscreen-label>Fullscreen</span></button><button type="button" id="previewMinimize" aria-label="Minimize preview" aria-expanded="true" title="Minimize preview"><span aria-hidden="true" data-preview-minimize-icon>—</span><span data-preview-minimize-label>Minimize</span></button><button type="button" id="controllerSidebarHide" aria-label="Hide presenter controls" title="Hide presenter controls"><span aria-hidden="true">›</span><span>Hide</span></button></div></header>
               <div class="controller-console-actions" aria-label="Live presentation controls">
                 <div class="controller-control-ribbon" role="toolbar" aria-label="Playback and presentation">
-                  <button type="button" id="pauseMedia" disabled><span class="controller-control-icon" data-control-icon aria-hidden="true">▶</span><strong>Play</strong><small class="sr-only" id="previewMediaTiming">No active media</small></button>
-                  <button type="button" id="previewAudio" disabled><span class="controller-control-icon" data-control-icon aria-hidden="true">🔊</span><strong>Enable Audio</strong><small class="sr-only">Audience and preview</small></button>
-                  <button type="button" id="replayMedia" disabled><span class="controller-control-icon" aria-hidden="true">↻</span><strong>Replay</strong><small class="sr-only">Restart and sync</small></button>
-                  <button type="button" id="stopMedia" class="is-danger"><span class="controller-control-icon" aria-hidden="true">■</span><strong>Black Screen</strong><small class="sr-only">Clear output</small></button>
-                  <button type="button" id="openScreen"><span class="controller-control-icon" aria-hidden="true">▣</span><strong>Open Screen</strong><small class="sr-only">Launch audience output</small></button>
+                  <button type="button" id="pauseMedia" aria-label="Play" data-tooltip="Play" disabled><span class="controller-control-icon" data-control-icon aria-hidden="true">▶</span><strong>Play</strong><small class="sr-only" id="previewMediaTiming">No active media</small></button>
+                  <button type="button" id="previewAudio" aria-label="Mute Audio" data-tooltip="Mute Audio" disabled><span class="controller-control-icon" data-control-icon aria-hidden="true">🔊</span><strong>Mute Audio</strong><small class="sr-only">Audience and preview</small></button>
+                  <button type="button" id="replayMedia" aria-label="Replay" data-tooltip="Replay" disabled><span class="controller-control-icon" aria-hidden="true">↻</span><strong>Replay</strong><small class="sr-only">Restart and sync</small></button>
+                  <button type="button" id="openWhiteboard" aria-label="Open Whiteboard" data-tooltip="Whiteboard" aria-pressed="false"><span class="controller-control-icon" aria-hidden="true">▱</span><strong>Whiteboard</strong><small class="sr-only">Open annotation workspace</small></button>
+                  <button type="button" id="stopMedia" class="is-danger" aria-label="Black Screen" data-tooltip="Black Screen"><span class="controller-control-icon" aria-hidden="true">■</span><strong>Black Screen</strong><small class="sr-only">Clear output</small></button>
+                  <button type="button" id="openScreen" aria-label="Open Screen" data-tooltip="Open Screen"><span class="controller-control-icon" aria-hidden="true">▣</span><strong>Open Screen</strong><small class="sr-only">Launch audience output</small></button>
                 </div>
                 <div class="controller-volume-mixer" aria-label="Audience presentation volume">
                   <div class="controller-volume-row"><label for="controllerMasterVolume">Master sound</label><input id="controllerMasterVolume" type="range" min="0" max="100" step="1" value="100" data-volume-kind="master" aria-label="Master presentation sound volume"><output for="controllerMasterVolume" data-volume-value="master">100%</output></div>
@@ -100,6 +123,7 @@
 
       <section class="controller-mode-view interactive-workspace live-media-panel" id="controllerLiveMedia" data-controller-mode-view="interactive" role="tabpanel" aria-labelledby="controllerInteractiveTab" hidden>
         <div class="interactive-main-stage">
+          <button class="stage-fullscreen-exit" data-live-fullscreen-exit type="button" aria-label="Exit meeting fullscreen" title="Exit fullscreen" hidden>×</button>
           <button class="interactive-sidebar-restore" data-live-panel-restore type="button" aria-label="Show participants and meeting controls" title="Show participants and meeting controls" hidden><span aria-hidden="true">‹</span><span>Show controls</span></button>
           <section class="live-presentation-feed interactive-presentation-feed" data-live-presentation-viewer aria-label="Current live presentation">
             <div class="live-presentation-feed-heading"><strong>Live presentation</strong><span data-live-presentation-label>Waiting for the current slide</span></div>
@@ -108,18 +132,32 @@
           <section class="live-screen-share interactive-screen-share" data-live-screen-share-viewer hidden><div class="live-screen-share-heading"><strong data-live-screen-share-label>Shared screen</strong><span data-live-screen-share-mode>Choose the screen shown to everyone</span></div><div class="live-screen-share-media" data-live-screen-share-media></div></section>
           <section class="live-featured-camera" data-live-featured-camera-viewer hidden aria-label="Featured participant camera"><header><strong data-live-featured-camera-label>Featured camera</strong><button type="button" data-live-featured-camera-close aria-label="Close featured camera" title="Close featured camera">×</button></header><div data-live-featured-camera-media></div></section>
           <div class="controller-fullscreen-tools interactive-fullscreen-tools" id="interactiveFullscreenTools" role="toolbar" aria-label="Interactive fullscreen drawing tools">
-            <button type="button" data-preview-tool="highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
-            <button type="button" data-preview-tool="text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
-            <button type="button" data-preview-tool="pan" aria-label="Grab and move" title="Grab and move" aria-pressed="false">✥</button>
-            <label class="controller-preview-tool-field" title="Highlighter color"><span>Color</span><input id="interactiveToolColor" type="color" value="#ffdc2d" aria-label="Highlighter color"></label>
-            <label class="controller-preview-tool-field" title="Highlighter size"><span>Size</span><select id="interactiveToolSize" aria-label="Highlighter size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
-            <button type="button" id="interactiveZoomOut" aria-label="Zoom out" title="Zoom out">−</button><span id="interactiveZoomValue" aria-live="polite">100%</span><button type="button" id="interactiveZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
-            <button type="button" id="interactiveResetView" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button><button type="button" id="interactiveClearAnnotations" aria-label="Clear annotations" title="Clear annotations">⌫</button>
+            <div class="controller-tool-group" role="group" aria-label="Drawing tools">
+              <button type="button" data-preview-tool="highlighter" data-tooltip="Highlighter" class="is-active" aria-label="Highlighter" title="Highlighter" aria-pressed="true">✎</button>
+              <button type="button" data-preview-tool="text" data-tooltip="Text" aria-label="Add text" title="Add text" aria-pressed="false">T</button>
+              <button type="button" data-preview-tool="line" data-tooltip="Line" aria-label="Draw line" title="Line" aria-pressed="false">╱</button>
+              <button type="button" data-preview-tool="arrow" data-tooltip="Arrow" aria-label="Draw arrow" title="Arrow" aria-pressed="false">➜</button>
+              <button type="button" data-preview-tool="rectangle" data-tooltip="Rectangle" aria-label="Draw rectangle" title="Rectangle" aria-pressed="false">□</button>
+              <button type="button" data-preview-tool="circle" data-tooltip="Circle" aria-label="Draw circle" title="Circle" aria-pressed="false">○</button>
+              <button type="button" data-preview-tool="pan" data-tooltip="Pan canvas" aria-label="Grab and move" title="Grab and move" aria-pressed="false">✥</button>
+            </div>
+            <div class="controller-tool-group controller-tool-style-group" role="group" aria-label="Drawing style">
+              <label class="controller-preview-tool-field" title="Drawing color"><span>Color</span><input id="interactiveToolColor" type="color" value="#ffdc2d" aria-label="Drawing color"></label>
+              <label class="controller-preview-tool-field" title="Stroke size"><span>Size</span><select id="interactiveToolSize" aria-label="Stroke size"><option value="6">Fine</option><option value="12">Medium</option><option value="18" selected>Wide</option><option value="30">Extra wide</option></select></label>
+            </div>
+            <div class="controller-tool-group controller-tool-view-group" role="group" aria-label="Canvas view">
+              <button type="button" id="interactiveZoomOut" data-tooltip="Zoom out" aria-label="Zoom out" title="Zoom out">−</button><span id="interactiveZoomValue" aria-label="Current zoom" aria-live="polite">100%</span><button type="button" id="interactiveZoomIn" data-tooltip="Zoom in" aria-label="Zoom in" title="Zoom in">+</button>
+              <button type="button" id="interactiveResetView" data-tooltip="Reset view" aria-label="Reset zoom to 100 percent" title="Reset zoom">1:1</button>
+            </div>
+            <div class="controller-tool-group controller-tool-action-group" role="group" aria-label="Whiteboard actions">
+              <button type="button" id="interactiveClearAnnotations" data-tooltip="Clear annotations" aria-label="Clear annotations" title="Clear annotations">⌫</button>
+            </div>
           </div>
+          <span class="controller-whiteboard-cursor" id="interactiveWhiteboardCursor" aria-hidden="true" hidden></span>
           <form class="controller-preview-text-editor" id="interactiveTextEditor" hidden><label for="interactiveTextInput">Add text to the live screen</label><input id="interactiveTextInput" type="text" maxlength="180" autocomplete="off" placeholder="Type your text"><div><button type="button" id="interactiveTextCancel">Cancel</button><button type="submit" class="is-primary">Add text</button></div></form>
         </div>
         <aside class="interactive-session-sidebar live-meeting-sidebar" aria-label="Participants and meeting controls">
-          <header class="interactive-session-sidebar-header"><div><strong>Interactive audience</strong><span data-live-count>0 connected</span></div><div><div class="interactive-workspace-links" id="interactiveWorkspaceLinks"></div><button class="interactive-header-button live-header-action" data-live-fullscreen type="button" aria-label="Enter meeting fullscreen" title="Enter meeting fullscreen">⛶</button><button class="interactive-header-button live-header-action" data-live-panel-toggle type="button" aria-expanded="true" aria-label="Hide participants and meeting controls" title="Hide participants and meeting controls">›</button></div></header>
+          <header class="interactive-session-sidebar-header"><div><strong>Interactive audience</strong><span data-live-count>0 connected</span></div><div><div class="interactive-workspace-links" id="interactiveWorkspaceLinks"></div><button class="interactive-header-button live-panel-maximize" data-live-panel-maximize type="button" aria-pressed="false" aria-label="Maximize people panel" title="Maximize people panel" data-tooltip="Maximize people panel"><svg data-live-panel-maximize-icon viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"></path></svg><svg data-live-panel-restore-icon viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M9 9H4V4M15 9h5V4M9 15H4v5M15 15h5v5"></path></svg></button><button class="interactive-header-button live-header-action" data-live-fullscreen type="button" aria-label="Enter meeting fullscreen" title="Enter meeting fullscreen">⛶</button><button class="interactive-header-button live-header-action" data-live-panel-toggle type="button" aria-expanded="true" aria-label="Hide participants and meeting controls" title="Hide participants and meeting controls">›</button></div></header>
           <div class="interactive-session-card interactive-session-setup"><p class="eyebrow">Session setup</p><div class="live-media-join"><label>Your name <input data-live-name type="text" maxlength="80" autocomplete="name" placeholder="Presenter"></label><button class="button button-gold" data-live-join type="button">Join audio/video</button></div><p class="live-media-status" data-live-status aria-live="polite">Join when you are ready. Camera and microphone start off.</p></div>
           <dialog class="live-background-dialog" data-live-background-dialog aria-labelledby="controllerBackgroundTitle">
             <div class="live-background-dialog-header"><div><small>Camera effects</small><strong id="controllerBackgroundTitle">Choose a background</strong></div><button type="button" data-live-background-close aria-label="Close background chooser">×</button></div>
@@ -152,7 +190,7 @@
               </div>
               <div class="live-media-tiles interactive-participant-grid" data-live-tiles aria-live="polite"></div>
             </section>
-            <section class="live-sidebar-panel live-chat-panel" data-live-panel="chat" aria-label="Meeting chat" hidden><div class="live-chat-messages" data-live-chat-messages role="log" aria-live="polite"><p class="live-chat-empty" data-live-chat-empty>Messages shared in this meeting appear here.</p></div><form class="live-chat-compose" data-live-chat-form><label class="sr-only" for="controllerChatInput">Message everyone</label><input id="controllerChatInput" data-live-chat-input maxlength="500" autocomplete="off" placeholder="Message everyone"><input data-live-chat-file type="file" hidden><button class="live-chat-attach" type="button" data-live-chat-attach disabled aria-label="Attach a file up to 100 MB" title="Attach file">📎</button><button type="submit" disabled aria-label="Send message">Send</button></form></section>
+            <section class="live-sidebar-panel live-chat-panel" data-live-panel="chat" aria-label="Meeting chat" hidden><div class="live-chat-messages" data-live-chat-messages role="log" aria-live="polite"><p class="live-chat-empty" data-live-chat-empty>Messages shared in this meeting appear here.</p></div><form class="live-chat-compose" data-live-chat-form><div class="live-chat-pending" data-live-chat-pending hidden><img data-live-chat-pending-image alt=""><div><strong data-live-chat-pending-name></strong><small data-live-chat-pending-size></small></div><button type="button" data-live-chat-pending-remove aria-label="Remove attachment" title="Remove attachment">×</button></div><label class="sr-only" for="controllerChatInput">Message everyone</label><input id="controllerChatInput" data-live-chat-input maxlength="500" autocomplete="off" placeholder="Message everyone"><input data-live-chat-file type="file" hidden><button class="live-chat-attach" type="button" data-live-chat-attach disabled aria-label="Attach a file up to 100 MB" title="Attach file"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 12.5 5.8-5.8a3 3 0 0 1 4.2 4.2l-8.3 8.3a5 5 0 0 1-7.1-7.1l8.5-8.5"></path></svg></button><button class="live-chat-send" type="submit" disabled aria-label="Send message" title="Send message"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 17-8-6 18-3-7-8-3Zm8 3 4-4"></path></svg></button></form></section>
           </div>
         </aside>
         <div class="live-media-actions interactive-control-dock live-icon-control-dock" aria-label="Meeting controls">
@@ -172,18 +210,33 @@
                 <button type="button" data-live-reaction="heart" disabled aria-label="Send heart" title="Love"><span aria-hidden="true">❤️</span><span>Love</span></button>
               </div>
               <button type="button" role="menuitem" data-live-background disabled aria-haspopup="dialog" aria-expanded="false"><span aria-hidden="true">✨</span><span>Effects</span></button>
+              <button type="button" role="menuitem" data-live-more-action="audiences" aria-controls="controllerAudienceTools" aria-expanded="false"><span aria-hidden="true">⌕</span><span>Audiences</span></button>
               <button type="button" role="menuitem" data-live-more-action="panel">Hide panel</button>
               <button type="button" role="menuitem" data-live-more-action="fullscreen">Fullscreen</button>
               <button type="button" role="menuitem" data-live-more-action="settings">Appearance</button>
             </div>
+            <section class="live-audience-tools-popover" id="controllerAudienceTools" data-live-audience-tools-popover role="dialog" aria-modal="false" aria-labelledby="controllerAudienceToolsTitle" hidden>
+              <header><div><small>Participants</small><strong id="controllerAudienceToolsTitle">Find audiences</strong></div><button type="button" data-live-audience-tools-close aria-label="Close audience filters">×</button></header>
+              <div class="live-people-tools" data-live-people-tools>
+                <label class="live-people-search"><span class="sr-only">Search participants</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg><input data-live-people-search type="search" autocomplete="off" placeholder="Search participants"></label>
+                <div class="live-people-filters" role="toolbar" aria-label="Filter participants">
+                  <button type="button" data-live-people-filter="all" class="is-active" aria-pressed="true">All <span>0</span></button>
+                  <button type="button" data-live-people-filter="speaking" aria-pressed="false">Speaking <span>0</span></button>
+                  <button type="button" data-live-people-filter="hands" aria-pressed="false">Hands <span>0</span></button>
+                  <button type="button" data-live-people-filter="unmuted" aria-pressed="false">Mic on <span>0</span></button>
+                  <button type="button" data-live-people-filter="camera" aria-pressed="false">Camera <span>0</span></button>
+                </div>
+              </div>
+            </section>
           </div>
+          <button class="live-control-button is-close-meeting" type="button" data-live-close hidden disabled><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"></path></svg></span><span data-live-control-label>Close</span></button>
           <button class="live-control-button is-leave" type="button" data-live-leave disabled><span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5.5 15.5c4.3-3.6 8.7-3.6 13 0M4 14l2 5 4-2M20 14l-2 5-4-2"></path></svg></span><span data-live-control-label>Leave</span></button>
         </div>
       </section>
     </main>
     <dialog class="appearance-settings-dialog" id="controllerSettingsDialog" aria-labelledby="controllerSettingsTitle">
       <div class="appearance-settings-header"><div><span>Preferences</span><h2 id="controllerSettingsTitle">Appearance settings</h2></div><button type="button" id="controllerSettingsClose" aria-label="Close settings">×</button></div>
-      <div class="appearance-settings-body"><p>Choose how the controller workspace looks on this device.</p><div class="appearance-theme-options" role="group" aria-label="Controller theme"><button type="button" data-controller-theme-option="dark" aria-pressed="true"><span aria-hidden="true">☾</span><span><strong>Black</strong><small>Dark workspace</small></span><b>Selected</b></button><button type="button" data-controller-theme-option="light" aria-pressed="false"><span aria-hidden="true">☀</span><span><strong>Light</strong><small>Bright workspace</small></span><b>Use</b></button></div></div>
+      <div class="appearance-settings-body"><p>Choose how the controller workspace looks on this device.</p><div class="appearance-theme-options" role="group" aria-label="Controller theme"><button type="button" data-controller-theme-option="dark" aria-pressed="false"><span aria-hidden="true">☾</span><span><strong>Black</strong><small>Dark workspace</small></span><b>Use</b></button><button type="button" data-controller-theme-option="light" aria-pressed="true"><span aria-hidden="true">☀</span><span><strong>Light</strong><small>Bright workspace</small></span><b>Selected</b></button></div></div>
     </dialog>
     <dialog class="local-recording-dialog" id="localRecordingDialog" aria-labelledby="localRecordingTitle">
       <div class="local-recording-header"><div><span class="local-recording-kicker">Saved only on this device</span><h2 id="localRecordingTitle">Record meeting locally</h2></div><div class="local-recording-header-actions"><button type="button" id="localRecordingMinimize" aria-label="Minimize recording controls" title="Minimize recording controls" hidden><span aria-hidden="true">—</span></button><button type="button" id="localRecordingClose" aria-label="Close recording panel">×</button></div></div>
@@ -212,10 +265,23 @@
     <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
     <script src="/js/fabric-patch.js?v=20260908-paragraph-align"></script>
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
-    <script src="/js/api.js?v=20260919-participant-icons"></script>
-    <script src="/js/youtube-embed.js?v=20260915-youtube-media"></script>
+    <script src="/js/appearance.js?v=20260925-light-default"></script>
+    <script src="/js/api.js?v=20261004-science-board"></script>
+    <script src="/js/whiteboard-view.js?v=20261004-science-board"></script>
+    <script src="/js/whiteboard-studios.js?v=20261006-polar-keyboard"></script>
+    <script src="/js/whiteboard-polar.js?v=20261006-polar-keyboard"></script>
+    <script src="/js/whiteboard-keyboard.js?v=20261006-polar-keyboard"></script>
+    <script src="/js/whiteboard-math-lab.js?v=20261004-math-lab"></script>
+    <script src="/js/whiteboard-live-math.js?v=20261006-polar-keyboard"></script>
+    <script src="/js/whiteboard-3d.js?v=20261004-live-3d"></script>
+    <script src="/js/whiteboard-lessons.js?v=20261006-polar-keyboard"></script>
+    <script src="/js/whiteboard-advanced.js?v=20261004-advanced"></script>
+    <script src="/js/science-whiteboard.js?v=20261006-polar-keyboard"></script>
+    <script src="/js/youtube-embed.js?v=20261003-meeting-youtube"></script>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.17.2/dist/livekit-client.umd.min.js"></script>
-    <script src="/js/live-media.js?v=20260925-more-reactions"></script>
-    <script src="/js/controller.js?v=20260919-recording-minimize"></script>
+    <link rel="stylesheet" href="/css/breakout-rooms.css?v=20261006">
+    <script src="/js/breakout-rooms.js?v=20261006"></script>
+    <script src="/js/live-media.js?v=20261008-screen-quality"></script>
+    <script src="/js/controller.js?v=20261007-meeting-countdown"></script>
   </body>
 </html>

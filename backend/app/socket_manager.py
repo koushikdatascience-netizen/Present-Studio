@@ -2,8 +2,8 @@ import json
 import socketio
 from .database import SessionLocal
 from .live_state import apply_controller_state, live_session_payload, meeting_control_payload, utc_now
-from .models import LiveSession, Presentation, Slide
-from .security import can_present_with_credentials, new_id
+from .models import LiveSession, Presentation, Slide, ShareLink
+from .security import can_present_with_credentials, can_view_presentation, user_from_token, resolve_share_permission, resolve_participant_resume_token, new_id, verify_password
 
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
@@ -99,6 +99,22 @@ async def join_presentation(sid, data):
     presentation_id = data.get("presentationId")
     if not presentation_id:
         return
+    with SessionLocal() as db:
+        presentation = db.get(Presentation, presentation_id)
+        if presentation and presentation.status == "breakout":
+            from .breakout import authorize, enforce_assignment
+            from fastapi import HTTPException
+            try:
+                _, _, _, _, guest = authorize(db, data)
+                if guest:
+                    enforce_assignment(db, presentation_id, guest.guest_id)
+                    session = await sio.get_session(sid)
+                    session["breakout_guest_id"] = guest.guest_id
+                    session["breakout_presentation_id"] = presentation_id
+                    await sio.save_session(sid, session)
+            except HTTPException:
+                await sio.leave_room(sid, presentation_id)
+                return
     await sio.enter_room(sid, presentation_id)
     with SessionLocal() as db:
         live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).first()
@@ -114,6 +130,37 @@ async def join_presentation(sid, data):
         control_state = meeting_control_payload(live, presentation_id)
     await sio.emit("meeting_control_state", control_state, room=sid)
     await sio.emit("presence", {"message": "joined", "presentationId": presentation_id}, room=sid)
+
+
+@sio.event
+async def whiteboard_join(sid, data):
+    presentation_id = data.get('presentationId')
+    if not presentation_id:
+        return
+    with SessionLocal() as db:
+        presentation = db.get(Presentation, presentation_id)
+        user = user_from_token(db, data.get('authToken') or '')
+        allowed = bool(presentation and (
+            (user and can_view_presentation(db, presentation, user))
+            or resolve_share_permission(db, presentation_id, data.get('shareToken') or '')
+            or resolve_participant_resume_token(db, data.get('resumeToken') or '', presentation_id)
+        ))
+        if allowed and not (user and can_view_presentation(db, presentation, user)) and not resolve_participant_resume_token(db, data.get('resumeToken') or '', presentation_id):
+            share = db.query(ShareLink).filter(ShareLink.presentation_id == presentation_id, ShareLink.token == (data.get('shareToken') or '')).first()
+            if share and share.permission == 'viewer' and share.screen_access_code_hash:
+                allowed = bool(data.get('screenCode') and verify_password(data['screenCode'], share.screen_access_code_hash))
+        if not allowed:
+            await sio.leave_room(sid, f'whiteboard:{presentation_id}')
+            return
+        live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).first()
+        document = json.loads(live.whiteboard_document) if live and live.whiteboard_document else None
+        presenter = can_present_with_credentials(db, presentation, auth_token=data.get('authToken') or '', share_token=data.get('shareToken') or '')
+        if document and not presenter:
+            from .whiteboard import active_document
+            document = active_document(document)
+    await sio.enter_room(sid, f'whiteboard:{presentation_id}')
+    if document:
+        await sio.emit('whiteboard_document', {'presentationId': presentation_id, 'document': document, 'partial': not presenter}, room=sid)
 
 
 @sio.event
@@ -188,7 +235,7 @@ async def controller_state(sid, data):
     media_id = data.get("mediaId")
     auth_token = data.get("authToken") or ""
     share_token = data.get("shareToken") or ""
-    if not presentation_id or not slide_id or kind not in {"slide", "image", "video", "audio", "blank"}:
+    if not presentation_id or not slide_id or kind not in {"slide", "image", "video", "audio", "blank", "whiteboard"}:
         return
     try:
         position = max(0.0, min(float(data.get("position") or 0), 86400.0))
@@ -293,7 +340,7 @@ async def annotation_event(sid, data):
     share_token = data.get("shareToken") or ""
     event_type = data.get("type")
     payload = data.get("payload") or {}
-    if not presentation_id or event_type not in {"draw", "text", "clear", "viewport"}:
+    if not presentation_id or event_type not in {"draw", "shape", "text", "clear", "viewport"}:
         return
     with SessionLocal() as db:
         presentation = db.get(Presentation, presentation_id)
@@ -314,8 +361,12 @@ async def meeting_control(sid, data):
     share_token = data.get("shareToken") or ""
     if not presentation_id:
         return
+    featured_identity_supplied = "featuredShareIdentity" in data
     raw_featured_identity = data.get("featuredShareIdentity")
     featured_identity = (raw_featured_identity.strip()[:128] or None) if isinstance(raw_featured_identity, str) else None
+    featured_camera_identity_supplied = "featuredCameraIdentity" in data
+    raw_featured_camera_identity = data.get("featuredCameraIdentity")
+    featured_camera_identity = (raw_featured_camera_identity.strip()[:128] or None) if isinstance(raw_featured_camera_identity, str) else None
     raw_muted = data.get("mutedParticipants")
     if not isinstance(raw_muted, list):
         raw_muted = []
@@ -329,7 +380,10 @@ async def meeting_control(sid, data):
         if not live:
             live = LiveSession(id=new_id("live"), presentation_id=presentation_id)
             db.add(live)
-        live.featured_share_identity = featured_identity
+        if featured_identity_supplied:
+            live.featured_share_identity = featured_identity
+        if featured_camera_identity_supplied:
+            live.featured_camera_identity = featured_camera_identity
         live.meeting_muted = data.get("meetingMuted") is True
         live.muted_participant_identities = json.dumps(muted_identities, separators=(",", ":"))
         db.commit()
@@ -615,6 +669,7 @@ async def end_session(sid, data):
             live.media_playing = False
             live.media_updated_at = utc_now()
             live.featured_share_identity = None
+            live.featured_camera_identity = None
             live.meeting_muted = False
             live.muted_participant_identities = "[]"
             db.commit()

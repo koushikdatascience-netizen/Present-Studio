@@ -1,0 +1,27 @@
+services:
+  backend:
+    environment:
+      COMPUTE_SERVICE_URL: http://compute:8010
+      COMPUTE_SERVICE_KEY: ${COMPUTE_SERVICE_KEY:?Set a strong COMPUTE_SERVICE_KEY}
+      COMPUTE_DAILY_QUOTA: ${COMPUTE_DAILY_QUOTA:-30}
+    networks: [default, computation]
+
+  compute:
+    build:
+      context: .
+      dockerfile: compute/Dockerfile
+    environment:
+      COMPUTE_SERVICE_KEY: ${COMPUTE_SERVICE_KEY:?Set a strong COMPUTE_SERVICE_KEY}
+    networks: [computation]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=16m]
+    cpus: 1.0
+    mem_limit: 768m
+    pids_limit: 64
+
+networks:
+  computation:
+    internal: true

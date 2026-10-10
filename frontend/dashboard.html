@@ -7,8 +7,8 @@
   <title>Present Studio — Dashboard</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="/css/builder.css?v=20260905-logo-fix">
-  <link rel="stylesheet" href="/css/dashboard.css?v=20260912-mobile-responsive">
+  <link rel="stylesheet" href="/css/builder.css?v=20260928-outfit-font">
+  <link rel="stylesheet" href="/css/dashboard.css?v=20261004-slide-thumbnails">
 </head>
 <body class="dashboard-page">
   <header class="app-header dashboard-header">
@@ -30,28 +30,93 @@
   </header>
   <main class="dashboard-main">
     <section class="dashboard-welcome">
-      <div><p class="dashboard-eyebrow" id="dashboardDate"></p><h1 id="dashboardGreeting">Welcome back.</h1><p class="dashboard-subtitle">A clear stage for every important idea.</p></div>
-      <button class="tool-button is-primary dashboard-new-button" id="createPresentation" type="button"><i class="bi bi-plus-lg"></i><span>New Presentation</span></button>
-    </section>
-    <section class="dashboard-stats" aria-label="Workspace statistics">
-      <article class="stat-card"><span class="stat-icon"><i class="bi bi-easel2"></i></span><div><p>Presentations</p><strong id="presentationCount">—</strong></div></article>
-      <article class="stat-card"><span class="stat-icon"><i class="bi bi-clock-history"></i></span><div><p>Recently Updated</p><strong id="recentCount">—</strong></div></article>
-      <article class="stat-card"><span class="stat-icon"><i class="bi bi-stars"></i></span><div><p>Total Slides</p><strong id="slideTotal">—</strong></div></article>
-    </section>
-    <section class="dashboard-recent" aria-labelledby="recentHeading">
-      <div class="recent-heading-row">
-        <div><p class="dashboard-eyebrow">YOUR WORKSPACE</p><h2 id="recentHeading">Recent presentations</h2></div>
-        <div class="recent-controls"><label class="dashboard-search"><i class="bi bi-search" aria-hidden="true"></i><input id="presentationSearch" type="search" placeholder="Search presentations" aria-label="Search presentations"></label><button class="view-button is-active" type="button" data-view="grid" aria-label="Grid view"><i class="bi bi-grid"></i></button><button class="view-button" type="button" data-view="list" aria-label="List view"><i class="bi bi-list"></i></button></div>
+      <div><p class="dashboard-eyebrow" id="dashboardDate"></p><h1 id="dashboardGreeting">Welcome back.</h1><p class="dashboard-subtitle">Pick up a presentation or start a live meeting.</p></div>
+      <div class="dashboard-create-actions">
+        <button class="tool-button dashboard-new-button dashboard-meeting-button" id="createMeeting" type="button"><i class="bi bi-camera-video"></i><span>New meeting</span></button>
+        <button class="tool-button is-primary dashboard-new-button" id="createPresentation" type="button"><i class="bi bi-plus-lg"></i><span>New presentation</span></button>
       </div>
-      <div class="presentation-grid" id="presentationGrid"><p class="dashboard-status">Loading your presentations…</p></div>
     </section>
-    <section class="dashboard-cta">
-      <div><p class="dashboard-eyebrow">START FROM AN IDEA</p><h2>What will you present today?</h2><p>Create a blank presentation or continue your most recent story.</p></div>
-      <button class="cta-primary" id="openBuilder" type="button"><i class="bi bi-plus-square"></i><span>Open Builder</span></button>
-    </section>
+    <div class="dashboard-content">
+      <section class="dashboard-recent" aria-labelledby="recentHeading">
+        <div class="recent-heading-row">
+          <div><h2 id="recentHeading">Recent presentations</h2></div>
+          <div class="recent-controls"><label class="dashboard-search"><i class="bi bi-search" aria-hidden="true"></i><input id="presentationSearch" type="search" placeholder="Search presentations" aria-label="Search presentations"></label><button class="view-button is-active" type="button" data-view="grid" aria-label="Grid view"><i class="bi bi-grid"></i></button><button class="view-button" type="button" data-view="list" aria-label="List view"><i class="bi bi-list"></i></button></div>
+        </div>
+        <div class="presentation-grid" id="presentationGrid"><p class="dashboard-status">Loading your presentations…</p></div>
+      </section>
+      <aside class="dashboard-side-rail" aria-label="Workspace activity">
+        <section class="dashboard-meetings" aria-labelledby="meetingsHeading">
+          <div class="side-section-heading"><h2 id="meetingsHeading">Meetings</h2><button type="button" data-create-meeting-link>New meeting</button></div>
+          <div class="meeting-grid" id="meetingGrid"><p class="dashboard-status">Loading your meetings…</p></div>
+        </section>
+        <section class="dashboard-workspace-summary" aria-label="Your workspace">
+          <h2>Your workspace</h2>
+          <dl>
+            <div><dt>Presentations</dt><dd id="presentationCount">—</dd></div>
+            <div><dt>Total slides</dt><dd id="slideTotal">—</dd></div>
+            <div><dt>Recently updated</dt><dd id="recentCount">—</dd></div>
+          </dl>
+        </section>
+      </aside>
+    </div>
   </main>
+  <dialog class="presentation-share-dialog" id="presentationShareDialog" aria-labelledby="presentationShareTitle">
+    <form method="dialog" class="presentation-share-shell">
+      <header class="presentation-share-header"><div><p class="dashboard-eyebrow">PRESENTATION ACCESS</p><h2 id="presentationShareTitle">Share presentation</h2></div><button type="submit" aria-label="Close share dialog">×</button></header>
+      <p class="presentation-share-description">Anyone with this link can view the slides. It does not grant editing or meeting access. The HTML download includes the viewer and slide content; linked media and YouTube still require internet access.</p>
+      <div class="presentation-share-create" data-viewer-share-create>
+        <label for="viewerShareExpiry">Link expires</label>
+        <select id="viewerShareExpiry"><option value="">Never</option><option value="7">In 7 days</option><option value="30" selected>In 30 days</option><option value="90">In 90 days</option></select>
+        <button class="cta-primary" type="button" data-viewer-share-generate><i class="bi bi-link-45deg" aria-hidden="true"></i> Create read-only link</button>
+      </div>
+      <div class="presentation-share-result" data-viewer-share-result hidden>
+        <label for="viewerShareUrl">Read-only link</label>
+        <div class="presentation-share-link-row"><input id="viewerShareUrl" type="url" readonly><button type="button" class="cta-primary" data-viewer-share-copy><i class="bi bi-copy" aria-hidden="true"></i><span>Copy</span></button></div>
+        <p data-viewer-share-expiry></p>
+        <div class="presentation-share-actions"><button type="button" class="cta-secondary" data-viewer-share-regenerate>Replace link</button><button type="button" class="presentation-share-revoke" data-viewer-share-revoke>Revoke link</button></div>
+      </div>
+      <p class="presentation-share-status" data-viewer-share-status role="status" aria-live="polite"></p>
+    </form>
+  </dialog>
+  <dialog class="meeting-create-dialog" id="meetingCreateDialog" aria-labelledby="meetingCreateTitle">
+    <form id="meetingCreateForm">
+      <header class="meeting-dialog-header"><div><p class="dashboard-eyebrow">NEW MEETING</p><h2 id="meetingCreateTitle">Set up your meeting</h2></div><button type="button" id="meetingDialogClose" aria-label="Close meeting setup">×</button></header>
+      <div class="meeting-dialog-body" data-meeting-form>
+        <label class="meeting-title-field"><span>Meeting name</span><input id="meetingTitle" name="title" maxlength="255" value="New meeting" required></label>
+        <label class="meeting-media-field"><span>Room image or video</span><input id="meetingRoomMedia" name="roomMedia" type="file" accept="image/*,video/*"><small data-meeting-media-name>Optional branded visual for the meeting screen.</small></label>
+        <label class="meeting-media-field"><span>YouTube video</span><input id="meetingYouTubeUrl" name="youtubeUrl" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off"><img id="meetingYouTubePreview" alt="YouTube video thumbnail" hidden></label>
+        <fieldset><legend>When should it start?</legend><div class="meeting-choice-grid"><label><input type="radio" name="timingMode" value="instant" checked><span><i class="bi bi-lightning-charge"></i><b>Instant</b><small>Start when you open the room</small></span></label><label><input type="radio" name="timingMode" value="scheduled"><span><i class="bi bi-calendar-event"></i><b>Scheduled</b><small>Choose a future date and time</small></span></label></div></fieldset>
+        <label class="meeting-conditional" data-scheduled-start hidden><span>Start date and time</span><input id="meetingScheduledStart" name="scheduledStart" type="datetime-local"></label>
+        <fieldset><legend>How long can it run?</legend><div class="meeting-choice-grid"><label><input type="radio" name="durationMode" value="unlimited" checked><span><i class="bi bi-infinity"></i><b>Unlimited</b><small>Persistent room until the owner closes it</small></span></label><label><input type="radio" name="durationMode" value="timed"><span><i class="bi bi-hourglass-split"></i><b>Timed</b><small>Close at a selected end time</small></span></label></div></fieldset>
+        <label class="meeting-conditional" data-scheduled-end hidden><span>End date and time</span><input id="meetingScheduledEnd" name="scheduledEnd" type="datetime-local"></label>
+        <fieldset><legend>Who can use the link?</legend><div class="meeting-choice-grid"><label><input type="radio" name="accessType" value="public" checked><span><i class="bi bi-globe2"></i><b>Public</b><small>No meeting code required</small></span></label><label><input type="radio" name="accessType" value="private"><span><i class="bi bi-shield-lock"></i><b>Private</b><small>A 4-digit code is generated</small></span></label></div></fieldset>
+        <div class="meeting-private-notice" data-private-meeting-notice hidden>
+          <span><i class="bi bi-shield-lock"></i></span>
+          <div><strong>Encrypted private meeting</strong><p>Only permitted participants will be allowed to enter this meeting. For the best secure live experience, use a strong system configuration before conducting it.</p></div>
+        </div>
+        <p class="meeting-form-error" id="meetingFormError" role="alert" hidden></p>
+      </div>
+      <div class="meeting-created-result" data-meeting-result hidden>
+        <span class="meeting-success-icon"><i class="bi bi-check-lg"></i></span><h3>Your meeting is ready</h3><p id="meetingResultSummary"></p>
+        <label><span>Audience link</span><div class="meeting-copy-row"><input id="meetingAudienceLink" readonly><button type="button" data-copy-meeting-link>Copy</button></div></label>
+        <div class="meeting-access-code" data-meeting-access-code hidden><span>Private meeting code</span><strong id="meetingAccessCode"></strong><button type="button" data-copy-meeting-code>Copy code</button></div>
+      </div>
+      <footer class="meeting-dialog-footer"><button type="button" class="cta-secondary" id="meetingCancel">Cancel</button><button type="submit" class="cta-primary" id="meetingSubmit"><i class="bi bi-camera-video"></i><span>Create meeting</span></button><a class="cta-primary" id="meetingOwnerJoin" href="#" hidden><i class="bi bi-box-arrow-up-right"></i><span>Open owner controls</span></a></footer>
+    </form>
+  </dialog>
+  <dialog class="private-meeting-dialog" id="privateMeetingDialog" aria-labelledby="privateMeetingTitle">
+    <div>
+      <span class="private-meeting-icon"><i class="bi bi-shield-lock"></i></span>
+      <h2 id="privateMeetingTitle">Encrypted private meeting</h2>
+      <p>Only permitted participants will be allowed to enter this meeting. To conduct this meeting professionally, please use a strong system configuration.</p>
+      <button class="cta-primary" type="button" id="privateMeetingAcknowledge">Got it</button>
+    </div>
+  </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/js/api.js"></script>
-  <script src="/js/dashboard.js?v=20260907-admin-nav"></script>
+  <script src="/js/api.js?v=20261007-presentation-sharing"></script>
+  <script src="/js/youtube-embed.js?v=20261003-meeting-youtube"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+  <script src="/js/fabric-patch.js?v=20260908-paragraph-align"></script>
+  <script src="/js/dashboard.js?v=20261007-presentation-sharing"></script>
 </body>
 </html>
