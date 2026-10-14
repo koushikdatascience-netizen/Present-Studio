@@ -39,14 +39,15 @@ def create_media_poster(storage, key, content):
         storage.upload_bytes(content=poster.read_bytes(), key=f"{key}.jpg", content_type="image/jpeg")
 
 
-@router.get("/youtube/{video_id}/preview")
-def serve_youtube_preview(video_id: str):
+@router.api_route("/youtube/{video_id}/preview", methods=["GET", "HEAD"])
+def serve_youtube_preview(video_id: str, request: Request):
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
         raise HTTPException(status_code=404, detail="Video thumbnail not found")
     try:
         result = httpx.get(f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg", timeout=10)
         if result.status_code == 200 and result.headers.get("content-type", "").startswith("image/") and len(result.content) <= 1024 * 1024:
-            return Response(result.content, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
+            return Response(b"" if request.method == "HEAD" else result.content, media_type="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=86400", "Content-Length": str(len(result.content))})
     except httpx.HTTPError:
         logger.warning("YouTube thumbnail unavailable")
     return FileResponse(get_settings().frontend_dir / "assets" / "snapkey.png")
@@ -117,8 +118,8 @@ def serve_media_thumbnail(asset_id: str, db: Session = Depends(get_db)):
     return RedirectResponse(storage.presigned_get(key), status_code=307, headers={"Cache-Control": "private, no-store"})
 
 
-@router.get("/{asset_id}/preview")
-def serve_media_preview(asset_id: str, db: Session = Depends(get_db)):
+@router.api_route("/{asset_id}/preview", methods=["GET", "HEAD"])
+def serve_media_preview(asset_id: str, request: Request, db: Session = Depends(get_db)):
     asset = db.get(MediaAsset, asset_id)
     if not asset or not asset.mime_type.startswith(("image/", "video/")) or asset.url != f"/api/media/{asset_id}/content":
         raise HTTPException(status_code=404, detail="Preview not found")
@@ -142,6 +143,10 @@ def serve_media_preview(asset_id: str, db: Session = Depends(get_db)):
         except Exception as poster_error:
             raise HTTPException(status_code=404, detail="Preview not available") from poster_error
     body = result["Body"]
+    if request.method == "HEAD":
+        body.close()
+        return Response(media_type=result.get("ContentType", "image/jpeg"),
+                        headers={"Content-Length": str(result["ContentLength"]), "Cache-Control": "public, max-age=3600"})
 
     def chunks():
         try:
