@@ -2,10 +2,12 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 from urllib.parse import urlsplit, urlunsplit
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 import jwt
 from sqlalchemy import func, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
+from ..services.presentation_images import lightweight_cover
 from ..config import get_settings
 from ..database import get_db
 from ..live_state import apply_controller_state, live_session_payload
@@ -83,30 +85,27 @@ def public_share_base_url(request: Request) -> str:
     forwarded_host = request.headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
     external_url = urlsplit(f"https://{forwarded_host}") if forwarded_host else request.url
     request_hostname = (external_url.hostname or "").lower()
-    if request_hostname and request_hostname not in LOCAL_HOSTS:
+    # Keep local links on the same app/database, but use one canonical public
+    # app host behind proxies and aliases so share URLs never land on the site host.
+    if request_hostname in LOCAL_HOSTS:
+        return str(request.base_url).rstrip("/")
+
+    configured = get_settings().public_base_url.strip().rstrip("/")
+    configured_url = urlsplit(configured if "://" in configured else f"https://{configured}")
+    if configured_url.hostname and configured_url.hostname.lower() not in LOCAL_HOSTS:
+        hostname = configured_url.hostname
+        port = configured_url.port
+        netloc = f"[{hostname}]" if ":" in hostname else hostname
+        if port and port not in {80, 443}:
+            netloc = f"{netloc}:{port}"
+        return urlunsplit(("https", netloc, configured_url.path.rstrip("/"), "", ""))
+    if request_hostname:
         hostname = external_url.hostname or request_hostname
         port = external_url.port
         netloc = f"[{hostname}]" if ":" in hostname else hostname
         if port and port not in {80, 443}:
             netloc = f"{netloc}:{port}"
         return f"https://{netloc}"
-
-    # A locally-created presentation and token exist only in the local database.
-    # Pointing that token at PUBLIC_BASE_URL would cross database instances and
-    # make an otherwise valid link fail with "Presentation not found".
-    if request_hostname in LOCAL_HOSTS:
-        return str(request.base_url).rstrip("/")
-
-    configured = get_settings().public_base_url.strip().rstrip("/")
-    configured_url = urlsplit(configured if "://" in configured else f"https://{configured}")
-    if configured_url.hostname:
-        hostname = configured_url.hostname
-        port = configured_url.port
-        netloc = f"[{hostname}]" if ":" in hostname else hostname
-        if port and port not in {80, 443}:
-            netloc = f"{netloc}:{port}"
-        scheme = configured_url.scheme if hostname.lower() in LOCAL_HOSTS else "https"
-        return urlunsplit((scheme, netloc, configured_url.path.rstrip("/"), "", ""))
     return str(request.base_url).rstrip("/")
 
 
@@ -315,8 +314,34 @@ def create_livekit_join_token(room_name: str, identity: str, name: str, permissi
 def list_presentations(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-) -> dict[str, list[PresentationOut]]:
-    presentations = db.query(Presentation).filter(Presentation.owner_id == user.id, Presentation.status.notin_(["meeting", "breakout"])).order_by(Presentation.updated_at.desc()).all()
+    summary: bool = False,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    query = db.query(Presentation).filter(Presentation.owner_id == user.id, Presentation.status.notin_(["meeting", "breakout"]))
+    if summary:
+        total = query.count()
+        counts = dict(db.query(Slide.presentation_id, func.count(Slide.id)).join(Presentation)
+                      .filter(Presentation.owner_id == user.id, Presentation.status.notin_(["meeting", "breakout"]))
+                      .group_by(Slide.presentation_id).all())
+        decks = query.order_by(Presentation.updated_at.desc(), Presentation.id).limit(limit).offset(offset).all()
+        # Select only the cover slide: do not hydrate every slide relationship.
+        ranked = db.query(Slide.id.label("id"), Slide.presentation_id.label("presentation_id"),
+                          func.row_number().over(partition_by=Slide.presentation_id, order_by=(Slide.order, Slide.id)).label("position"))\
+                   .filter(Slide.presentation_id.in_([deck.id for deck in decks])).subquery()
+        covers = {slide.presentation_id: slide for slide in db.query(Slide).join(ranked, Slide.id == ranked.c.id)
+                  .filter(ranked.c.position == 1).all()}
+        presentations = []
+        for deck in decks:
+            cover = covers.get(deck.id)
+            presentations.append({"id": deck.id, "title": deck.title, "ownerId": deck.owner_id, "status": deck.status,
+                                  "updatedAt": deck.updated_at.isoformat() if deck.updated_at else None,
+                                  "slideCount": counts.get(deck.id, 0),
+                                  "slides": [{"id": cover.id, "order": cover.order, "title": cover.title,
+                                              "canvas": lightweight_cover(cover.canvas or {})}] if cover else []})
+        return {"presentations": presentations, "total": total, "slideTotal": sum(counts.values()),
+                "hasMore": offset + len(decks) < total}
+    presentations = query.options(selectinload(Presentation.slides)).order_by(Presentation.updated_at.desc()).all()
     return {"presentations": [serialize_presentation(item) for item in presentations]}
 
 
@@ -438,51 +463,11 @@ async def save_presentation(
     presentation_id: str,
     payload: PresentationSave,
     user: User = Depends(current_user),
-    db: Session = Depends(get_db),
 ) -> PresentationPayload:
-    presentation = db.get(Presentation, presentation_id)
-    if not presentation or not can_edit_presentation(db, presentation, user):
-        raise HTTPException(status_code=404, detail="Presentation not found")
-
-    presentation.title = payload.title.strip() or "Untitled presentation"
-    db.query(Slide).filter(Slide.presentation_id == presentation.id).delete()
-    used_slide_ids: set[str] = set()
-    saved_slide_ids: list[str] = []
-    for slide in payload.slides:
-        slide_id = unique_slide_id(slide.id, used_slide_ids)
-        saved_slide_ids.append(slide_id)
-        db.add(
-            Slide(
-                id=slide_id,
-                presentation_id=presentation.id,
-                order=slide.order,
-                title=slide.title.strip()[:255] or "Untitled Slide",
-                canvas=slide.canvas,
-            )
-        )
-    live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation.id).first()
-    if live and live.active_slide_id not in saved_slide_ids:
-        if saved_slide_ids:
-            apply_controller_state(live, slide_id=saved_slide_ids[0])
-        else:
-            live.active_slide_id = None
-            live.active_media_id = None
-            live.active_media_kind = "slide"
-            live.media_position = 0
-            live.media_playing = False
-    db.commit()
-    db.refresh(presentation)
-    serialized = serialize_presentation(presentation)
-    await sio.emit(
-        "presentation_updated",
-        {
-            "presentationId": presentation.id,
-            "presentation": serialized.model_dump(),
-            "activeSlideId": live.active_slide_id if live else (saved_slide_ids[0] if saved_slide_ids else None),
-            "liveState": live_session_payload(live, presentation.id),
-        },
-        room=presentation.id,
-    )
+    from ..services.presentation_persistence import persist_presentation
+    serialized, event = await run_in_threadpool(persist_presentation, presentation_id, payload, user.id)
+    # Keep the existing event contract for already-connected meeting clients.
+    await sio.emit("presentation_updated", event, room=presentation_id)
     return PresentationPayload(presentation=serialized, permission="presenter")
 
 
@@ -518,8 +503,11 @@ def get_current_share_link(
 
 
 def standalone_viewer_shares(db: Session, presentation_id: str) -> list[ShareLink]:
-    return [share for share in db.query(ShareLink).filter_by(presentation_id=presentation_id).all()
-            if share.id.startswith("vshare_")]
+    return db.query(ShareLink).filter(
+        ShareLink.presentation_id == presentation_id,
+        ShareLink.permission == "viewer",
+        ShareLink.screen_access_code_hash.is_(None),
+    ).all()
 
 
 def viewer_share_out(request: Request, share: ShareLink) -> ShareLinkOut:

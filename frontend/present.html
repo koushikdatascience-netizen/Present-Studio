@@ -78,6 +78,7 @@
                 <button type="button" role="menuitem" data-live-more-action="panel">Hide panel</button>
                 <button type="button" role="menuitem" data-live-more-action="fullscreen">Fullscreen</button>
                 <button type="button" role="menuitem" data-live-more-action="settings">Appearance</button>
+                <button type="button" role="menuitem" data-audience-record-open><span aria-hidden="true">●</span><span>Record this tab</span></button>
               </div>
               <section class="live-audience-tools-popover" id="audienceAudienceTools" data-live-audience-tools-popover role="dialog" aria-modal="false" aria-labelledby="audienceAudienceToolsTitle" hidden>
                 <header><div><small>Participants</small><strong id="audienceAudienceToolsTitle">Find audiences</strong></div><button type="button" data-live-audience-tools-close aria-label="Close audience filters">×</button></header>
@@ -113,6 +114,12 @@
       <div class="appearance-settings-header"><div><span>Preferences</span><h2 id="audienceSettingsTitle">Appearance settings</h2></div><button type="button" id="audienceSettingsClose" aria-label="Close settings">×</button></div>
       <div class="appearance-settings-body"><p>Choose how the audience meeting looks on this device.</p><div class="appearance-theme-options" role="group" aria-label="Audience theme"><button type="button" data-audience-theme-option="dark" aria-pressed="false"><span aria-hidden="true">☾</span><span><strong>Black</strong><small>Dark meeting view</small></span><b>Use</b></button><button type="button" data-audience-theme-option="light" aria-pressed="true"><span aria-hidden="true">☀</span><span><strong>Light</strong><small>Bright meeting view</small></span><b>Selected</b></button></div></div>
     </dialog>
+    <dialog class="audience-recording-dialog" id="audienceRecordingDialog" aria-labelledby="audienceRecordingTitle">
+      <div class="audience-recording-header"><div><span>Saved on this device</span><h2 id="audienceRecordingTitle">Record this tab</h2></div><button type="button" data-audience-record-close aria-label="Close recording dialog">×</button></div>
+      <p class="audience-recording-notice">This records the browser tab or screen you choose. In the browser picker, select this meeting tab and enable tab audio if you want sound. The recording stays on your device; please let other participants know before recording.</p>
+      <p class="audience-recording-status" data-audience-record-status role="status" aria-live="polite">Ready to record.</p>
+      <div class="audience-recording-actions"><button type="button" data-audience-record-start>Start recording</button><button type="button" data-audience-record-pause disabled>Pause</button><button type="button" data-audience-record-stop disabled>Stop &amp; download</button></div>
+    </dialog>
     <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
     <script src="/js/fabric-patch.js?v=20260908-paragraph-align"></script>
     <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
@@ -123,6 +130,7 @@
     <link rel="stylesheet" href="/css/breakout-rooms.css?v=20261006">
     <script src="/js/breakout-rooms.js?v=20261006"></script>
     <script src="/js/live-media.js?v=20261008-screen-quality"></script>
+    <script src="/js/audience-recording.js?v=20261010-tab-recording"></script>
     <script src="/js/whiteboard-3d.js?v=20261004-live-3d"></script>
     <script src="/js/whiteboard-view.js?v=20261004-science-board"></script>
     <script src="/js/present.js?v=20261008-fast-image-render"></script>

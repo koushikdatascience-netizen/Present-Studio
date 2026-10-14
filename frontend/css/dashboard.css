@@ -54,6 +54,9 @@ html { min-height: 100%; height: auto; overflow-x: hidden; overflow-y: auto; bac
 .presentation-card-footer p { margin: 0; color: #60605a; font-size: 13px; }
 .presentation-card-footer button { width: 34px; height: 34px; border: 0; border-radius: 7px; background: transparent; }
 .presentation-card-footer button:hover { background: #eee; }
+.presentation-card-actions { display: flex; align-items: center; gap: 2px; }
+.presentation-card-footer .presentation-card-action { display: grid; place-items: center; color: #393933; }
+.presentation-card-footer .presentation-card-action:hover { color: #111; background: #fff0a8; }
 .presentation-card-footer .presentation-options { position: relative; }
 .presentation-card-footer .card-menu { display: grid; place-items: center; color: #272722; }
 .presentation-card-footer .card-menu[aria-expanded="true"] { color: #111; background: #fff0a8; }

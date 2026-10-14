@@ -2200,6 +2200,8 @@
           const micError = room?.localParticipant?.lastMicrophoneError;
           if (desiredMicrophoneEnabled && (micError || /microphone|audio|device/i.test(error?.message || ""))) {
             setStatus(micError?.message || error?.message || "Microphone device is unavailable.", "error");
+          } else if (/requested device not found|camera|video/i.test(error?.message || "")) {
+            setStatus("No usable camera was found. Connect or enable a camera, then check browser permissions and try again.", "error");
           }
         });
       }
@@ -2347,7 +2349,19 @@
         if (cameraEnabled && selectedBackground !== "none") await applySelectedCameraBackground(false);
         syncButtons(true); renderParticipants();
       }
-      catch (error) { syncLocalPublishedState(); setStatus(error.message || "Camera permission was not granted", "error"); syncButtons(true); }
+      catch (error) {
+        syncLocalPublishedState();
+        const cameraMessage = ({
+          NotFoundError: "No camera was found. Connect or enable a camera, then try again.",
+          OverconstrainedError: "The selected camera is unavailable. Check your camera settings and try again.",
+          NotAllowedError: "Camera access is blocked. Allow camera permission in your browser and try again.",
+          NotReadableError: "The camera is busy in another app. Close other camera apps and try again."
+        })[error?.name] || (String(error?.message || "").toLowerCase().includes("requested device not found")
+          ? "No camera was found. Connect or enable a camera, then try again."
+          : error?.message || "Camera access could not start. Check the device and browser permission.");
+        setStatus(cameraMessage, "error");
+        syncButtons(true);
+      }
     }
 
     async function toggleScreenShare() {

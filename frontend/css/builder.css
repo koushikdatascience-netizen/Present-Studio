@@ -797,6 +797,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .builder-page .slide-thumbnail-object.is-text { display: flex; align-items: center; white-space: pre-wrap; }
 .builder-page .slide-thumbnail-object img,
 .builder-page .slide-thumbnail-object video { width: 100%; height: 100%; object-fit: contain; background: #111; }
+.builder-page .slide-thumbnail-object.is-image .slide-thumbnail-image-error { position: absolute; inset: 0; display: none; place-items: center; color: #d9d9d3; background: #242424; font-size: 19px; }
+.builder-page .slide-thumbnail-object.is-image.is-unavailable .slide-thumbnail-image-error { display: grid; }
+.builder-page .slide-thumbnail-object.is-image.is-unavailable img { display: none; }
 .builder-page .slide-thumbnail-object.is-video::after { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; background: rgba(0,0,0,.18); font-family: bootstrap-icons; font-size: 20px; content: "\f4f4"; }
 .builder-page .slide-thumbnail-object.is-youtube { display: flex; align-items: center; justify-content: center; gap: 4px; background: #171717; color: #fff; font-size: 9px; font-weight: 800; }
 .builder-page .slide-thumbnail-object.is-youtube > span { color: #f43b32; font-size: 14px; }

@@ -49,8 +49,8 @@ test("participant directory provides stable priority ordering, search, and statu
 test("meeting dock controls expose distinct on, off, and tab speaker states", () => {
   const styles = fs.readFileSync(path.join(__dirname, "../frontend/css/styles.css"), "utf8");
   assert.match(liveMedia, /className = "live-control-button is-tab-speaker"/);
-  assert.match(styles, /\.live-control-button:is\(\.is-microphone,\.is-camera\)\[aria-pressed="true"\][\s\S]*background:\s*#1f9f5a/);
+  assert.match(styles, /\.live-control-button:is\(\.is-microphone,\.is-camera\)\[aria-pressed="true"\][\s\S]*background:\s*#ffd54a/);
   assert.match(styles, /\.live-control-button:is\(\.is-microphone,\.is-camera\)\[aria-pressed="false"\]:not\(:disabled\)[\s\S]*background:\s*#35201e/);
   assert.match(styles, /\.live-control-button\.is-tab-speaker\[aria-pressed="true"\][\s\S]*background:\s*#35201e/);
-  assert.match(styles, /\.live-control-button\.is-tab-speaker\[aria-pressed="false"\][\s\S]*background:\s*#193329/);
+  assert.match(styles, /\.live-control-button\.is-tab-speaker\[aria-pressed="false"\][\s\S]*background:\s*#ffd54a/);
 });

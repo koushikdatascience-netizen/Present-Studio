@@ -11,7 +11,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate:
+    uses: ./.github/workflows/checks.yml
+
   deploy:
+    needs: validate
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
@@ -79,7 +84,7 @@ jobs:
             docker compose \
               --env-file .env \
               -p present-studio-prod \
-              up -d --force-recreate backend
+              up -d --no-deps --force-recreate backend
 
             echo "=== CONTAINER STATUS ==="
             docker compose \
