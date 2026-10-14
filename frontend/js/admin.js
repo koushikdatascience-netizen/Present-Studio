@@ -221,7 +221,7 @@ builderButton.addEventListener("click", async () => {
 document.querySelector("#profileButton").addEventListener("click", async () => {
   if (!window.confirm("Sign out of SnapKey Studio?")) return;
   try { await api.logout(); } catch (error) { /* Continue to login even if logout fails. */ }
-  window.location.href = "/login.html";
+  window.location.href = "https://snapkeystudio.com";
 });
 
 initialize();

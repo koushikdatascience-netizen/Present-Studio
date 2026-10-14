@@ -3,6 +3,7 @@ const presentationId=new URLSearchParams(location.search).get("id")||"pres_demo"
 const authToken=localStorage.getItem("presentStudio.accessToken")||"", socket=window.io?window.io():null;
 let presentation,currentSlideIndex=0,canvas,saveTimer,shareUrl="",screenShareUrl="",audienceShareUrl="",loading=false,mediaAssets=[],selectedPresenter="Self",uploadRequestId=0,retryUploadFile=null;
 const W=1280,H=720;
+let editRevision=0,savePromise=null;
 function secureAppUrl(path){const url=new URL(path,location.origin);if(!["localhost","127.0.0.1","::1"].includes(url.hostname))url.protocol="https:";return url.href}
 function toast(m){const n=$("#toast");n.textContent=m;n.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.remove("show"),2600)}
 function setShareLink(url,permission,screenUrl="",audienceUrl=""){shareUrl=url||"";screenShareUrl=screenUrl||"";audienceShareUrl=audienceUrl||"";const isPresenter=permission==="presenter",button=$("#openShareLink"),copyScreenButton=$("#copyScreenLink"),screenStatus=$("#screenShareStatus"),copyAudienceButton=$("#copyAudienceLink"),audienceStatus=$("#audienceShareStatus");$("#shareStatus").textContent=shareUrl?(isPresenter?`Remote Control: ${shareUrl}`:`Presentation Screen: ${shareUrl}`):"";button.disabled=!shareUrl;button.querySelector("span").textContent=shareUrl?(isPresenter?"Open Remote Control":"Open Presentation Screen"):"Open Link";button.setAttribute("aria-label",shareUrl?`Open ${isPresenter?"Remote Control":"Presentation Screen"} link in a new tab`:"Open generated link in a new tab");if(screenStatus)screenStatus.textContent=screenShareUrl?`Locked Screen: ${screenShareUrl}`:"";if(copyScreenButton)copyScreenButton.disabled=!screenShareUrl;if(audienceStatus)audienceStatus.textContent=audienceShareUrl?`Interactive Audience: ${audienceShareUrl}`:"";if(copyAudienceButton)copyAudienceButton.disabled=!audienceShareUrl}
@@ -12,9 +13,72 @@ function ensure(s){s.canvas||={background:"#f8f4ea",elements:[]};s.canvas.elemen
 function playback(){const s=ensure(presentation.slides[0]);return s.canvas.presentation_playback||=( {mode:"manual",interval_ms:5000,slide_ids:[],media_mode:"all",media_cycle:"all",media_interval_ms:5000,loop_videos:true})}
 function text(item){return new fabric.Textbox(item.text||"",{id:item.id,left:(item.x||0)*12.8,top:(item.y||0)*7.2,width:(item.width||40)*12.8,fontSize:item.fontSize||42,fontWeight:item.fontWeight||"500",fontStyle:item.fontStyle||"normal",fontFamily:item.fontFamily||"Arial",fill:item.color||"#171717",textAlign:item.textAlign||"left"})}
 function video(item){const fitToSlide=item.fitToSlide===true;return new fabric.Rect({id:item.id,left:item.full_bleed||fitToSlide?0:(item.x||0)*12.8,top:item.full_bleed||fitToSlide?0:(item.y||0)*7.2,width:item.full_bleed||fitToSlide?W:(item.width||40)*12.8,height:item.full_bleed||fitToSlide?H:(item.height||30)*7.2,fill:"#1c1a16",stroke:item.full_bleed||fitToSlide?null:"#d1a948",strokeWidth:item.full_bleed||fitToSlide?0:4,rx:item.full_bleed||fitToSlide?0:8,ry:item.full_bleed||fitToSlide?0:8,mediaType:"video",src:item.src,full_bleed:item.full_bleed===true,loop:item.loop,muted:item.muted===true,fit:item.fit||(item.full_bleed?"fill":"contain")})}
-function image(item){fabric.Image.fromURL(item.src,o=>{o.set({id:item.id,mediaType:"image",src:item.src,audioSrc:item.audioSrc||"",audioName:item.audioName||"",full_bleed:item.full_bleed===true,loop:item.loop,muted:item.muted===true,fit:item.fit||(item.full_bleed?"fill":"contain"),left:(item.x||0)*12.8,top:(item.y||0)*7.2});if(item.fitToSlide&&o.width&&o.height){const scale=Math.min(W/o.width,H/o.height);o.set({scaleX:scale,scaleY:scale,left:(W-o.width*scale)/2,top:(H-o.height*scale)/2})}else if(item.full_bleed){o.set({scaleX:W/o.width,scaleY:H/o.height,left:0,top:0})}else{o.scaleToWidth((item.width||40)*12.8);if(o.getScaledHeight()>(item.height||30)*7.2)o.scaleToHeight((item.height||30)*7.2)}canvas.add(o);if(item.full_bleed||item.fitToSlide)canvas.sendToBack(o);o.setCoords();canvas.requestRenderAll();if(!loading){canvas.setActiveObject(o);panel();schedule()}},{crossOrigin:"anonymous"})}
+function image(item, targetSlideId=activeSlide()?.id){
+  const targetCanvas=canvas, wasLoading=loading;
+  fabric.Image.fromURL(item.src,o=>{
+    if(!o||!o.width||!o.height){
+      toast("This image could not load. Check the media link or upload it again.");
+      return;
+    }
+    if(targetCanvas!==canvas||!presentation.slides.some(slide=>slide.id===targetSlideId))return;
+    o.set({id:item.id,mediaType:"image",src:item.src,thumbnailSrc:item.thumbnailSrc||"",audioSrc:item.audioSrc||"",audioName:item.audioName||"",full_bleed:item.full_bleed===true,loop:item.loop,muted:item.muted===true,fit:item.fit||(item.full_bleed?"fill":"contain"),left:(item.x||0)*12.8,top:(item.y||0)*7.2});
+    if(item.fitToSlide){const scale=Math.min(W/o.width,H/o.height);o.set({scaleX:scale,scaleY:scale,left:(W-o.width*scale)/2,top:(H-o.height*scale)/2})}
+    else if(item.full_bleed)o.set({scaleX:W/o.width,scaleY:H/o.height,left:0,top:0});
+    else{o.scaleToWidth((item.width||40)*12.8);if(o.getScaledHeight()>(item.height||30)*7.2)o.scaleToHeight((item.height||30)*7.2)}
+    if(targetSlideId!==activeSlide()?.id){
+      const target=ensure(presentation.slides.find(slide=>slide.id===targetSlideId));
+      if(target.canvas.fabric){
+        const objects=target.canvas.fabric.objects||=[];
+        const saved=o.toObject(["id","mediaType","src","thumbnailSrc","audioSrc","audioName","full_bleed","loop","muted","fit"]);
+        if(item.full_bleed||item.fitToSlide)objects.unshift(saved);else objects.push(saved);
+      }else target.canvas.elements.push({...item,x:o.left/12.8,y:o.top/7.2,width:o.getScaledWidth()/12.8,height:o.getScaledHeight()/7.2});
+      editRevision++;clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600);
+      renderList();return;
+    }
+    canvas.add(o);if(item.full_bleed||item.fitToSlide)canvas.sendToBack(o);o.setCoords();canvas.requestRenderAll();
+    if(!wasLoading&&!loading){canvas.setActiveObject(o);panel();schedule()}
+  },{crossOrigin:"anonymous"})
+}
 function capture(){if(!presentation||loading)return;const s=ensure(activeSlide());s.canvas.background=canvas.backgroundColor||"#f8f4ea";s.canvas.fabric=canvas.toJSON(["id","mediaType","src","youtubeId","audioSrc","audioName","full_bleed","loop","muted","fit","hyperlink","animation","animationDuration","animationDelay","wordArt","wordArtPreset","shapeRequestedFontSize","shapeText","paragraphAlignments","shapeKind","frameKind","flowchartKind","diagramKind","chartKind","componentType","componentRole","componentIndex","componentName","visualParentId","visualTheme","diagramTheme","chartData","chartStyle","editableComponent"]);const title=canvas.getObjects().find(o=>o.id==="title");if(title&&title.text.trim())s.title=title.text.trim()}
-function load(){loading=true;const d=ensure(activeSlide()).canvas;if(d.fabric)canvas.loadFromJSON(d.fabric,()=>{canvas.backgroundColor=d.background||"#f8f4ea";canvas.renderAll();loading=false;panel()});else{canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";d.elements.forEach(x=>{if(x.type==="text")canvas.add(text(x));else if(x.type==="image")image(x);else if(x.type==="video")canvas.add(video(x))});canvas.requestRenderAll();loading=false;panel()}}
+let slideLoadVersion=0;
+const prefetchedSlideImages=new Map();
+function prefetchAdjacentImages(){
+  for(const index of [currentSlideIndex-1,currentSlideIndex+1]){
+    const slide=presentation.slides[index];
+    if(!slide)continue;
+    const walk=value=>{
+      if(Array.isArray(value)){value.forEach(walk);return}
+      if(!value||typeof value!=="object")return;
+      if((value.mediaType||value.type)==="image"&&value.src&&!prefetchedSlideImages.has(value.src)){
+        const image=new Image();image.crossOrigin="anonymous";image.src=value.src;
+        prefetchedSlideImages.set(value.src,image);
+        if(prefetchedSlideImages.size>16)prefetchedSlideImages.delete(prefetchedSlideImages.keys().next().value);
+      }
+      Object.values(value).filter(child=>child&&typeof child==="object").forEach(walk);
+    };walk(slide.canvas.fabric||slide.canvas.elements);
+  }
+}
+function load(){
+  loading=true;
+  const version=++slideLoadVersion, targetSlideId=activeSlide().id;
+  const d=ensure(activeSlide()).canvas;
+  if(d.fabric){
+    // Decode offscreen so a late image callback cannot replace a newer slide.
+    const staging=new fabric.StaticCanvas(null,{width:W,height:H,renderOnAddRemove:false});
+    staging.loadFromJSON(d.fabric,()=>{
+      if(version!==slideLoadVersion||targetSlideId!==activeSlide()?.id){staging.dispose();return}
+      const objects=staging.getObjects().slice();
+      objects.forEach(object=>staging.remove(object));
+      canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";
+      canvas.add(...objects);canvas.renderAll();
+      staging.dispose();loading=false;panel();prefetchAdjacentImages();
+    });
+  }else{
+    canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";
+    d.elements.forEach(x=>{if(x.type==="text")canvas.add(text(x));else if(x.type==="image")image(x);else if(x.type==="video")canvas.add(video(x))});
+    canvas.requestRenderAll();loading=false;panel();prefetchAdjacentImages();
+  }
+}
 function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function renderUploadStatus(state,message){const status=$("#uploadStatus"),icons={success:"✓",error:"!",info:"•"};status.className="upload-status "+(state?"is-"+state:"");status.setAttribute("aria-busy",String(state==="uploading"));status.innerHTML='<span class="upload-status-line"><span class="upload-state-icon" aria-hidden="true">'+(icons[state]||"")+'</span><span class="upload-status-message">'+esc(message)+"</span>"+(state==="error"?'<button class="upload-retry" type="button">Retry</button>':"")+"</span>"+(state==="uploading"?'<span class="upload-progress" aria-hidden="true"><span class="upload-progress-bar"></span></span>':"");const retry=status.querySelector(".upload-retry");if(retry)retry.onclick=()=>{if(retryUploadFile)uploadFile(retryUploadFile)}}
 function active(){return canvas.getActiveObject()}
@@ -23,10 +87,38 @@ function renderList(){$("#slideList").innerHTML=presentation.slides.map((s,i)=>'
 function mediaLibrary(){const countEl=$("#mediaCount"),gridEl=$("#mediaLibraryGrid");if(!countEl||!gridEl)return;countEl.textContent=mediaAssets.length+" item"+(mediaAssets.length===1?"":"s");gridEl.innerHTML=mediaAssets.map(a=>'<button class="media-library-item" type="button" data-asset="'+a.id+'">'+(a.mimeType.startsWith("image/")?'<img src="'+a.url+'" alt="">':'<span class="media-type-icon">'+(a.mimeType.startsWith("audio/")?"♫":"▷")+'</span>')+"<span>"+esc(a.name)+"</span></button>").join("");gridEl.querySelectorAll("[data-asset]").forEach(b=>b.onclick=()=>addAsset(mediaAssets.find(a=>a.id===b.dataset.asset)))}
 function syncPlayback(){const c=playback();$("#playbackMode").value=c.mode;$("#playbackInterval").value=c.interval_ms;$("#mediaMode").value=c.media_mode;$("#mediaCycle").value=c.media_cycle||"all";$("#mediaInterval").value=c.media_interval_ms||5000;$("#loopVideos").checked=c.loop_videos!==false;$("#playbackSlides").innerHTML=presentation.slides.map((s,i)=>'<label><input type="checkbox" data-play-slide="'+s.id+'" '+(c.slide_ids.includes(s.id)?"checked":"")+"> "+(i+1)+". "+esc(s.title)+"</label>").join("");$("#playbackSlides").querySelectorAll("[data-play-slide]").forEach(b=>b.onchange=()=>{c.slide_ids=[...$("#playbackSlides").querySelectorAll("[data-play-slide]:checked")].map(x=>x.dataset.playSlide);schedule()})}
 function render(){const s=ensure(activeSlide()),count=String(currentSlideIndex+1).padStart(2,"0")+" / "+String(presentation.slides.length).padStart(2,"0");$("#presentationTitle").textContent=presentation.title;$("#slideCount").textContent=count;$("#canvasIndex").textContent=count;$("#pageLabel").textContent="Slide "+(currentSlideIndex+1)+" of "+presentation.slides.length;$("#transitionType").value=s.canvas.transition.type;const transitionDuration=s.canvas.transition.duration_ms||500;$("#transitionDuration").value=String(transitionDuration);const customDuration=$("#transitionDurationCustom");if(customDuration)customDuration.value=transitionDuration;renderList();mediaLibrary();syncPlayback();const bgInput=$("#slideBackground");if(bgInput)bgInput.value=s.canvas.background||"#f8f4ea";load()}
-function normalize(){presentation.slides.forEach((s,i)=>s.order=i+1)} async function save(){clearTimeout(saveTimer);capture();normalize();$("#modeLabel").textContent="Saving…";try{const r=await api.savePresentation(presentation);presentation=r.presentation;presentation.slides.forEach(ensure);playback();$("#modeLabel").textContent="Saved"}catch(e){$("#modeLabel").textContent="Save failed";toast(e.message);throw e}} function schedule(){if(loading)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
+function normalize(){presentation.slides.forEach((s,i)=>s.order=i+1)}function applySavedImageReferences(before,after){  const refs=new Map();  const pair=(a,b)=>{    if(!a||!b||typeof a!=="object"||typeof b!=="object")return;    if(typeof a.src==="string"&&a.src.startsWith("data:image/")&&b.src&&!b.src.startsWith("data:"))refs.set(a.src,{src:b.src,thumbnailSrc:b.thumbnailSrc||""});    Object.keys(a).forEach(key=>pair(a[key],b[key]));  };pair(before,after);  if(!refs.size)return;
+  const update=(value,isFabric=false)=>{
+    if(!value||typeof value!=="object")return;    const match=refs.get(value.src)||refs.get(value.getSrc?.());    if(match){if(value.set)value.set(match);else Object.assign(value,match)}    const children=isFabric?(value.getObjects?.()||[]):Object.values(value).filter(child=>child&&typeof child==="object");
+    children.forEach(child=>update(child,isFabric));
+  };  presentation.slides.forEach(slide=>update(slide.canvas));  canvas.getObjects().forEach(object=>update(object,true));
+}
+async function save(){
+  clearTimeout(saveTimer);
+  if(savePromise)return savePromise.then(()=>save());
+  capture();normalize();
+  const revision=editRevision;
+  const snapshot=JSON.parse(JSON.stringify(presentation));
+  $("#modeLabel").textContent="Saving…";
+  savePromise=(async()=>{
+    try{
+      const r=await api.savePresentation(snapshot);
+      // A slow response must never overwrite edits made while saving.
+      if(editRevision===revision){presentation=r.presentation;presentation.slides.forEach(ensure);playback()}      applySavedImageReferences(snapshot,r.presentation);
+      $("#modeLabel").textContent=editRevision===revision?"Saved":"Unsaved changes";
+    }catch(e){$("#modeLabel").textContent="Save failed";toast(e.message);throw e}
+    finally{savePromise=null}
+  })();
+  return savePromise;
+}
+function schedule(){if(loading)return;editRevision++;$("#modeLabel").textContent="Unsaved changes";clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
 function move(n){capture();currentSlideIndex=(currentSlideIndex+n+presentation.slides.length)%presentation.slides.length;render()} function addSlide(){capture();presentation.slides.splice(currentSlideIndex+1,0,ensure({id:"slide_"+Date.now(),order:0,title:"Slide "+(presentation.slides.length+1),canvas:{background:"#f8f4ea",elements:[]}}));currentSlideIndex++;normalize();render();schedule()} function duplicateSlide(){capture();const s=JSON.parse(JSON.stringify(activeSlide()));s.id="slide_"+Date.now();s.title+=" copy";presentation.slides.splice(currentSlideIndex+1,0,s);currentSlideIndex++;normalize();render();schedule()} function deleteSlide(){if(presentation.slides.length===1)return toast("A presentation needs at least one slide.");capture();const r=presentation.slides.splice(currentSlideIndex,1)[0];playback().slide_ids=playback().slide_ids.filter(id=>id!==r.id);currentSlideIndex=Math.min(currentSlideIndex,presentation.slides.length-1);render();schedule()}
 function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
-async function uploadFile(f){const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);addAsset(r.asset,false);mediaLibrary();if(requestId===uploadRequestId)renderUploadStatus("success",f.name+" uploaded successfully.")}catch(err){if(requestId!==uploadRequestId)return;retryUploadFile=f;const message=err.message.includes("Cloudinary")?"Media storage is not configured on this server.":err.message;renderUploadStatus("error",message)}}
+async function uploadFile(f){const targetSlideId=activeSlide()?.id;const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);
+if(r.asset.mimeType.startsWith("image/"))image({id:"media_"+Date.now(),type:"image",src:r.asset.url,x:0,y:0,width:100,height:100,fitToSlide:true,fit:"contain"},targetSlideId);
+else if(targetSlideId===activeSlide()?.id)addAsset(r.asset,false);
+else toast("Media uploaded. Select it from the library to add it to a slide.");
+mediaLibrary();if(requestId===uploadRequestId)renderUploadStatus("success",f.name+" uploaded successfully.")}catch(err){if(requestId!==uploadRequestId)return;retryUploadFile=f;const message=err.message.includes("Cloudinary")?"Media storage is not configured on this server.":err.message;renderUploadStatus("error",message)}}
 async function upload(e){const f=e.target.files[0];e.target.value="";if(!f)return;if(f.size>100*1024*1024){renderUploadStatus("error",f.name+" is too large. Maximum upload size is 100 MB.");return toast("Maximum upload size is 100 MB.");}if(!/^(image|video|audio)\//.test(f.type)&&!f.name.toLowerCase().endsWith(".mp3"))return toast("Choose an image, video, or audio file.");await uploadFile(f)}
 function action(type){const o=active();if(!o)return toast("Select an element on the slide first.");if(type==="forward")canvas.bringForward(o);if(type==="backward")canvas.sendBackwards(o);if(type==="delete")canvas.remove(o);if(type==="duplicate")o.clone(c=>{c.set({left:(o.left||0)+32,top:(o.top||0)+32,id:(o.id||"element")+"_"+Date.now()});canvas.add(c);canvas.setActiveObject(c)});canvas.requestRenderAll();panel();schedule()}
 function selectedTextStyle(o,key){if(!o)return undefined;if(o.isEditing&&o.selectionStart!==o.selectionEnd){const styles=o.getSelectionStyles(o.selectionStart,o.selectionEnd,true);const value=styles.find(style=>style[key]!==undefined)?.[key];if(value!==undefined)return value}return o[key]}
@@ -64,13 +156,10 @@ async function init(){
 
   bind();
 
-  const [r,library]=await Promise.all([
-    api.getPresentation(presentationId),
-    api.listMedia().catch(()=>({assets:[]}))
-  ]);
+  const libraryPromise=api.listMedia().catch(()=>({assets:[]}));
+  const r=await api.getPresentation(presentationId);
 
   presentation=r.presentation;
-  mediaAssets=library.assets||[];
 
   if(!presentation.slides.length)addSlide();
 
@@ -80,6 +169,12 @@ async function init(){
 
   $("#modeLabel").textContent="Ready";
   socket?.emit("join_presentation",{presentationId:presentation.id});
+  // The editor is usable while the media library loads independently.
+  libraryPromise.then(library=>{
+    const seen=new Set(mediaAssets.map(asset=>asset.id));
+    mediaAssets.push(...(library.assets||[]).filter(asset=>!seen.has(asset.id)));
+    mediaLibrary();
+  });
 }
 
 const audienceLaunchButton = $("#openAudience");

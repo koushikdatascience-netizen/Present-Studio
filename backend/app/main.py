@@ -230,7 +230,7 @@ def shared_presentation(token: str, request: Request, db: Session = Depends(get_
     expiry = share.expires_at if share else None
     if expiry and expiry.tzinfo is None:
         expiry = expiry.replace(tzinfo=timezone.utc)
-    if not share or not share.id.startswith("vshare_") or (expiry and expiry <= datetime.now(timezone.utc)):
+    if not share or share.permission != "viewer" or share.screen_access_code_hash or (expiry and expiry <= datetime.now(timezone.utc)):
         raise HTTPException(status_code=404, detail="This presentation link is invalid or has expired")
 
     presentation = db.get(Presentation, share.presentation_id)

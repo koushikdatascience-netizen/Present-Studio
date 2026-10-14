@@ -26,7 +26,9 @@
     signup: (name, email, password) => request("/api/auth/signup", { method: "POST", body: JSON.stringify({ name, email, password }) }).then(persist),
     async logout() { const result = await request("/api/auth/logout", { method: "POST" }); localStorage.removeItem(sessionKey); localStorage.removeItem(tokenKey); return result; },
     getCurrentUser: () => request("/api/auth/me"), getCachedSession: () => { try { return JSON.parse(localStorage.getItem(sessionKey) || "null"); } catch { return null; } },
-    listPresentations: () => request("/api/presentations"), getPresentation: (id, token = "", options = {}, resumeToken = "") => {
+    listPresentations: () => request("/api/presentations"),
+    listPresentationSummaries: (offset = 0, limit = 50) => request(`/api/presentations?summary=true&offset=${offset}&limit=${limit}`),
+    getPresentation: (id, token = "", options = {}, resumeToken = "") => {
       const query = [];
       if (token) query.push(`token=${encodeURIComponent(token)}`);
       if (resumeToken) query.push(`resume=${encodeURIComponent(resumeToken)}`);

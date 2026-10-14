@@ -13,6 +13,7 @@ from pathlib import Path
 from fastapi.responses import RedirectResponse, StreamingResponse, Response, FileResponse
 from botocore.exceptions import ClientError
 from starlette.concurrency import run_in_threadpool
+from ..services.presentation_images import image_preview
 from ..config import get_settings
 from ..database import get_db
 from ..models import LiveSession, MediaAsset, MeetingParticipantGrant, Presentation, User
@@ -68,6 +69,11 @@ def store_upload(content, content_type, filename, *, asset_id=None, owner_id=Non
                 create_media_poster(storage, key, content)
             except Exception:
                 logger.warning("Media poster generation failed for %s", asset_id)
+        if asset_id and content_type.startswith("image/"):
+            try:
+                storage.upload_bytes(content=image_preview(content), key=key + ".preview.webp", content_type="image/webp")
+            except Exception:
+                logger.warning("Small image preview unavailable for %s", asset_id)
         return f"/api/media/{asset_id}/content" if asset_id else f"/api/media/meeting-content/{presentation_id}/{object_id}"
     configure_cloudinary()
     resource_type = "image" if content_type.startswith("image/") else "video" if content_type.startswith(("video/", "audio/")) else "raw"
@@ -81,7 +87,20 @@ def serve_media_asset(asset_id: str, db: Session = Depends(get_db)):
     if not asset or asset.url != f"/api/media/{asset_id}/content":
         raise HTTPException(status_code=404, detail="Media not found")
     storage = s3_storage()
-    return RedirectResponse(storage.presigned_get(storage.media_key(asset.owner_id, asset.id)), status_code=307, headers={"Cache-Control": "private, no-store"})
+    max_age = max(0, min(300, int(getattr(storage, "presigned_expiry", 900)) // 2))
+    return RedirectResponse(storage.presigned_get(storage.media_key(asset.owner_id, asset.id)), status_code=307,
+                            headers={"Cache-Control": f"private, max-age={max_age}"})
+
+
+@router.get("/{asset_id}/image-preview")
+def serve_image_preview(asset_id: str, db: Session = Depends(get_db)):
+    asset = db.get(MediaAsset, asset_id)
+    if not asset or not asset.mime_type.startswith("image/") or asset.url != f"/api/media/{asset_id}/content":
+        raise HTTPException(404, "Image preview not found")
+    storage = s3_storage()
+    max_age = max(0, min(300, int(getattr(storage, "presigned_expiry", 900)) // 2))
+    return RedirectResponse(storage.presigned_get(storage.media_key(asset.owner_id, asset.id) + ".preview.webp"),
+                            status_code=307, headers={"Cache-Control": f"private, max-age={max_age}"})
 
 
 @router.get("/{asset_id}/thumbnail")
