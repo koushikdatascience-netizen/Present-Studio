@@ -130,6 +130,7 @@ class MediaAssetOut(BaseModel):
     mimeType: str
     url: str
     size: int
+    thumbnailUrl: str | None = None
 
 
 class LiveSlideEvent(BaseModel):

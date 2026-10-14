@@ -172,6 +172,12 @@ def configure_cloudinary() -> None:
     )
 
 
+def asset_image_preview_url(asset):
+    if asset.mime_type.startswith("image/") and asset.url == f"/api/media/{asset.id}/content":
+        return f"/api/media/{asset.id}/image-preview"
+    return None
+
+
 @router.get("")
 def list_media(
     user: User = Depends(current_user),
@@ -180,7 +186,8 @@ def list_media(
     assets = db.query(MediaAsset).filter(MediaAsset.owner_id == user.id).order_by(MediaAsset.created_at.desc()).all()
     return {
         "assets": [
-            MediaAssetOut(id=asset.id, name=asset.name, mimeType=asset.mime_type, url=asset.url, size=asset.size)
+            MediaAssetOut(id=asset.id, name=asset.name, mimeType=asset.mime_type, url=asset.url, size=asset.size,
+                          thumbnailUrl=asset_image_preview_url(asset))
             for asset in assets
         ]
     }
@@ -239,6 +246,7 @@ async def upload_media(
             mimeType=asset.mime_type,
             url=asset.url,
             size=asset.size,
+            thumbnailUrl=asset_image_preview_url(asset),
         )
     }
 

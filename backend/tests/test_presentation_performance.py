@@ -138,6 +138,29 @@ def test_small_preview_and_cover_leave_original_unchanged():
         assert preview.width <= 320 and preview.height <= 180
 
 
+def test_uploaded_images_expose_small_previews_and_bounded_private_cache():
+    content, _ = raster()
+    storage = mock_storage()
+    storage.presigned_expiry = 120
+
+    def poster(arguments, **kwargs):
+        from pathlib import Path
+        Path(arguments[-1]).write_bytes(b"poster")
+
+    with TestClient(fastapi_app) as client:
+        _, headers, _ = owner_and_deck(client)
+        with patch.object(get_settings(), "storage_provider", "s3"), patch("app.routers.media.s3_storage", return_value=storage), patch("app.routers.media.subprocess.run", side_effect=poster):
+            uploaded = client.post("/api/media/upload", headers=headers, files={"file": ("photo.png", content, "image/png")})
+            assert uploaded.status_code == 200
+            asset = uploaded.json()["asset"]
+            assert asset["thumbnailUrl"] == f"/api/media/{asset['id']}/image-preview"
+            assert any(call.kwargs["key"].endswith(".preview.webp") for call in storage.upload_bytes.call_args_list)
+            for url in (asset["url"], asset["thumbnailUrl"]):
+                response = client.get(url, follow_redirects=False)
+                assert response.status_code == 307
+                assert response.headers["cache-control"] == "private, max-age=60"
+
+
 def test_migration_dry_run_backup_and_live_deck_protection(tmp_path):
     _, inline = raster()
     storage = mock_storage()

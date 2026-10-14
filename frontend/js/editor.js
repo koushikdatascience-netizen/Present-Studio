@@ -87,11 +87,24 @@ function renderList(){$("#slideList").innerHTML=presentation.slides.map((s,i)=>'
 function mediaLibrary(){const countEl=$("#mediaCount"),gridEl=$("#mediaLibraryGrid");if(!countEl||!gridEl)return;countEl.textContent=mediaAssets.length+" item"+(mediaAssets.length===1?"":"s");gridEl.innerHTML=mediaAssets.map(a=>'<button class="media-library-item" type="button" data-asset="'+a.id+'">'+(a.mimeType.startsWith("image/")?'<img src="'+a.url+'" alt="">':'<span class="media-type-icon">'+(a.mimeType.startsWith("audio/")?"♫":"▷")+'</span>')+"<span>"+esc(a.name)+"</span></button>").join("");gridEl.querySelectorAll("[data-asset]").forEach(b=>b.onclick=()=>addAsset(mediaAssets.find(a=>a.id===b.dataset.asset)))}
 function syncPlayback(){const c=playback();$("#playbackMode").value=c.mode;$("#playbackInterval").value=c.interval_ms;$("#mediaMode").value=c.media_mode;$("#mediaCycle").value=c.media_cycle||"all";$("#mediaInterval").value=c.media_interval_ms||5000;$("#loopVideos").checked=c.loop_videos!==false;$("#playbackSlides").innerHTML=presentation.slides.map((s,i)=>'<label><input type="checkbox" data-play-slide="'+s.id+'" '+(c.slide_ids.includes(s.id)?"checked":"")+"> "+(i+1)+". "+esc(s.title)+"</label>").join("");$("#playbackSlides").querySelectorAll("[data-play-slide]").forEach(b=>b.onchange=()=>{c.slide_ids=[...$("#playbackSlides").querySelectorAll("[data-play-slide]:checked")].map(x=>x.dataset.playSlide);schedule()})}
 function render(){const s=ensure(activeSlide()),count=String(currentSlideIndex+1).padStart(2,"0")+" / "+String(presentation.slides.length).padStart(2,"0");$("#presentationTitle").textContent=presentation.title;$("#slideCount").textContent=count;$("#canvasIndex").textContent=count;$("#pageLabel").textContent="Slide "+(currentSlideIndex+1)+" of "+presentation.slides.length;$("#transitionType").value=s.canvas.transition.type;const transitionDuration=s.canvas.transition.duration_ms||500;$("#transitionDuration").value=String(transitionDuration);const customDuration=$("#transitionDurationCustom");if(customDuration)customDuration.value=transitionDuration;renderList();mediaLibrary();syncPlayback();const bgInput=$("#slideBackground");if(bgInput)bgInput.value=s.canvas.background||"#f8f4ea";load()}
-function normalize(){presentation.slides.forEach((s,i)=>s.order=i+1)}function applySavedImageReferences(before,after){  const refs=new Map();  const pair=(a,b)=>{    if(!a||!b||typeof a!=="object"||typeof b!=="object")return;    if(typeof a.src==="string"&&a.src.startsWith("data:image/")&&b.src&&!b.src.startsWith("data:"))refs.set(a.src,{src:b.src,thumbnailSrc:b.thumbnailSrc||""});    Object.keys(a).forEach(key=>pair(a[key],b[key]));  };pair(before,after);  if(!refs.size)return;
+function normalize(){presentation.slides.forEach((s,i)=>s.order=i+1)}
+function applySavedImageReferences(before,after){
+  const refs=new Map();
+  const pair=(a,b)=>{
+    if(!a||!b||typeof a!=="object"||typeof b!=="object")return;
+    if(typeof a.src==="string"&&a.src.startsWith("data:image/")&&b.src&&!b.src.startsWith("data:"))refs.set(a.src,{src:b.src,thumbnailSrc:b.thumbnailSrc||""});
+    Object.keys(a).forEach(key=>pair(a[key],b[key]));
+  };pair(before,after);
+  if(!refs.size)return;
   const update=(value,isFabric=false)=>{
-    if(!value||typeof value!=="object")return;    const match=refs.get(value.src)||refs.get(value.getSrc?.());    if(match){if(value.set)value.set(match);else Object.assign(value,match)}    const children=isFabric?(value.getObjects?.()||[]):Object.values(value).filter(child=>child&&typeof child==="object");
+    if(!value||typeof value!=="object")return;
+    const match=refs.get(value.src)||refs.get(value.getSrc?.());
+    if(match){if(value.set)value.set(match);else Object.assign(value,match)}
+    const children=isFabric?(value.getObjects?.()||[]):Object.values(value).filter(child=>child&&typeof child==="object");
     children.forEach(child=>update(child,isFabric));
-  };  presentation.slides.forEach(slide=>update(slide.canvas));  canvas.getObjects().forEach(object=>update(object,true));
+  };
+  presentation.slides.forEach(slide=>update(slide.canvas));
+  canvas.getObjects().forEach(object=>update(object,true));
 }
 async function save(){
   clearTimeout(saveTimer);
@@ -104,7 +117,8 @@ async function save(){
     try{
       const r=await api.savePresentation(snapshot);
       // A slow response must never overwrite edits made while saving.
-      if(editRevision===revision){presentation=r.presentation;presentation.slides.forEach(ensure);playback()}      applySavedImageReferences(snapshot,r.presentation);
+      if(editRevision===revision){presentation=r.presentation;presentation.slides.forEach(ensure);playback()}
+      applySavedImageReferences(snapshot,r.presentation);
       $("#modeLabel").textContent=editRevision===revision?"Saved":"Unsaved changes";
     }catch(e){$("#modeLabel").textContent="Save failed";toast(e.message);throw e}
     finally{savePromise=null}
@@ -113,9 +127,9 @@ async function save(){
 }
 function schedule(){if(loading)return;editRevision++;$("#modeLabel").textContent="Unsaved changes";clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
 function move(n){capture();currentSlideIndex=(currentSlideIndex+n+presentation.slides.length)%presentation.slides.length;render()} function addSlide(){capture();presentation.slides.splice(currentSlideIndex+1,0,ensure({id:"slide_"+Date.now(),order:0,title:"Slide "+(presentation.slides.length+1),canvas:{background:"#f8f4ea",elements:[]}}));currentSlideIndex++;normalize();render();schedule()} function duplicateSlide(){capture();const s=JSON.parse(JSON.stringify(activeSlide()));s.id="slide_"+Date.now();s.title+=" copy";presentation.slides.splice(currentSlideIndex+1,0,s);currentSlideIndex++;normalize();render();schedule()} function deleteSlide(){if(presentation.slides.length===1)return toast("A presentation needs at least one slide.");capture();const r=presentation.slides.splice(currentSlideIndex,1)[0];playback().slide_ids=playback().slide_ids.filter(id=>id!==r.id);currentSlideIndex=Math.min(currentSlideIndex,presentation.slides.length-1);render();schedule()}
-function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
+function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,thumbnailSrc:a.thumbnailUrl||"",x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
 async function uploadFile(f){const targetSlideId=activeSlide()?.id;const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);
-if(r.asset.mimeType.startsWith("image/"))image({id:"media_"+Date.now(),type:"image",src:r.asset.url,x:0,y:0,width:100,height:100,fitToSlide:true,fit:"contain"},targetSlideId);
+if(r.asset.mimeType.startsWith("image/"))image({id:"media_"+Date.now(),type:"image",src:r.asset.url,thumbnailSrc:r.asset.thumbnailUrl||"",x:0,y:0,width:100,height:100,fitToSlide:true,fit:"contain"},targetSlideId);
 else if(targetSlideId===activeSlide()?.id)addAsset(r.asset,false);
 else toast("Media uploaded. Select it from the library to add it to a slide.");
 mediaLibrary();if(requestId===uploadRequestId)renderUploadStatus("success",f.name+" uploaded successfully.")}catch(err){if(requestId!==uploadRequestId)return;retryUploadFile=f;const message=err.message.includes("Cloudinary")?"Media storage is not configured on this server.":err.message;renderUploadStatus("error",message)}}
