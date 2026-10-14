@@ -31,7 +31,7 @@ async def run():
         try:
             async with async_playwright() as playwright:
                 api = await playwright.request.new_context(base_url=base)
-                for _ in range(100):
+                for _ in range(300):
                     try:
                         if (await api.get("/api/health")).ok:
                             break
