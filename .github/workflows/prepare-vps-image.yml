@@ -1,8 +1,9 @@
 name: Prepare VPS image (no deployment)
 on:
   push:
-    branches: [codex/remote-assist-production]
+    branches: [main, codex/remote-assist-production]
     paths: ['.github/workflows/prepare-vps-image.yml', 'backend/**', 'frontend/**']
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
