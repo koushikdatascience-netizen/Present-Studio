@@ -11,7 +11,38 @@ Base: `1a6472d4fc2008be48eb9b709b06ca6830eeab57` from the requested Present-Stud
 - Initial unsigned development artifact: 7,402,496-byte executable downloaded to `D:/SocialSyncV1/tmp/remote-assist-build-3205ed2/target/x86_64-pc-windows-msvc/release/snapkey-remote-assist.exe`. Not executed, signed, installed or deployed. Later source hardening requires a fresh matching build; do not distribute this earlier artifact as the final release.
 - CI-generated Cargo.lock is committed for locked dependency resolution. Rust toolchain is pinned to 1.93.0; build scripts use --locked.
 
-Final build revision/results will be appended after feature CI completes. No real Windows-to-Windows control, display DPI, stop latency, signing or production integration test is claimed.
+Final build revision/results are recorded below. No real Windows-to-Windows control, display DPI, stop latency, signing or production integration test is claimed.
 
 
 Final local regression rerun before the single-controller-session guard: **115 backend tests passed, the same 6 preview tests failed**; **67 frontend tests passed, the same 6 baseline tests failed**. The additional guard has a focused passing test.
+
+Review history:
+- `3acfb8e`: authorization/pairing foundation, audit migration and tests.
+- `3205ed2`: Windows helper, browser integration and feature CI.
+- `e9d5e3d`: lifecycle/rate hardening, locked dependencies, deployment and security docs.
+- `a1a0e5c`: graceful native close/input cleanup.
+- `82279dd`: single assistance session per controller, browser cache revision.
+- `eda8dd8`: synchronize the disconnect test with asynchronous ASGI cleanup (a timing race in the test, not a claimed synchronous socket-close guarantee).
+- `c92d57f`: correct the pinned tungstenite module import found by native CI.
+- `1cd1309`: optional user-registered helper links; launch only prefills trusted-origin pairing and never approves/executes input.
+
+The optional URL protocol parser adds native tests for valid trusted-origin prefilling and rejection of malformed/untrusted launches. Protocol registry writes occur only after explicit idle native UI actions; no registry settings were changed in this implementation environment.
+
+
+## Final matching artifact and CI
+
+Final tested source: `1cd1309ab92579060aa2af0e874e8b188929eaa6`.
+CI: https://github.com/koushikdatascience-netizen/Present-Studio/actions/runs/38702430509 — **success**.
+
+- Backend authorization: **33 passed**.
+- Frontend feature tests: **4 passed**.
+- Windows native release tests: **3 passed** (Win64 input ABI and two protocol parser tests).
+- Locked Windows x64 portable release build: **passed**.
+- Executable: `D:/SocialSyncV1/tmp/remote-assist-build-1cd1309/target/x86_64-pc-windows-msvc/release/snapkey-remote-assist.exe`.
+- Size: **7,426,048 bytes**.
+- SHA256: `86209e9cb1a456d476a16710dde32419e3d5659d0d14e1f768a4270636d77b45`.
+- Windows Authenticode inspection: **NotSigned**. This is a development artifact only; it was not executed, installed, signed, published or deployed.
+
+The subsequent validation/documentation commit changes only this report and the opt-in example environment. No helper or application source differs from the passing source revision above.
+
+Draft review: https://github.com/koushikdatascience-netizen/Present-Studio/pull/1 . No merge or production rollout.
