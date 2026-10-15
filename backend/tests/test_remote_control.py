@@ -132,6 +132,15 @@ def test_native_connection_loss_revokes(setup):
     with setup[0].websocket_connect('/api/remote-control/helper') as ws:
         ws.send_json({'sessionId':id,'credential':credential});ws.receive_json()
         ws.send_json({'type':'approve'});ws.receive_json()
+    # TestClient returns from its socket context before ASGI disconnect cleanup
+    # necessarily runs. Assert prompt eventual revocation on the server loop.
+    async def wait_for_revocation():
+        for _ in range(100):
+            if rc.sessions[id].state == 'ended':
+                return
+            await asyncio.sleep(.01)
+        raise AssertionError('Helper disconnect did not revoke within one second')
+    setup[0].portal.call(wait_for_revocation)
     assert rc.sessions[id].state=='ended'
 
 def test_revoke_blocks_pair_and_input(setup):
