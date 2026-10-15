@@ -32,7 +32,7 @@ Only metadata transition audit rows persist. Authorization, pair hashes, helper 
 
 The download endpoint serves only a configured file whose SHA256 matches an operator-provisioned release hash. An operator must first use Windows Authenticode verification via the release script; Linux SHA256 checking alone does not prove a signature. No signing certificate or credential is provided by this source tree.
 
-No custom protocol is registered, no executable auto-launch occurs, and no Native Messaging host/Chrome extension is installed. Existing helper users open the portable executable manually. A future optional Chrome extension would still require installing a native messaging host manifest and a Windows registry entry; installing a Web Store extension alone cannot install that native host.
+No executable auto-launch or Native Messaging host/Chrome extension installation occurs. An explicit button in the idle native helper can optionally register the per-user snapkey-remote-assist URL protocol; a second button removes it. The registration stores the executable path only, without credentials or startup entries. Studio Open Helper is user-initiated, goes through normal browser/OS confirmation and only prefills the short-lived pairing text. It never auto-connects or approves. Users may instead open the portable executable manually and paste the text. A second instance is refused, so paste into the existing window when it is already running. A future optional Chrome extension would still require installing a native messaging host manifest and a Windows registry entry; installing a Web Store extension alone cannot install that native host.
 
 ## References
 

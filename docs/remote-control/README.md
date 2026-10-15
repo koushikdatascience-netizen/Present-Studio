@@ -42,7 +42,7 @@ For an isolated HTTPS staging hostname, embed the trusted origin at build time:
 powershell -File remote-assist/scripts/build.ps1 -TrustedOrigin https://remote-assist-staging.snapkeystudio.com
 ```
 
-The helper rejects origins other than its compile-time trusted HTTPS origin, including redirects. No development HTTP bypass is included. The resulting executable is portable and standard-user; no service, startup entry, extension or persistent credential is created. Existing helper users open it manually and paste the new pairing text; custom-protocol registration is not implemented in this version.
+The helper rejects origins other than its compile-time trusted HTTPS origin, including redirects. No development HTTP bypass is included. The resulting executable is portable and standard-user; no service, startup entry, extension or persistent credential is created. Existing helper users may explicitly enable Open Helper links using the idle native helper button. This registers only a per-user URL protocol pointing to the current executable; no service/startup entry or credential is added. Studio then offers Open Helper with normal browser/OS confirmation. Launching only prefills the pairing text: Connect and native Allow Control remain explicit. Registration can be removed with the native button. If the helper is already running, paste into that window instead of launching a second instance.
 
 Sign with an organization-owned Authenticode certificate:
 
@@ -74,7 +74,7 @@ See [SECURITY.md](SECURITY.md) and [MANUAL-TEST.md](MANUAL-TEST.md). The durable
 - Obtain and apply a valid organization-owned code-signing certificate; verify the actual published bytes.
 - Complete two-real-Windows-computer tests on separate networks, including DPI, display changes, secure desktop, browser throttling and forced termination.
 - Confirm smoothness/latency and bandwidth with representative meetings; the native JPEG stream adds server egress.
-- No custom-protocol launch, Unicode/IME text injection, clipboard, file transfer, secondary-monitor control, elevated-window control, unattended access, recording or remote shell.
+- No Unicode/IME text injection, clipboard, file transfer, secondary-monitor control, elevated-window control, unattended access, recording or remote shell. Optional Open Helper links require the user to enable per-user protocol registration first; otherwise manual opening/pasting works.
 - Helper native tests check ABI; they do not establish real-device input correctness. A compile success is not end-to-end consent or revocation verification.
 - Co-host/presenter control is intentionally not enabled. Only the meeting owner may request.
 - The older branch base has pre-existing regression failures; see validation report. Reconcile with production performance fixes before considering deployment.

@@ -2,6 +2,7 @@
 #[cfg(not(windows))]
 compile_error!("SnapKey Remote Assist supports Windows only");
 mod input;
+mod protocol;
 use eframe::egui;
 use serde_json::{json, Value};
 use std::{sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc}, time::{Duration, Instant}};
@@ -18,7 +19,7 @@ struct Assist {
 impl Default for Assist {
     fn default() -> Self {
         let (sender, updates) = mpsc::channel();
-        Self { pairing: String::new(), owner: String::new(), status: "Paste the pairing text from your meeting.".into(), primary_confirmed: false,
+        Self { pairing: protocol::launch_pairing().unwrap_or_default(), owner: String::new(), status: "Paste the pairing text from your meeting.".into(), primary_confirmed: false,
             running: Arc::new(AtomicBool::new(false)), commands: None, updates, sender, paired: false, active: false, closing: false }
     }
 }
@@ -52,6 +53,15 @@ impl eframe::App for Assist {
             }
 
             ui.label("Attended Windows assistance only. No service, startup entry, or stored credentials.");
+            if self.commands.is_none() { ui.horizontal(|ui| {
+                if ui.button("Enable Open Helper links (optional)").clicked() {
+                    self.status = match protocol::register() { Ok(()) => "Open Helper links enabled for your Windows user. Keep this portable file in its current location.".into(), Err(_) => "Could not register helper links. Manual pairing still works.".into() };
+                }
+                if ui.button("Remove helper link registration").clicked() {
+                    self.status = match protocol::unregister() { Ok(()) => "Helper links removed. Manual pairing still works.".into(), Err(_) => "Could not remove helper links.".into() };
+                }
+            }); }
+
             ui.label(&self.status);
             if self.commands.is_none() {
                 ui.label("Short-lived pairing text (keep private):");

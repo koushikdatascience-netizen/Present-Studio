@@ -20,6 +20,10 @@ Do not run against the active production server until deployment is separately a
 7. A focuses the preview, moves/clicks the cursor, right-clicks, scrolls, types A-Z/0-9, tests Shift/Ctrl and arrow keys in Notepad. Test Fullscreen and Escape release. Unsupported punctuation/IME/system shortcuts are outside this first version; verify they do not produce unintended events.
 8. Verify ongoing audio/video/chat/presentation synchronization in both directions. Compare CPU/network use with remote assistance disabled.
 
+## Optional Open Helper onboarding
+
+While the helper is idle, explicitly enable Open Helper links in its native window. Close it. On a fresh guest request, click Studio Open Helper, accept the normal browser/OS confirmation, and verify only the trusted-origin pairing text is prefilled. Connect and Allow Control must still be explicit. Remove registration using the idle native button and verify manual opening/pasting continues to work. Moving/deleting the portable executable invalidates the registered path; re-enable from its new location. If it is already running, use its existing window rather than opening a second instance.
+
 ## Stop and authorization failures (repeat with a fresh ticket each time)
 
 - B denies in-browser: A sees Control Denied; old ticket/helper cannot obtain control.

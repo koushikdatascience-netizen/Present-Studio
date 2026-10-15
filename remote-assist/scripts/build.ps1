@@ -5,7 +5,7 @@ if ($uri.Scheme -ne 'https' -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -
 $env:SNAPKEY_REMOTE_ASSIST_ORIGIN = $uri.GetLeftPart([System.UriPartial]::Authority)
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
-    cargo test --locked --target x86_64-pc-windows-msvc
+    cargo test --release --locked --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE) { throw 'Native tests failed' }
     cargo build --locked --release --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE) { throw 'Build failed' }
