@@ -79,6 +79,17 @@
         const p = document.createElement('p'); p.textContent = 'Open SnapKey Remote Assist manually, paste this short-lived pairing text, then click Connect and Allow Control in its native window. Keep it private.';
         const text = document.createElement('input'); text.readOnly = true; text.value = pairingText; text.style.width = '95%'; text.onclick = () => text.select();
         panel.append(p, text);
+        button(panel, 'Open Helper (if previously enabled)', () => {
+          if (!pairingText) return;
+          const pairing = new URL(pairingText);
+          const launch = new URL('snapkey-remote-assist://pair');
+          launch.searchParams.set('origin', pairing.origin);
+          launch.searchParams.set('ticket', pairing.hash.slice(1));
+          // User-initiated OS protocol action; normal browser confirmation applies.
+          // Successful launch is never assumed: the UI waits for server pairing.
+          window.location.href = launch.href;
+        });
+
         button(panel, 'Download SnapKey Remote Assist', async () => {
           const response = await fetch('/api/remote-control/download', { headers: { Authorization: 'Bearer ' + credential } });
           if (!response.ok) throw new Error((await response.json()).detail);

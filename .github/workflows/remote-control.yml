@@ -34,7 +34,7 @@ jobs:
           key: windows-remote-assist-rust193-${{ hashFiles('remote-assist/Cargo.lock') }}
       - name: Check native tests
         working-directory: remote-assist
-        run: cargo test --locked --target x86_64-pc-windows-msvc
+        run: cargo test --release --locked --target x86_64-pc-windows-msvc
       - name: Build portable development executable
         working-directory: remote-assist
         run: cargo build --locked --release --target x86_64-pc-windows-msvc
