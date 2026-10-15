@@ -1,0 +1,43 @@
+name: Remote assistance feature validation
+on:
+  push:
+    branches: [feature/studio-instant-remote-control]
+permissions:
+  contents: read
+jobs:
+  authorization:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r backend/requirements.txt
+      - run: PYTHONPATH=backend python -m pytest backend/tests/test_remote_control.py -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/remote-control.test.cjs
+  windows-helper:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.93.0 --profile minimal
+      - name: Resolve lockfile when bootstrapping
+        working-directory: remote-assist
+        run: if (!(Test-Path Cargo.lock)) { cargo generate-lockfile }
+      - name: Check native tests
+        working-directory: remote-assist
+        run: cargo test --locked --target x86_64-pc-windows-msvc
+      - name: Build portable development executable
+        working-directory: remote-assist
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: remote-assist-development-only
+          path: |
+            remote-assist/Cargo.lock
+            remote-assist/target/x86_64-pc-windows-msvc/release/snapkey-remote-assist.exe
+          retention-days: 7
