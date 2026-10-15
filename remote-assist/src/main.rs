@@ -13,13 +13,13 @@ enum Update { Ready(String), Active, Ended(String) }
 struct Assist {
     pairing: String, owner: String, status: String, primary_confirmed: bool,
     running: Arc<AtomicBool>, commands: Option<mpsc::Sender<Command>>,
-    updates: mpsc::Receiver<Update>, sender: mpsc::Sender<Update>, paired: bool, active: bool,
+    updates: mpsc::Receiver<Update>, sender: mpsc::Sender<Update>, paired: bool, active: bool, closing: bool,
 }
 impl Default for Assist {
     fn default() -> Self {
         let (sender, updates) = mpsc::channel();
         Self { pairing: String::new(), owner: String::new(), status: "Paste the pairing text from your meeting.".into(), primary_confirmed: false,
-            running: Arc::new(AtomicBool::new(false)), commands: None, updates, sender, paired: false, active: false }
+            running: Arc::new(AtomicBool::new(false)), commands: None, updates, sender, paired: false, active: false, closing: false }
     }
 }
 impl Drop for Assist {
@@ -33,6 +33,16 @@ impl eframe::App for Assist {
                 Update::Active => { self.active = true; self.status = "CONTROL ACTIVE — press F12 or Stop Control immediately to revoke.".into(); }
                 Update::Ended(reason) => { self.active = false; self.paired = false; self.running.store(false, Ordering::SeqCst); self.commands = None; self.status = reason; }
             }
+        }
+        if ctx.input(|i| i.viewport().close_requested()) && self.commands.is_some() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.closing = true;
+            self.running.store(false, Ordering::SeqCst);
+            if let Some(tx) = &self.commands { let _ = tx.send(Command::Stop); }
+            self.status = "Stopping control and releasing held input before closing...".into();
+        }
+        if self.closing && self.commands.is_none() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("SnapKey Remote Assist");
