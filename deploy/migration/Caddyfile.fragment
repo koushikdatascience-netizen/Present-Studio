@@ -1,0 +1,6 @@
+# Add this block to a COPY of the current Caddyfile. Do not replace its contents.
+# Validate the complete candidate in Caddy before any graceful reload.
+# DNS/TLS challenge readiness must be confirmed at the maintenance window.
+connect.snapkeystudio.com {
+    reverse_proxy 127.0.0.1:18474
+}

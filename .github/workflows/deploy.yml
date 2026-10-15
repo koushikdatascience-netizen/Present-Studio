@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DEPLOY_CURRENT_CONFIGURED_HOST only after verifying the target and maintenance window'
+        required: true
+        type: string
 
 concurrency:
   group: snapkey-production
@@ -16,7 +21,7 @@ jobs:
 
   deploy:
     needs: validate
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'DEPLOY_CURRENT_CONFIGURED_HOST'
     runs-on: ubuntu-latest
 
     steps:
