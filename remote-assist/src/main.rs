@@ -5,7 +5,7 @@ mod input;
 use eframe::egui;
 use serde_json::{json, Value};
 use std::{sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc}, time::{Duration, Instant}};
-use tungstenite::{connect_with_config, Message, stream::MaybeTlsStream};
+use tungstenite::{client::connect_with_config, Message, stream::MaybeTlsStream};
 use url::Url;
 
 enum Command { Approve, Stop }
