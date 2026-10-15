@@ -210,6 +210,8 @@ async def request_control(payload: Ask, request: Request):
             fail(409, 'Guest must be connected and sharing a screen')
         guest = candidates[0]
         for old in sessions.values():
+            if old.owner.sid == b.sid and valid(old):
+                fail(409, 'End the current assistance session before requesting another')
             if old.guest.sid == guest.sid and valid(old):
                 fail(409, 'A control request is already pending or active')
         if len(sessions) >= 1000:
