@@ -199,3 +199,13 @@ def test_concurrent_events_preserve_sequence(setup):
         return await asyncio.gather(*[rc.relay_input('owner-sid',{'sessionId':id,'seq':i,'input':{'kind':'move','x':.5,'y':.5}}) for i in range(1,11)])
     assert all(r=={'ok':True} for r in asyncio.run(run()))
     assert session.seq==10 and session.state=='active'
+
+
+def test_controller_cannot_abandon_active_session_for_another_guest(setup):
+    ask(setup)
+    rc.sm.active_participants['p']['second']={'sid':'second-sid','identity':'viewer-second','name':'Second'}
+    result=asyncio.run(rc.bind('second-sid',{'presentationId':'p'}))
+    rc.bindings[rc.digest(result['credential'])].sharing=True
+    response=setup[0].post('/api/remote-control/request',headers=setup[1],json={'targetIdentity':'viewer-second'})
+    assert response.status_code==409
+    assert len(rc.sessions)==1
