@@ -12,6 +12,7 @@
     const socket = options.socket;
     if (!socket) return null;
     let credential = '', role = '', current = null, seq = 0, panel = null, surface = null, binding = false;
+    let pairingText = '';
     let frameUrl = '', pendingFrame = false, frameGeneration = 0, lastMove = 0;
     const buttons = new Set();
     const held = new Set();
@@ -39,7 +40,7 @@
     }
     function button(parent, text, action) {
       const el = document.createElement('button'); el.type = 'button'; el.textContent = text;
-      el.onclick = () => Promise.resolve(action()).catch(error => { status.textContent = error.message; });
+      el.onclick = () => Promise.resolve().then(action).catch(error => { if (status?.isConnected) status.textContent = error.message; else window.alert(error.message); });
       parent.append(el); return el;
     }
     let status;
@@ -49,10 +50,11 @@
         if (result?.error) { close(); current = null; }
       });
     }
-    function render(data) {
+    function render(data, force = false) {
       const previous = current;
       current = data;
-      if (previous?.id === data.id && previous.state === data.state) return;
+      if (!force && previous?.id === data.id && previous.state === data.state) return;
+      if (previous?.id !== data.id) pairingText = '';
       close();
       panel = document.createElement('section'); panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'SnapKey Remote Assist');
       Object.assign(panel.style, { position: 'fixed', inset: '8% 5%', zIndex: 10050, background: '#142033', color: 'white', padding: '20px', overflow: 'auto', border: '3px solid #63b7ff' });
@@ -68,16 +70,19 @@
         button(panel, 'Deny', () => api('deny', { sessionId: data.id }));
         button(panel, 'Prepare Helper Pairing', async () => {
           const paired = await api('ticket', { sessionId: data.id });
-          // A manual paste avoids registry/protocol installation and silent execution.
           const pairing = new URL(location.origin); pairing.hash = paired.ticket;
-          const p = document.createElement('p'); p.textContent = 'Copy this short-lived pairing text into SnapKey Remote Assist. Then click Connect and Allow Control in its native window.';
-          const text = document.createElement('input'); text.readOnly = true; text.value = pairing.href; text.style.width = '95%'; text.onclick = () => text.select();
-          panel.append(p, text);
-          button(panel, 'Download SnapKey Remote Assist', async () => {
-            const response = await fetch('/api/remote-control/download', { headers: { Authorization: 'Bearer ' + credential } });
-            if (!response.ok) throw new Error((await response.json()).detail);
-            const url = URL.createObjectURL(await response.blob()); const a = document.createElement('a'); a.href = url; a.download = 'SnapKeyRemoteAssist.exe'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
-          });
+          pairingText = pairing.href;
+          if (current?.id === data.id) render({ ...current, state: 'pairing' }, true);
+        });
+      }
+      if (role === 'guest' && data.state === 'pairing') {
+        const p = document.createElement('p'); p.textContent = 'Open SnapKey Remote Assist manually, paste this short-lived pairing text, then click Connect and Allow Control in its native window. Keep it private.';
+        const text = document.createElement('input'); text.readOnly = true; text.value = pairingText; text.style.width = '95%'; text.onclick = () => text.select();
+        panel.append(p, text);
+        button(panel, 'Download SnapKey Remote Assist', async () => {
+          const response = await fetch('/api/remote-control/download', { headers: { Authorization: 'Bearer ' + credential } });
+          if (!response.ok) throw new Error((await response.json()).detail);
+          const url = URL.createObjectURL(await response.blob()); const a = document.createElement('a'); a.href = url; a.download = 'SnapKeyRemoteAssist.exe'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
         });
       }
       if (role === 'owner' && data.state === 'active') {
@@ -118,7 +123,7 @@
       if (/^Digit[0-9]$/.test(event.code)) return event.code.charCodeAt(5);
       return { Backspace: 8, Tab: 9, Enter: 13, ShiftLeft: 16, ShiftRight: 16, ControlLeft: 17, ControlRight: 17, AltLeft: 18, AltRight: 18, Space: 32, PageUp: 33, PageDown: 34, End: 35, Home: 36, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Insert: 45, Delete: 46 }[event.code];
     }
-    socket.on('remote_control_status', render);
+    socket.on('remote_control_status', data => render(data));
     socket.on('remote_control_frame', data => {
       if (!surface || pendingFrame || data.sessionId !== current?.id || current.state !== 'active') return;
       pendingFrame = true;

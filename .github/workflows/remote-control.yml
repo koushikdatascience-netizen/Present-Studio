@@ -2,6 +2,7 @@ name: Remote assistance feature validation
 on:
   push:
     branches: [feature/studio-instant-remote-control]
+    paths: ['backend/**', 'frontend/**', 'remote-assist/**', 'tests/remote-control.test.cjs', '.github/workflows/remote-control.yml']
 permissions:
   contents: read
 jobs:
@@ -24,9 +25,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.93.0 --profile minimal
-      - name: Resolve lockfile when bootstrapping
-        working-directory: remote-assist
-        run: if (!(Test-Path Cargo.lock)) { cargo generate-lockfile }
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            remote-assist/target
+          key: windows-remote-assist-rust193-${{ hashFiles('remote-assist/Cargo.lock') }}
       - name: Check native tests
         working-directory: remote-assist
         run: cargo test --locked --target x86_64-pc-windows-msvc

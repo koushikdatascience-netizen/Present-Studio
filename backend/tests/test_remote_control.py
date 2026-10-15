@@ -22,7 +22,7 @@ def setup(monkeypatch):
     monkeypatch.setattr(rc.sm.sio, 'emit', AsyncMock())
     monkeypatch.setattr(rc.sm, 'controller_sids', {'p': {'owner-sid', 'attacker-sid'}})
     monkeypatch.setattr(rc.sm, 'active_participants', {'p': {'guest': {'sid':'guest-sid','identity':'viewer-guest','name':'Guest'}}})
-    rc.bindings.clear(); rc.sessions.clear()
+    rc.bindings.clear(); rc.sessions.clear(); rc.pair_attempts.clear()
     with factory() as db:
         owner = User(id='owner', name='Owner', email='owner@example.com', password_hash='unused', role='owner', is_active=True)
         attacker = User(id='attacker', name='Attacker', email='attacker@example.com', password_hash='unused', role='owner', is_active=True)
@@ -166,3 +166,36 @@ def test_invalid_inputs(p):assert not rc.input_packet(p)
 def test_feature_disabled(setup,monkeypatch):
     monkeypatch.setattr(rc,'ENABLED',False)
     assert setup[0].post('/api/remote-control/request',headers=setup[1],json={'targetIdentity':'viewer-guest'}).status_code==404
+
+
+def test_pair_rate_limit(setup):
+    c=setup[0]
+    for _ in range(20):
+        assert c.post('/api/remote-control/pair',json={'ticket':'x'*43}).status_code==403
+    assert c.post('/api/remote-control/pair',json={'ticket':'x'*43}).status_code==429
+
+def test_stopping_screen_share_invalidates_control(setup):
+    id=ask(setup)
+    rc.sessions[id].guest.sharing=False
+    assert not rc.valid(rc.sessions[id])
+
+def test_meeting_end_invalidates_control(setup):
+    id=ask(setup)
+    with setup[3]() as db:
+        db.query(LiveSession).update({'is_live':False});db.commit()
+    assert not rc.valid(rc.sessions[id])
+
+def test_owner_permission_revoked(setup):
+    id=ask(setup)
+    with setup[3]() as db:
+        db.query(User).filter_by(id='owner').update({'is_active':False});db.commit()
+    assert not rc.valid(rc.sessions[id])
+
+
+def test_concurrent_events_preserve_sequence(setup):
+    id,_,_=paired(setup);session=rc.sessions[id]
+    session.state='active';session.helper=AsyncMock();session.helper_seen=time.monotonic()
+    async def run():
+        return await asyncio.gather(*[rc.relay_input('owner-sid',{'sessionId':id,'seq':i,'input':{'kind':'move','x':.5,'y':.5}}) for i in range(1,11)])
+    assert all(r=={'ok':True} for r in asyncio.run(run()))
+    assert session.seq==10 and session.state=='active'
