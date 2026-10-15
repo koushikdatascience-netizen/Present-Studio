@@ -1,0 +1,12 @@
+# OPT-IN ONLY. Merge this with docker-compose.yml in a staging environment first.
+# docker compose -f docker-compose.yml -f deploy/remote-control.compose.yml config
+# Never apply to the active meeting server without a maintenance window.
+services:
+  backend:
+    environment:
+      REMOTE_CONTROL_ENABLED: ${REMOTE_CONTROL_ENABLED:-false}
+      REMOTE_ASSIST_SIGNED_EXE: /opt/remote-assist/SnapKeyRemoteAssist.exe
+      REMOTE_ASSIST_SHA256: ${REMOTE_ASSIST_SHA256:-}
+    volumes:
+      - ${REMOTE_ASSIST_RELEASE_DIR:-./remote-assist/releases}:/opt/remote-assist:ro
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, '8000', --workers, '1', --ws-max-size, '524288']

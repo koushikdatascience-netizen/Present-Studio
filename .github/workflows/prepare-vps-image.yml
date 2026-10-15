@@ -1,0 +1,41 @@
+name: Prepare VPS image (no deployment)
+on:
+  push:
+    branches: [codex/remote-assist-production]
+    paths: ['.github/workflows/prepare-vps-image.yml', 'backend/**', 'frontend/**']
+permissions:
+  contents: read
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build outside the production servers
+        run: docker build -t snapkey-studio:release-${GITHUB_SHA} -f backend/Dockerfile .
+      - name: Smoke-test isolated image
+        run: |
+          set -e
+          docker run -d --name snapkey-smoke --cpus 1 --memory 768m -e DATABASE_URL=sqlite:////tmp/smoke.db -e JWT_SECRET=isolated-ci-smoke-not-production -e REMOTE_CONTROL_ENABLED=false snapkey-studio:release-${GITHUB_SHA}
+          ready=false
+          for i in $(seq 1 30); do
+            if docker exec snapkey-smoke python -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=2)' ; then ready=true; break; fi
+            sleep 2
+          done
+          if [ "$ready" != true ]; then docker logs snapkey-smoke; exit 1; fi
+          docker exec snapkey-smoke python -c 'import urllib.request,urllib.error; r=urllib.request.Request("http://127.0.0.1:8000/api/remote-control/request",data=b"{\"targetIdentity\":\"test\"}",headers={"Content-Type":"application/json"}); exec("try:\n urllib.request.urlopen(r)\n raise AssertionError(\"Feature unexpectedly enabled\")\nexcept urllib.error.HTTPError as e:\n assert e.code == 404, e.code")'
+          docker rm -f snapkey-smoke
+      - name: Export verified release (no server connection)
+        run: |
+          mkdir release
+          docker save snapkey-studio:release-${GITHUB_SHA} | gzip -1 > release/snapkey-studio-image.tar.gz
+          echo "APP_IMAGE=snapkey-studio:release-${GITHUB_SHA}" > release/release.env
+          echo "SOURCE_COMMIT=${GITHUB_SHA}" > release/source.txt
+          docker image inspect snapkey-studio:release-${GITHUB_SHA} --format '{{.Id}}' >> release/source.txt
+          cd release
+          sha256sum snapkey-studio-image.tar.gz release.env source.txt > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapkey-vps-image-${{ github.sha }}
+          path: release/
+          compression-level: 0
+          retention-days: 7

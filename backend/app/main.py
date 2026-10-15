@@ -17,6 +17,7 @@ from .socket_manager import sio
 from . import meeting_v2
 from . import breakout
 from .routers import admin, auth, media, meetings, presentations, computation
+from . import remote_control
 from .security import admin_user
 from .seed import seed_demo_data
 
@@ -151,6 +152,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+fastapi_app.include_router(remote_control.router)
 fastapi_app.include_router(auth.router)
 fastapi_app.include_router(presentations.router)
 fastapi_app.include_router(meetings.router)

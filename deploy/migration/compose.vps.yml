@@ -1,0 +1,64 @@
+# Standalone VPS deployment. This file is not used by the current AWS workflow.
+# Run only in an explicitly authorized maintenance window.
+name: snapkey-vps
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 2g
+    environment:
+      POSTGRES_DB: present_studio
+      POSTGRES_USER: present_studio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a new hex database password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U present_studio -d present_studio']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: json-file
+      options: {max-size: '10m', max-file: '3'}
+  backend:
+    image: ${APP_IMAGE:?Set the CI-built immutable release tag}
+    restart: unless-stopped
+    cpus: 2.0
+    mem_limit: 4g
+    ports:
+      - '127.0.0.1:18474:8000'
+    environment:
+      DATABASE_URL: postgresql+psycopg://present_studio:${POSTGRES_PASSWORD:?Set a new hex database password}@postgres:5432/present_studio
+      JWT_SECRET: ${JWT_SECRET:?Preserve the current production JWT secret}
+      PUBLIC_BASE_URL: https://connect.snapkeystudio.com
+      STORAGE_PROVIDER: s3
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?Transfer the existing credential securely at cutover}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?Transfer the existing credential securely at cutover}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:?Preserve the existing bucket}
+      S3_KEY_PREFIX: ${S3_KEY_PREFIX:-snapkey-studio}
+      S3_PRESIGNED_URL_EXPIRES: ${S3_PRESIGNED_URL_EXPIRES:-900}
+      LIVEKIT_URL: wss://livekit.snapkeystudio.com
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Preserve the current LiveKit key}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Preserve the current LiveKit secret}
+      LIVEKIT_TOKEN_MINUTES: ${LIVEKIT_TOKEN_MINUTES:-15}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      COMPUTE_SERVICE_URL: ${COMPUTE_SERVICE_URL:-}
+      COMPUTE_SERVICE_KEY: ${COMPUTE_SERVICE_KEY:-}
+      REMOTE_CONTROL_ENABLED: 'false'
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, '8000', --workers, '1', --ws-max-size, '524288']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=3)']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging:
+      driver: json-file
+      options: {max-size: '10m', max-file: '3'}
+volumes:
+  postgres_data:

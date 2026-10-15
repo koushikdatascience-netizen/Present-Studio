@@ -192,6 +192,12 @@
     let microphoneEnabled = false;
     let cameraEnabled = false;
     let screenShareEnabled = false;
+    const remoteAssist = window.SnapKeyRemoteControl?.create({
+      socket: options.socket, presentationId: options.presentationId,
+      authToken: options.authToken || "", sharing: () => screenShareEnabled,
+      connected: () => Boolean(room?.state === "connected"),
+    });
+
     let joining = false;
     let mountedTracks = new Set();
     let presentationMediaSignature = "";
@@ -1687,6 +1693,13 @@
         label.className = "slide-screen-share-label";
         label.textContent = `${featured.participant.name || "Guest"}${featured.participant === room.localParticipant ? " (You)" : ""}`;
         slot.append(media, label);
+        if (isController && featured.participant !== room.localParticipant) {
+          const remoteActions = document.createElement("div");
+          remoteActions.className = "slide-screen-share-picker";
+          remoteAssist?.addRequestButton(remoteActions, featured.participant.identity);
+          slot.append(remoteActions);
+        }
+
         if (isController && activeShares.length > 1) {
           const picker = document.createElement("div");
           picker.className = "slide-screen-share-picker";
@@ -1728,6 +1741,10 @@
         caption.textContent = `${participant.name || "Guest"}${participant === room.localParticipant ? " (You)" : ""}`;
         const actions = document.createElement("div");
         actions.className = "live-screen-share-actions";
+        if (isController && participant !== room.localParticipant) {
+          remoteAssist?.addRequestButton(actions, participant.identity);
+        }
+
         if (activeShares.length > 1) {
           const select = document.createElement("button");
           select.type = "button";
