@@ -1,10 +1,13 @@
-param([switch]$Sign, [string]$CertificateThumbprint)
+param([switch]$Sign, [string]$CertificateThumbprint, [string]$TrustedOrigin = "https://connect.snapkeystudio.com")
 $ErrorActionPreference = 'Stop'
+$uri = [uri]$TrustedOrigin
+if ($uri.Scheme -ne 'https' -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or $uri.AbsolutePath -ne '/') { throw 'TrustedOrigin must be an HTTPS origin' }
+$env:SNAPKEY_REMOTE_ASSIST_ORIGIN = $uri.GetLeftPart([System.UriPartial]::Authority)
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
-    cargo test --target x86_64-pc-windows-msvc
+    cargo test --locked --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE) { throw 'Native tests failed' }
-    cargo build --release --target x86_64-pc-windows-msvc
+    cargo build --locked --release --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE) { throw 'Build failed' }
     $exe = Join-Path $PWD 'target\x86_64-pc-windows-msvc\release\snapkey-remote-assist.exe'
     if ($Sign) {

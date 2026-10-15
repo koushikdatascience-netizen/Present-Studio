@@ -1693,6 +1693,13 @@
         label.className = "slide-screen-share-label";
         label.textContent = `${featured.participant.name || "Guest"}${featured.participant === room.localParticipant ? " (You)" : ""}`;
         slot.append(media, label);
+        if (isController && featured.participant !== room.localParticipant) {
+          const remoteActions = document.createElement("div");
+          remoteActions.className = "slide-screen-share-picker";
+          remoteAssist?.addRequestButton(remoteActions, featured.participant.identity);
+          slot.append(remoteActions);
+        }
+
         if (isController && activeShares.length > 1) {
           const picker = document.createElement("div");
           picker.className = "slide-screen-share-picker";

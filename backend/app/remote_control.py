@@ -25,6 +25,7 @@ TTL = 600
 bindings = {}
 sessions = {}
 lock = asyncio.Lock()
+pair_attempts = {}
 
 def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
@@ -62,6 +63,8 @@ class Control:
     seq: int = 0
     window: float = 0
     count: int = 0
+    last_frame: float = 0
+    input_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 def audit(c, event):
@@ -234,8 +237,17 @@ async def ticket(payload: SessionAction, request: Request):
         return {'sessionId': c.id, 'ticket': token}
 
 @router.post('/pair')
-async def pair(payload: Pair):
+async def pair(payload: Pair, request: Request):
     enabled()
+    now = time.monotonic()
+    host = request.client.host if request.client else 'unknown'
+    for ip, attempts in list(pair_attempts.items()):
+        if not attempts or now-attempts[-1] > 60:
+            pair_attempts.pop(ip, None)
+    attempts = [t for t in pair_attempts.get(host, []) if now-t < 60]
+    if len(attempts) >= 20 or len(pair_attempts) >= 4096:
+        fail(429, 'Too many pairing attempts')
+    pair_attempts[host] = attempts + [now]
     async with lock:
         c = next((c for c in sessions.values() if c.pair_hash and secrets.compare_digest(c.pair_hash, digest(payload.ticket))), None)
         if not c or c.state != 'pairing' or not valid(c):
@@ -290,8 +302,17 @@ def input_packet(data):
 @sm.sio.on('remote_control_input')
 async def relay_input(sid, data):
     c = sessions.get(str(data.get('sessionId', '')))
-    if not c or sid != c.owner.sid or c.state != 'active' or not c.helper or not valid(c):
+    if not c or sid != c.owner.sid:
         return {'error': 'Not authorized'}
+    async with c.input_lock:
+        return await _relay_locked(c, data)
+
+async def _relay_locked(c, data):
+    if c.state != 'active' or not c.helper or not await asyncio.to_thread(valid, c):
+        return {'error': 'Not authorized'}
+    # A revocation may occur while the database check runs off the meeting loop.
+    if c.state != 'active' or not c.helper:
+        return {'error': 'Authorization ended'}
     if time.monotonic() - c.helper_seen > LEASE:
         await end(c)
         return {'error': 'Helper disconnected'}
@@ -338,6 +359,10 @@ async def helper(ws: WebSocket):
                 image = message['bytes']
                 if c.state != 'active' or len(image) > 512_000 or not image.startswith(b'\xff\xd8'):
                     break
+                now = time.monotonic()
+                if now-c.last_frame < .15:
+                    break
+                c.last_frame = now
                 await sm.sio.emit('remote_control_frame', {'sessionId': c.id, 'jpeg': image}, room=c.owner.sid)
                 continue
             raw = message.get('text', '')

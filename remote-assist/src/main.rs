@@ -5,7 +5,7 @@ mod input;
 use eframe::egui;
 use serde_json::{json, Value};
 use std::{sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc}, time::{Duration, Instant}};
-use tungstenite::{connect, Message, stream::MaybeTlsStream};
+use tungstenite::{connect_with_config, Message, stream::MaybeTlsStream};
 use url::Url;
 
 enum Command { Approve, Stop }
@@ -36,6 +36,11 @@ impl eframe::App for Assist {
         }
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("SnapKey Remote Assist");
+            if ui.add_sized([450.0, 75.0], egui::Button::new(egui::RichText::new("STOP CONTROL / DENY").size(25.0)).fill(egui::Color32::from_rgb(190, 25, 35))).clicked() {
+                self.running.store(false, Ordering::SeqCst);
+                if let Some(tx) = &self.commands { let _ = tx.send(Command::Stop); }
+            }
+
             ui.label("Attended Windows assistance only. No service, startup entry, or stored credentials.");
             ui.label(&self.status);
             if self.commands.is_none() {
@@ -66,10 +71,6 @@ impl eframe::App for Assist {
                 }
             }
             ui.separator();
-            if ui.add_sized([450.0, 75.0], egui::Button::new(egui::RichText::new("STOP CONTROL / DENY").size(25.0)).fill(egui::Color32::from_rgb(190, 25, 35))).clicked() {
-                self.running.store(false, Ordering::SeqCst);
-                if let Some(tx) = &self.commands { let _ = tx.send(Command::Stop); }
-            }
             ui.label("Closing this window also stops control. F12 is a local emergency stop.");
         });
         ctx.request_repaint_after(Duration::from_millis(50));
@@ -79,7 +80,8 @@ impl eframe::App for Assist {
 fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<AtomicBool>, updates: mpsc::Sender<Update>) -> Result<(), Box<dyn std::error::Error>> {
     let mut origin = Url::parse(pairing.trim())?;
     // Reject credentials, query strings, arbitrary hosts, redirects and untrusted schemes.
-    if origin.scheme() != "https" || origin.host_str() != Some("connect.snapkeystudio.com") || origin.port().is_some() || !origin.username().is_empty() || origin.password().is_some() || origin.query().is_some() || origin.path() != "/" { return Err("Untrusted pairing origin".into()); }
+    let trusted = Url::parse(option_env!("SNAPKEY_REMOTE_ASSIST_ORIGIN").unwrap_or("https://connect.snapkeystudio.com"))?;
+    if trusted.scheme() != "https" || origin.scheme() != "https" || origin.origin() != trusted.origin() || !origin.username().is_empty() || origin.password().is_some() || origin.query().is_some() || origin.path() != "/" { return Err("Untrusted pairing origin".into()); }
     let ticket = origin.fragment().ok_or("Missing pairing credential")?.to_owned();
     if ticket.len() < 32 || ticket.len() > 128 { return Err("Invalid pairing credential".into()); }
     origin.set_fragment(None);
@@ -88,7 +90,7 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
     let id = paired["id"].as_str().ok_or("Missing session id")?;
     let credential = paired["credential"].as_str().ok_or("Missing helper credential")?;
     let mut endpoint = origin.join("api/remote-control/helper")?; endpoint.set_scheme("wss").map_err(|_| "Invalid scheme")?;
-    let (mut ws, _) = connect(endpoint.as_str())?;
+    let (mut ws, _) = connect_with_config(endpoint.as_str(), None, 0)?;
     match ws.get_mut() {
         MaybeTlsStream::Rustls(stream) => { stream.sock.set_read_timeout(Some(Duration::from_millis(100)))?; stream.sock.set_write_timeout(Some(Duration::from_millis(100)))?; }
         _ => return Err("TLS required".into()),
@@ -112,6 +114,9 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
             heartbeat = Instant::now();
         }
         if active && approved_locally && last_frame.elapsed() >= Duration::from_millis(200) {
+            let primary = screenshots::Screen::all()?.into_iter().find(|s| s.display_info.is_primary).ok_or("Primary display missing")?;
+            let a = primary.display_info; let b = screen.display_info;
+            if a.id != b.id || a.x != b.x || a.y != b.y || a.width != b.width || a.height != b.height { return Err("Display changed; request new approval".into()); }
             let capture = screen.capture()?;
             let image = image::RgbaImage::from_raw(capture.width(), capture.height(), capture.into_raw()).ok_or("Invalid screen")?;
             let image = image::DynamicImage::ImageRgba8(image).resize(1280, 720, image::imageops::FilterType::Triangle).to_rgb8();
@@ -156,6 +161,6 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
 }
 fn main() -> eframe::Result {
     let _singleton = input::MachineLock::acquire().expect("SnapKey Remote Assist is already running for this Windows session");
-    let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_title("SnapKey Remote Assist — Attended Control").with_inner_size([520.0, 460.0]).with_window_level(egui::WindowLevel::AlwaysOnTop).with_minimize_button(false), ..Default::default() };
+    let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_title("SnapKey Remote Assist — Attended Control").with_inner_size([560.0, 580.0]).with_min_inner_size([520.0, 500.0]).with_window_level(egui::WindowLevel::AlwaysOnTop).with_minimize_button(false), ..Default::default() };
     eframe::run_native("SnapKey Remote Assist", options, Box::new(|_| Ok(Box::new(Assist::default()))))
 }
