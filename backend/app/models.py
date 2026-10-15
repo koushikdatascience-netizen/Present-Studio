@@ -175,3 +175,15 @@ class MeetingParticipantGrant(Base):
     updated_at: Mapped[str] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class RemoteControlAudit(Base):
+    """Durable transition metadata only; never store pairing secrets or input."""
+    __tablename__ = "remote_control_audit"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), index=True)
+    presentation_id: Mapped[str] = mapped_column(String(64), index=True)
+    controller_id: Mapped[str] = mapped_column(String(64))
+    guest_id: Mapped[str] = mapped_column(String(128))
+    event: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
