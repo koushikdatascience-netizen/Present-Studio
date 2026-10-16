@@ -47,7 +47,8 @@ impl eframe::App for Assist {
         }
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("SnapKey Remote Assist");
-            if ui.add_sized([450.0, 75.0], egui::Button::new(egui::RichText::new("STOP CONTROL / DENY").size(25.0)).fill(egui::Color32::from_rgb(190, 25, 35))).clicked() {
+            ui.label("Diagnostic build 0.1.1 — keep this window open while controlling.");
+            if ui.add_sized([450.0, 75.0], egui::Button::new(egui::RichText::new("STOP CONTROL / DENY").size(25.0).color(egui::Color32::WHITE)).fill(egui::Color32::from_rgb(150, 15, 25))).clicked() {
                 self.running.store(false, Ordering::SeqCst);
                 if let Some(tx) = &self.commands { let _ = tx.send(Command::Stop); }
             }
@@ -75,8 +76,12 @@ impl eframe::App for Assist {
                     std::thread::spawn(move || {
                         let result = std::panic::catch_unwind(|| session(pairing, rx, running.clone(), sender.clone()));
                         running.store(false, Ordering::SeqCst);
-                        let reason = match result { Ok(Ok(())) => "Control ended. Pair again for another session.", _ => "Connection failed or authorization expired. All remote input stopped." };
-                        let _ = sender.send(Update::Ended(reason.into()));
+                        let reason = match result {
+                            Ok(Ok(())) => "Control ended. Pair again for another session.".to_owned(),
+                            Ok(Err(error)) => format!("Control stopped: {}. All remote input stopped. Request fresh pairing.", error),
+                            Err(_) => "Control stopped: helper worker failed. All remote input stopped. Request fresh pairing.".to_owned(),
+                        };
+                        let _ = sender.send(Update::Ended(reason));
                     });
                 }
             }
@@ -85,7 +90,7 @@ impl eframe::App for Assist {
                 ui.label(format!("Verified requesting owner: {}", self.owner));
                 ui.label("Approving shares and controls your entire PRIMARY display, including visible applications. Do not expose passwords or private data. Elevated and secure desktops are unsupported.");
                 ui.checkbox(&mut self.primary_confirmed, "I approve the primary display for this owner and this session only");
-                if ui.add_enabled(self.primary_confirmed, egui::Button::new("Allow Control")).clicked() {
+                if ui.add_enabled(self.primary_confirmed, egui::Button::new(egui::RichText::new("Allow Control").color(egui::Color32::WHITE)).fill(egui::Color32::from_rgb(7, 89, 133))).clicked() {
                     if let Some(tx) = &self.commands { let _ = tx.send(Command::Approve); }
                     self.primary_confirmed = false;
                 }
@@ -106,11 +111,11 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
     if ticket.len() < 32 || ticket.len() > 128 { return Err("Invalid pairing credential".into()); }
     origin.set_fragment(None);
     let client = reqwest::blocking::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(Duration::from_secs(8)).build()?;
-    let paired: Value = client.post(origin.join("api/remote-control/pair")?).json(&json!({"ticket":ticket})).send()?.error_for_status()?.json()?;
+    let paired: Value = client.post(origin.join("api/remote-control/pair")?).json(&json!({"ticket":ticket})).send().map_err(|_| "Pairing connection failed")?.error_for_status().map_err(|_| "Pairing rejected or expired")?.json().map_err(|_| "Invalid pairing response")?;
     let id = paired["id"].as_str().ok_or("Missing session id")?;
     let credential = paired["credential"].as_str().ok_or("Missing helper credential")?;
     let mut endpoint = origin.join("api/remote-control/helper")?; endpoint.set_scheme("wss").map_err(|_| "Invalid scheme")?;
-    let (mut ws, _) = connect_with_config(endpoint.as_str(), None, 0)?;
+    let (mut ws, _) = connect_with_config(endpoint.as_str(), None, 0).map_err(|_| "Helper WebSocket connection failed")?;
     match ws.get_mut() {
         MaybeTlsStream::Rustls(stream) => { stream.sock.set_read_timeout(Some(Duration::from_millis(100)))?; stream.sock.set_write_timeout(Some(Duration::from_millis(100)))?; }
         _ => return Err("TLS required".into()),
@@ -122,13 +127,14 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
     let mut last_frame = Instant::now(); let started = Instant::now(); let mut seq: u64 = 0;
     let screen = screenshots::Screen::all()?.into_iter().find(|s| s.display_info.is_primary).ok_or("Primary display unavailable")?;
     while running.load(Ordering::SeqCst) && started.elapsed() < Duration::from_secs(600) {
-        if input::emergency_stop() || !input::default_desktop() { break; }
+        if input::emergency_stop() { return Err("Local F12 stop pressed".into()); }
+        if !input::default_desktop() { return Err("Secure or unavailable Windows desktop".into()); }
         match commands.try_recv() {
             Ok(Command::Stop) => break,
             Ok(Command::Approve) if !approved_locally => { approved_locally = true; ws.send(Message::Text(json!({"type":"approve"}).to_string()))?; }
             _ => (),
         }
-        if lease.elapsed() > Duration::from_millis(1000) { break; }
+        if lease.elapsed() > Duration::from_millis(1000) { return Err("Server authorization heartbeat expired (1 second)".into()); }
         if heartbeat.elapsed() >= Duration::from_millis(250) {
             ws.send(Message::Text(json!({"type":"heartbeat"}).to_string()))?;
             heartbeat = Instant::now();
@@ -137,12 +143,12 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
             let primary = screenshots::Screen::all()?.into_iter().find(|s| s.display_info.is_primary).ok_or("Primary display missing")?;
             let a = primary.display_info; let b = screen.display_info;
             if a.id != b.id || a.x != b.x || a.y != b.y || a.width != b.width || a.height != b.height { return Err("Display changed; request new approval".into()); }
-            let capture = screen.capture()?;
+            let capture = screen.capture().map_err(|_| "Primary-display capture failed")?;
             let image = image::RgbaImage::from_raw(capture.width(), capture.height(), capture.into_raw()).ok_or("Invalid screen")?;
             let image = image::DynamicImage::ImageRgba8(image).resize(1280, 720, image::imageops::FilterType::Triangle).to_rgb8();
             let mut jpeg = Vec::new(); image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 60).encode_image(&image)?;
             if jpeg.len() > 512_000 { return Err("Frame too large".into()); }
-            ws.send(Message::Binary(jpeg))?;
+            ws.send(Message::Binary(jpeg)).map_err(|_| "Preview frame upload failed (100 ms write timeout or disconnected socket)")?;
             last_frame = Instant::now();
         }
         match ws.read() {
@@ -170,6 +176,8 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
             }
             Err(tungstenite::Error::Io(error)) if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => (),
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => (),
+            Ok(Message::Close(_)) => return Err("Server closed helper connection; check meeting presence and approval".into()),
+            Err(_) => return Err("Helper WebSocket receive failed".into()),
             _ => break,
         }
     }
@@ -182,5 +190,8 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
 fn main() -> eframe::Result {
     let _singleton = input::MachineLock::acquire().expect("SnapKey Remote Assist is already running for this Windows session");
     let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_title("SnapKey Remote Assist — Attended Control").with_inner_size([560.0, 580.0]).with_min_inner_size([520.0, 500.0]).with_window_level(egui::WindowLevel::AlwaysOnTop).with_minimize_button(false), ..Default::default() };
-    eframe::run_native("SnapKey Remote Assist", options, Box::new(|_| Ok(Box::new(Assist::default()))))
+    eframe::run_native("SnapKey Remote Assist", options, Box::new(|cc| {
+        cc.egui_ctx.set_visuals(egui::Visuals::light());
+        Ok(Box::new(Assist::default()))
+    }))
 }

@@ -1,7 +1,7 @@
 name: Remote assistance feature validation
 on:
   push:
-    branches: [feature/studio-instant-remote-control]
+    branches: [main, feature/studio-instant-remote-control, codex/helper-connection-diagnostics]
     paths: ['backend/**', 'frontend/**', 'remote-assist/**', 'tests/remote-control.test.cjs', '.github/workflows/remote-control.yml']
 permissions:
   contents: read
