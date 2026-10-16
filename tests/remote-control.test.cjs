@@ -14,7 +14,7 @@ test('maps portrait display without stretching', () => {
 });
 const vm = require('node:vm');
 const fs = require('node:fs');
-function guestUi() {
+function guestUi(role = 'guest') {
   const nodes = [];
   class Element {
     constructor(tag) { this.tagName = tag.toUpperCase(); this.children = []; this.style = {}; this.parentNode = null; this.textContent = ''; nodes.push(this); }
@@ -36,11 +36,22 @@ function guestUi() {
   };
   context.window = { addEventListener() {}, alert: message => alerts.push(message) };
   vm.runInNewContext(fs.readFileSync(require.resolve('../frontend/js/remote-control.js'), 'utf8'), context);
-  const socket = { connected: true, on(name, fn) { listeners[name] = fn; }, emit(name, data, callback) { if (name === 'remote_control_bind') callback({ credential: 'guest-credential', role: 'guest' }); } };
+  const socket = { connected: true, on(name, fn) { listeners[name] = fn; }, emit(name, data, callback) { if (name === 'remote_control_bind') callback({ credential: 'test-credential', role }); } };
   context.window.SnapKeyRemoteControl.create({ socket, connected: () => true, sharing: () => true, presentationId: 'p' });
   tick();
   return { nodes, listeners, alerts, resolve: value => resolveTicket({ ok: true, json: async () => value }), state: { id: 'session', state: 'requested', ownerName: 'Owner' } };
 }
+test('control buttons have explicit contrast and visible keyboard focus', () => {
+  const h = guestUi(); h.listeners.remote_control_status(h.state);
+  const button = h.nodes.find(n => n.textContent === 'Prepare Helper Pairing');
+  assert.equal(button.style.color, '#ffffff');
+  assert.equal(button.style.background, '#075985');
+  button.onfocus(); assert.equal(button.style.outline, '3px solid #fbbf24');
+});
+test('owner pending state explains native helper approval requirement', () => {
+  const h = guestUi('owner'); h.listeners.remote_control_status({ ...h.state, state: 'paired' });
+  assert.ok(h.nodes.some(n => n.isConnected && n.textContent.includes('click Allow Control inside its native window')));
+});
 for (const statusArrivesFirst of [true, false]) {
   test('pairing text survives REST/socket status race: status first=' + statusArrivesFirst, async () => {
     const h = guestUi(); h.listeners.remote_control_status(h.state);
