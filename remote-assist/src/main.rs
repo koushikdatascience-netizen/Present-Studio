@@ -3,6 +3,7 @@
 compile_error!("SnapKey Remote Assist supports Windows only");
 mod input;
 mod protocol;
+mod transport;
 use eframe::egui;
 use serde_json::{json, Value};
 use std::{sync::{atomic::{AtomicBool, Ordering}, mpsc, Arc}, time::{Duration, Instant}};
@@ -47,7 +48,7 @@ impl eframe::App for Assist {
         }
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("SnapKey Remote Assist");
-            ui.label("Diagnostic build 0.1.1 — keep this window open while controlling.");
+            ui.label("Test build 0.1.2 — keep this window open while controlling.");
             if ui.add_sized([450.0, 75.0], egui::Button::new(egui::RichText::new("STOP CONTROL / DENY").size(25.0).color(egui::Color32::WHITE)).fill(egui::Color32::from_rgb(150, 15, 25))).clicked() {
                 self.running.store(false, Ordering::SeqCst);
                 if let Some(tx) = &self.commands { let _ = tx.send(Command::Stop); }
@@ -117,26 +118,27 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
     let mut endpoint = origin.join("api/remote-control/helper")?; endpoint.set_scheme("wss").map_err(|_| "Invalid scheme")?;
     let (mut ws, _) = connect_with_config(endpoint.as_str(), None, 0).map_err(|_| "Helper WebSocket connection failed")?;
     match ws.get_mut() {
-        MaybeTlsStream::Rustls(stream) => { stream.sock.set_read_timeout(Some(Duration::from_millis(100)))?; stream.sock.set_write_timeout(Some(Duration::from_millis(100)))?; }
+        MaybeTlsStream::Rustls(stream) => { stream.sock.set_nonblocking(true)?; }
         _ => return Err("TLS required".into()),
     }
-    ws.send(Message::Text(json!({"sessionId":id,"credential":credential}).to_string()))?;
+    transport::send(&mut ws, Message::Text(json!({"sessionId":id,"credential":credential}).to_string())).map_err(|_| "Helper authentication send failed")?;
     let mut input = input::InputGuard::new();
     let mut approved_locally = false; let mut active = false;
     let mut lease = Instant::now(); let mut heartbeat = Instant::now() - Duration::from_secs(1);
     let mut last_frame = Instant::now(); let started = Instant::now(); let mut seq: u64 = 0;
     let screen = screenshots::Screen::all()?.into_iter().find(|s| s.display_info.is_primary).ok_or("Primary display unavailable")?;
     while running.load(Ordering::SeqCst) && started.elapsed() < Duration::from_secs(600) {
+        transport::flush(&mut ws).map_err(|_| "Helper connection write failed")?;
         if input::emergency_stop() { return Err("Local F12 stop pressed".into()); }
         if !input::default_desktop() { return Err("Secure or unavailable Windows desktop".into()); }
         match commands.try_recv() {
             Ok(Command::Stop) => break,
-            Ok(Command::Approve) if !approved_locally => { approved_locally = true; ws.send(Message::Text(json!({"type":"approve"}).to_string()))?; }
+            Ok(Command::Approve) if !approved_locally => { approved_locally = true; transport::send(&mut ws, Message::Text(json!({"type":"approve"}).to_string())).map_err(|_| "Approval upload failed")?; }
             _ => (),
         }
         if lease.elapsed() > Duration::from_millis(1000) { return Err("Server authorization heartbeat expired (1 second)".into()); }
         if heartbeat.elapsed() >= Duration::from_millis(250) {
-            ws.send(Message::Text(json!({"type":"heartbeat"}).to_string()))?;
+            transport::send(&mut ws, Message::Text(json!({"type":"heartbeat"}).to_string())).map_err(|_| "Helper heartbeat upload failed")?;
             heartbeat = Instant::now();
         }
         if active && approved_locally && last_frame.elapsed() >= Duration::from_millis(200) {
@@ -148,7 +150,7 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
             let image = image::DynamicImage::ImageRgba8(image).resize(1280, 720, image::imageops::FilterType::Triangle).to_rgb8();
             let mut jpeg = Vec::new(); image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 60).encode_image(&image)?;
             if jpeg.len() > 512_000 { return Err("Frame too large".into()); }
-            ws.send(Message::Binary(jpeg)).map_err(|_| "Preview frame upload failed (100 ms write timeout or disconnected socket)")?;
+            transport::send(&mut ws, Message::Binary(jpeg)).map_err(|_| "Preview frame upload failed")?;
             last_frame = Instant::now();
         }
         match ws.read() {
@@ -174,10 +176,10 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
                     _ => break,
                 }
             }
-            Err(tungstenite::Error::Io(error)) if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => (),
+            Err(tungstenite::Error::Io(error)) if error.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(5)),
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => (),
             Ok(Message::Close(_)) => return Err("Server closed helper connection; check meeting presence and approval".into()),
-            Err(_) => return Err("Helper WebSocket receive failed".into()),
+            Err(error) => return Err(format!("Helper receive failed: {}", receive_error(&error)).into()),
             _ => break,
         }
     }
@@ -186,6 +188,16 @@ fn session(pairing: String, commands: mpsc::Receiver<Command>, running: Arc<Atom
     let _ = ws.send(Message::Text(json!({"type":"stop"}).to_string()));
     let _ = ws.close(None);
     Ok(())
+}
+fn receive_error(error: &tungstenite::Error) -> String {
+    match error {
+        tungstenite::Error::Io(e) => format!("socket {:?}, OS code {:?}", e.kind(), e.raw_os_error()),
+        tungstenite::Error::Protocol(e) => format!("WebSocket protocol: {e}"),
+        tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed => "connection closed".into(),
+        tungstenite::Error::Tls(_) => "TLS connection error".into(),
+        tungstenite::Error::Capacity(_) => "WebSocket message capacity exceeded".into(),
+        _ => "invalid WebSocket response".into(),
+    }
 }
 fn main() -> eframe::Result {
     let _singleton = input::MachineLock::acquire().expect("SnapKey Remote Assist is already running for this Windows session");
