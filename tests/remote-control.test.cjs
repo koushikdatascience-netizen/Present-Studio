@@ -52,6 +52,11 @@ test('owner pending state explains native helper approval requirement', () => {
   const h = guestUi('owner'); h.listeners.remote_control_status({ ...h.state, state: 'paired' });
   assert.ok(h.nodes.some(n => n.isConnected && n.textContent.includes('click Allow Control inside its native window')));
 });
+test('ended session displays server stop detail', () => {
+  const h = guestUi('owner');
+  h.listeners.remote_control_status({ ...h.state, state: 'ended', stopDetail: 'audience_heartbeat_expired' });
+  assert.ok(h.nodes.some(n => n.isConnected && n.textContent.includes('audience heartbeat expired')));
+});
 for (const statusArrivesFirst of [true, false]) {
   test('pairing text survives REST/socket status race: status first=' + statusArrivesFirst, async () => {
     const h = guestUi(); h.listeners.remote_control_status(h.state);

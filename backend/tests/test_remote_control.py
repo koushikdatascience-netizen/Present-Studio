@@ -187,6 +187,17 @@ def test_stopping_screen_share_invalidates_control(setup):
     id=ask(setup)
     rc.sessions[id].guest.sharing=False
     assert not rc.valid(rc.sessions[id])
+    assert rc.invalid_reason(rc.sessions[id]) == 'audience_stopped_sharing'
+
+def test_stop_reason_preserves_expired_heartbeat_boundary(setup):
+    id = ask(setup)
+    session = rc.sessions[id]
+    session.owner.seen = time.monotonic()-rc.LEASE-1
+    assert not rc.valid(session)
+    assert rc.invalid_reason(session) == 'owner_heartbeat_expired'
+    asyncio.run(rc.end(session))
+    assert rc.view(session)['stopDetail'] == 'owner_heartbeat_expired'
+    assert session.state == 'ended'
 
 def test_meeting_end_invalidates_control(setup):
     id=ask(setup)

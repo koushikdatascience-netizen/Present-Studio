@@ -66,6 +66,7 @@
       Object.assign(panel.style, { position: 'fixed', inset: '8% 5%', zIndex: 10050, background: '#142033', color: 'white', padding: '20px', overflow: 'auto', border: '3px solid #63b7ff' });
       const title = document.createElement('h2'); title.textContent = 'Remote assistance';
       status = document.createElement('p'); status.setAttribute('aria-live', 'polite'); status.textContent = labels[data.state] || 'Connecting';
+      if (data.stopDetail) status.textContent += ' — ' + data.stopDetail.replaceAll('_', ' ');
       panel.append(title, status); document.body.append(panel);
       if (['ended', 'denied', 'expired'].includes(data.state)) { button(panel, 'Close', close); return; }
       button(panel, 'Release / Stop Control', revoke);
