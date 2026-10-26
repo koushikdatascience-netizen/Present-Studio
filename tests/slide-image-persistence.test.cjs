@@ -41,3 +41,11 @@ test('cross-tab save conflict blocks further overwrites', () => {
 test('avoid media library repaint on every slide navigation', () => {
   assert.match(source, /gridEl\.dataset\.assetSignature===signature/);
 });
+
+test('image insertions must finish before saves begin', () => {
+  assert.match(source, /pendingInsertions\+\+/);
+  assert.match(source, /if\(loading\|\|pendingInsertions\)return Promise\.reject/);
+});
+test('Fabric reloads are serialized', () => {
+  assert.match(source, /loadQueue=loadQueue\.catch/);
+});
