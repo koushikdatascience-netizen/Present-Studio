@@ -1,7 +1,7 @@
 const api=window.PresentStudioApi, $=s=>document.querySelector(s);
 const presentationId=new URLSearchParams(location.search).get("id")||"pres_demo";
 const authToken=localStorage.getItem("presentStudio.accessToken")||"", socket=window.io?window.io():null;
-let saveQueue=Promise.resolve(), loadEpoch=0, imageRestoreProblem="", saveSequence=0, lastSavedUpdatedAt=null, saveConflict=false;
+let saveQueue=Promise.resolve(), loadQueue=Promise.resolve(), loadEpoch=0, imageRestoreProblem="", saveSequence=0, lastSavedUpdatedAt=null, saveConflict=false, pendingInsertions=0;
 let presentation,currentSlideIndex=0,canvas,saveTimer,shareUrl="",screenShareUrl="",audienceShareUrl="",loading=false,mediaAssets=[],selectedPresenter="Self",uploadRequestId=0,retryUploadFile=null;
 const W=1280,H=720;
 function secureAppUrl(path){const url=new URL(path,location.origin);if(!["localhost","127.0.0.1","::1"].includes(url.hostname))url.protocol="https:";return url.href}
@@ -48,8 +48,10 @@ function load(){
   const epoch=++loadEpoch,slideId=activeSlide()?.id,d=ensure(activeSlide()).canvas;
   if(d.fabric){
     const source=d.fabric;
-    canvas.loadFromJSON(source,()=>{
-      if(epoch!==loadEpoch||slideId!==activeSlide()?.id)return;
+    loadQueue=loadQueue.catch(()=>{}).then(()=>new Promise(resolve=>{
+      if(epoch!==loadEpoch)return resolve();
+      canvas.loadFromJSON(source,()=>{
+      if(epoch!==loadEpoch||slideId!==activeSlide()?.id)return resolve();
       const missing=validateRestoredImages(source.objects||[],canvas.toJSON(["id","src"]).objects||[]);
       canvas.backgroundColor=d.background||"#f8f4ea";canvas.renderAll();loading=false;
       if(missing.length){
@@ -57,8 +59,9 @@ function load(){
         $("#modeLabel").textContent="Image restore failed — saving paused";
         toast(imageRestoreProblem);
       }
-      panel();
-    });
+      panel();resolve();
+      });
+    }));
   }else{
     canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";
     const legacyImages=(d.elements||[]).filter(x=>x.type==="image");
