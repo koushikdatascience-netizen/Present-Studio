@@ -546,6 +546,69 @@ def inspect_presentation_snapshot(
     return {"id": record.id, "document": record.document}
 
 
+@router.post("/{presentation_id}/snapshots/{snapshot_id}/restore-images")
+async def restore_missing_slide_images(
+    presentation_id: str, snapshot_id: str, payload: dict,
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    """Owner-approved recovery: restore only missing image objects on one slide."""
+    presentation = db.query(Presentation).filter(Presentation.id == presentation_id).with_for_update().first()
+    if not presentation or not can_edit_presentation(db, presentation, user):
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    if not isinstance(payload.get("baseUpdatedAt"), str) or payload["baseUpdatedAt"] != (
+        presentation.updated_at.isoformat() if presentation.updated_at else None
+    ):
+        raise HTTPException(status_code=409, detail="Presentation changed. Refresh before restoring images.")
+    slide_id = payload.get("slideId")
+    if not isinstance(slide_id, str):
+        raise HTTPException(status_code=422, detail="slideId is required")
+    stored = db.query(PresentationSnapshot).filter(
+        PresentationSnapshot.id == snapshot_id, PresentationSnapshot.presentation_id == presentation_id
+    ).first()
+    if not stored:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    source_slide = next((item for item in stored.document.get("slides", []) if item.get("id") == slide_id), None)
+    slide = db.query(Slide).filter(Slide.presentation_id == presentation_id, Slide.id == slide_id).first()
+    if not source_slide or not slide:
+        raise HTTPException(status_code=404, detail="Slide not found in both versions")
+    original = (source_slide.get("canvas", {}).get("fabric") or {}).get("objects", [])
+    canvas = json.loads(json.dumps(slide.canvas))
+    if not isinstance(canvas.get("fabric"), dict):
+        raise HTTPException(status_code=422, detail="Slide has no Fabric canvas")
+    objects = canvas["fabric"].get("objects", [])
+    if not isinstance(objects, list) or not isinstance(original, list):
+        raise HTTPException(status_code=422, detail="Slide objects are invalid")
+    known = {(item.get("id") or item.get("src")) for item in objects if isinstance(item, dict) and item.get("type") == "image"}
+    restored = []
+    for item in original:
+        if not isinstance(item, dict) or item.get("type") != "image":
+            continue
+        identity = item.get("id") or item.get("src")
+        if not identity or identity in known or not isinstance(item.get("src"), str):
+            continue
+        restored.append(item)
+        known.add(identity)
+    if not restored:
+        return {"restored": 0, "presentation": serialize_presentation(presentation)}
+    db.add(PresentationSnapshot(
+        id=new_id("snapshot"), presentation_id=presentation_id, owner_id=user.id,
+        document={"title": presentation.title,
+                  "updatedAt": presentation.updated_at.isoformat() if presentation.updated_at else None,
+                  "slides": [{"id": current.id, "order": current.order, "title": current.title, "canvas": current.canvas}
+                             for current in presentation.slides]}
+    ))
+    canvas["fabric"]["objects"] = objects + restored
+    slide.canvas = canvas
+    presentation.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.expire_all()
+    updated = db.get(Presentation, presentation_id)
+    serialized = serialize_presentation(updated)
+    await sio.emit("presentation_updated", {"presentationId": presentation_id,
+                                            "presentation": serialized.model_dump()}, room=presentation_id)
+    return {"restored": len(restored), "presentation": serialized}
+
+
 @router.get("/{presentation_id}/share/current")
 def get_current_share_link(
     presentation_id: str,
