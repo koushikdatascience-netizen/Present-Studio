@@ -15,12 +15,14 @@ function text(item){return new fabric.Textbox(item.text||"",{id:item.id,left:(it
 function video(item){const fitToSlide=item.fitToSlide===true;return new fabric.Rect({id:item.id,left:item.full_bleed||fitToSlide?0:(item.x||0)*12.8,top:item.full_bleed||fitToSlide?0:(item.y||0)*7.2,width:item.full_bleed||fitToSlide?W:(item.width||40)*12.8,height:item.full_bleed||fitToSlide?H:(item.height||30)*7.2,fill:"#1c1a16",stroke:item.full_bleed||fitToSlide?null:"#d1a948",strokeWidth:item.full_bleed||fitToSlide?0:4,rx:item.full_bleed||fitToSlide?0:8,ry:item.full_bleed||fitToSlide?0:8,mediaType:"video",src:item.src,full_bleed:item.full_bleed===true,loop:item.loop,muted:item.muted===true,fit:item.fit||(item.full_bleed?"fill":"contain")})}
 function image(item){
   const targetCanvas=canvas, targetSlideId=activeSlide()?.id;
+  pendingInsertions++;
   fabric.Image.fromURL(item.src,o=>{
+    pendingInsertions=Math.max(0,pendingInsertions-1);
     if(!o||!o.width||!o.height){
       toast("This image could not load. Check the media link or upload it again.");
       return;
     }
-    if(targetCanvas!==canvas||targetSlideId!==activeSlide()?.id)return;
+    if(targetCanvas!==canvas||targetSlideId!==activeSlide()?.id){toast("The image was uploaded, but not placed because you changed slides. Add it from your Media Library.");return;}
     o.set({id:item.id,mediaType:"image",src:item.src,audioSrc:item.audioSrc||"",audioName:item.audioName||"",full_bleed:item.full_bleed===true,loop:item.loop,muted:item.muted===true,fit:item.fit||(item.full_bleed?"fill":"contain"),left:(item.x||0)*12.8,top:(item.y||0)*7.2});
     if(item.fitToSlide){const scale=Math.min(W/o.width,H/o.height);o.set({scaleX:scale,scaleY:scale,left:(W-o.width*scale)/2,top:(H-o.height*scale)/2})}
     else if(item.full_bleed)o.set({scaleX:W/o.width,scaleY:H/o.height,left:0,top:0});
@@ -99,7 +101,7 @@ function render(){const s=ensure(activeSlide()),count=String(currentSlideIndex+1
 function normalize(){presentation.slides.forEach((s,i)=>s.order=i+1)}
 function save(){
   clearTimeout(saveTimer);
-  if(loading)return Promise.reject(new Error("Slide is still loading; wait before saving."));
+  if(loading||pendingInsertions)return Promise.reject(new Error("Please wait for images to finish loading before saving."));
   if(imageRestoreProblem)return Promise.reject(new Error(imageRestoreProblem));
   if(saveConflict)return Promise.reject(new Error("This presentation was updated elsewhere. Reload and review changes before saving."));
   capture();normalize();
@@ -122,7 +124,7 @@ function save(){
   });
   saveQueue=task;return task;
 }
-function schedule(){if(loading||imageRestoreProblem||saveConflict)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
+function schedule(){if(loading||pendingInsertions||imageRestoreProblem||saveConflict)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
 function move(n){capture();currentSlideIndex=(currentSlideIndex+n+presentation.slides.length)%presentation.slides.length;render()} function addSlide(){capture();presentation.slides.splice(currentSlideIndex+1,0,ensure({id:"slide_"+Date.now(),order:0,title:"Slide "+(presentation.slides.length+1),canvas:{background:"#f8f4ea",elements:[]}}));currentSlideIndex++;normalize();render();schedule()} function duplicateSlide(){capture();const s=JSON.parse(JSON.stringify(activeSlide()));s.id="slide_"+Date.now();s.title+=" copy";presentation.slides.splice(currentSlideIndex+1,0,s);currentSlideIndex++;normalize();render();schedule()} function deleteSlide(){if(presentation.slides.length===1)return toast("A presentation needs at least one slide.");capture();const r=presentation.slides.splice(currentSlideIndex,1)[0];playback().slide_ids=playback().slide_ids.filter(id=>id!==r.id);currentSlideIndex=Math.min(currentSlideIndex,presentation.slides.length-1);render();schedule()}
 function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
 async function uploadFile(f){const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);addAsset(r.asset,false);mediaLibrary();if(requestId===uploadRequestId)renderUploadStatus("success",f.name+" uploaded successfully.")}catch(err){if(requestId!==uploadRequestId)return;retryUploadFile=f;const message=err.message.includes("Cloudinary")?"Media storage is not configured on this server.":err.message;renderUploadStatus("error",message)}}
