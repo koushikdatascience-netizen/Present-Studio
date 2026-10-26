@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: '22'
       - run: node --check frontend/js/editor.js
-      - run: node --test tests/slide-image-persistence.test.cjs
+      - run: node --test tests/slide-image-persistence.test.cjs tests/remote-control.test.cjs
   backend-syntax:
     runs-on: ubuntu-latest
     steps:
@@ -30,3 +30,15 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m compileall -q backend/app/routers/presentations.py backend/app/models.py backend/app/schemas.py tools/audit_presentation_media.py
+  backend-tests:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:///./studio-test.db
+      JWT_SECRET: staging-only-ci-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r backend/requirements.txt
+      - run: PYTHONPATH=backend python -m pytest backend/tests -q
