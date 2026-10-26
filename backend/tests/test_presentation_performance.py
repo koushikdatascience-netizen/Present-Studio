@@ -92,7 +92,8 @@ def test_save_externalizes_and_deduplicates_images_preserving_scene_and_event_co
             assert storage.upload_bytes.call_count == 2  # original plus small WebP, not each occurrence
             assert storage.upload_bytes.call_args_list[0].kwargs["content"] == content
             assert emit.await_args.args[0] == "presentation_updated"
-            assert emit.await_args.args[1]["presentation"]["id"] == deck["id"]
+            assert "presentation" not in emit.await_args.args[1]
+            assert emit.await_args.args[1]["changes"]["slides"] == saved["slides"]
             client.put(f"/api/presentations/{deck['id']}", headers=headers, json=saved).raise_for_status()
             assert storage.upload_bytes.call_count == 2
         with SessionLocal() as db:
@@ -187,3 +188,66 @@ def test_migration_dry_run_backup_and_live_deck_protection(tmp_path):
             assert inline in backup.read_text()
             with pytest.raises(FileExistsError):
                 migrate(apply=True, backup=backup, presentation_id=deck["id"])
+
+
+def test_stale_and_unversioned_saves_cannot_overwrite_or_upload():
+    with TestClient(fastapi_app) as client:
+        _, headers, deck = owner_and_deck(client)
+        stale = deepcopy(deck)
+        deck["title"] = "First editor"
+        with patch("app.routers.presentations.sio.emit", new_callable=AsyncMock) as emit:
+            saved = client.put(f"/api/presentations/{deck['id']}", headers=headers, json=deck)
+            assert saved.status_code == 200
+            assert saved.json()["presentation"]["updatedAt"] != stale["updatedAt"]
+            with patch("app.services.presentation_persistence.externalize_images") as images:
+                stale["title"] = "Stale editor"
+                assert client.put(f"/api/presentations/{deck['id']}", headers=headers, json=stale).status_code == 409
+                stale.pop("updatedAt")
+                assert client.put(f"/api/presentations/{deck['id']}", headers=headers, json=stale).status_code == 428
+                images.assert_not_called()
+            assert emit.await_count == 1
+        current = client.get(f"/api/presentations/{deck['id']}", headers=headers).json()["presentation"]
+        assert current["title"] == "First editor"
+
+
+def test_simultaneous_saves_have_only_one_winner():
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from app.schemas import PresentationSave
+    from app.services.presentation_persistence import persist_presentation
+    from fastapi import HTTPException
+    with TestClient(fastapi_app) as client:
+        auth, _, deck = owner_and_deck(client)
+        barrier = Barrier(2)
+        def save(title):
+            payload = PresentationSave(**{**deck, "title": title})
+            barrier.wait(timeout=5)
+            try:
+                persist_presentation(deck["id"], payload, auth["user"]["id"])
+                return 200
+            except HTTPException as error:
+                return error.status_code
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assert sorted(pool.map(save, ["Editor A", "Editor B"])) == [200, 409]
+
+
+def test_delta_omits_unchanged_canvases_and_preserves_order_and_deletions():
+    with TestClient(fastapi_app) as client:
+        _, headers, deck = owner_and_deck(client)
+        first = deck["slides"][0]
+        first["canvas"]["notes"] = "large unchanged scene " * 10000
+        deck["slides"] = [first, {**deepcopy(first), "id": "slide_" + uuid4().hex, "order": 2},
+                          {**deepcopy(first), "id": "slide_" + uuid4().hex, "order": 3}]
+        saved = client.put(f"/api/presentations/{deck['id']}", headers=headers, json=deck).json()["presentation"]
+        base = saved["updatedAt"]
+        # Remove the middle slide, keep explicit positions, edit only the last.
+        saved["slides"].pop(1)
+        saved["slides"][-1]["title"] = "Edited"
+        with patch("app.routers.presentations.sio.emit", new_callable=AsyncMock) as emit:
+            response = client.put(f"/api/presentations/{deck['id']}", headers=headers, json=saved)
+        assert response.status_code == 200
+        event = emit.await_args.args[1]
+        assert event["baseUpdatedAt"] == base
+        assert "presentation" not in event
+        assert event["changes"]["slideOrder"] == [s["id"] for s in saved["slides"]]
+        assert [s["id"] for s in event["changes"]["slides"]] == [saved["slides"][-1]["id"]]

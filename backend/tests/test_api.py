@@ -497,7 +497,8 @@ def test_saving_presentation_emits_live_update():
         event_name, event = emit.await_args.args
         assert event_name == "presentation_updated"
         assert event["presentationId"] == "pres_demo"
-        assert event["presentation"]["slides"]
+        assert "presentation" not in event
+        assert event["changes"]["slideOrder"]
         assert emit.await_args.kwargs["room"] == "pres_demo"
 
 

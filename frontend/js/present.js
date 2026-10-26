@@ -509,7 +509,7 @@ function setupSocket() {
     if (liveState?.kind === 'whiteboard') applyPresentationState(liveState, true);
   });
   socket.on("presentation_annotation", handleAudienceAnnotation);
-  socket.on("presentation_updated", event => {
+  socket.on("presentation_updated", api.presentationUpdates(() => presentation, () => Promise.all([loadPresentationAccess(), api.getLiveSession(presentationId, audienceJoinLink || participantResumeToken ? { publicAccess: true } : {})]).then(([result, liveState]) => ({ ...result, liveState })), event => {
     if (event.presentationId !== presentation.id || !event.presentation) return;
     const oldSlide = presentation.slides.find(slide => slide.id === liveState?.slideId);
     const oldCanvas = oldSlide ? JSON.stringify(oldSlide.canvas || {}) : "";
@@ -520,7 +520,7 @@ function setupSocket() {
     const sameVisibleSlideChanged = (state.kind || "slide") === "slide" && stateSlideId === liveState?.slideId && newSlide && oldCanvas !== JSON.stringify(newSlide.canvas || {});
     applyPresentationState(state, sameVisibleSlideChanged, sameVisibleSlideChanged);
     setAutoplay(autoplayRunning);
-  });
+  }, console.error, socket));
   socket.on("presentation_deleted", event => { if (event.presentationId === presentation.id) { setAutoplay(false); liveMediaSession?.leave(); showError("This presentation has been deleted."); } });
   socket.on("presenter_rejected", event => showError(event.message || "Presenter permission required."));
   socket.on("session_ended", () => { setAutoplay(false); liveMediaSession?.leave(); showError("This live session has ended."); });

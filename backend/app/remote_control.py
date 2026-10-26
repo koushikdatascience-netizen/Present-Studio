@@ -286,7 +286,8 @@ async def revoke(payload: SessionAction, request: Request):
     c = lookup(payload.sessionId)
     if b is not c.owner and b is not c.guest:
         fail()
-    await end(c, 'denied' if request.url.path.endswith('/deny') and c.state != 'active' else 'ended')
+    denied = request.url.path.endswith('/deny') and c.state != 'active'
+    await end(c, 'denied' if denied else 'ended', detail='audience_denied' if denied else ('owner_released_control' if b is c.owner else 'audience_released_control'))
     return view(c)
 
 @router.get('/status')
@@ -333,25 +334,26 @@ async def _relay_locked(c, data):
     if c.state != 'active' or not c.helper:
         return {'error': 'Authorization ended'}
     if time.monotonic() - c.helper_seen > LEASE:
-        await end(c)
+        await end(c, detail='helper_heartbeat_expired')
         return {'error': 'Helper disconnected'}
     packet = data.get('input', {})
     seq = data.get('seq')
     if type(seq) is not int or seq != c.seq+1 or not isinstance(packet, dict) or not input_packet(packet):
-        await end(c)
+        await end(c, detail='invalid_input_sequence_or_packet')
         return {'error': 'Invalid input sequence'}
     now = time.monotonic()
     if now-c.window >= 1:
         c.window, c.count = now, 0
     c.count += 1
     if c.count > 120:
-        await end(c)
+        await end(c, detail='input_rate_exceeded')
         return {'error': 'Input rate exceeded'}
     c.seq = seq
     try:
         await asyncio.wait_for(c.helper.send_json({'type': 'input', 'seq': seq, 'input': packet}), .25)
     except Exception:
-        await end(c)
+        await end(c, detail='helper_input_delivery_failed')
+        return {'error': 'Helper input delivery failed'}
     return {'ok': True}
 
 @router.websocket('/helper')
@@ -390,8 +392,12 @@ async def helper(ws: WebSocket):
                 continue
             raw = message.get('text', '')
             if len(raw) > 2048:
+                stop_detail = 'helper_message_too_large'
                 break
             data = json.loads(raw)
+            if not isinstance(data, dict):
+                stop_detail = 'invalid_helper_message'
+                break
             if data.get('type') == 'approve' and c.state == 'paired':
                 c.state = 'active'
                 c.expires = time.monotonic()+TTL
@@ -401,10 +407,13 @@ async def helper(ws: WebSocket):
                 stop_detail = 'helper_requested_stop'
                 break
             elif data.get('type') != 'heartbeat':
+                stop_detail = 'unexpected_helper_message'
                 break
             c.helper_seen = time.monotonic()
             await ws.send_json({'type': 'lease', 'active': c.state == 'active', 'seq': c.seq, 'leaseMs': 1000})
-    except (WebSocketDisconnect, asyncio.TimeoutError, ValueError, HTTPException, RuntimeError) as error:
+    except asyncio.TimeoutError:
+        stop_detail = 'helper_heartbeat_expired'
+    except (WebSocketDisconnect, ValueError, HTTPException, RuntimeError) as error:
         stop_detail = 'helper_' + type(error).__name__
     finally:
         if c and c.helper is ws:
@@ -423,7 +432,7 @@ async def disconnected(sid):
     finally:
         for c in list(sessions.values()):
             if sid in {c.owner.sid, c.guest.sid}:
-                await end(c)
+                await end(c, detail='owner_disconnected' if sid == c.owner.sid else 'audience_disconnected')
         for key, b in list(bindings.items()):
             if b.sid == sid:
                 bindings.pop(key, None)

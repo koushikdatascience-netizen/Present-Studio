@@ -57,6 +57,7 @@ class PresentationSave(BaseModel):
     id: str
     title: str
     slides: list[SlideIn]
+    updatedAt: datetime | None = None
 
 
 class PresentationOut(BaseModel):

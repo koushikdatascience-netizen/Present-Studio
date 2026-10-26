@@ -17,11 +17,52 @@
       }
       throw new Error("Your session expired. Sign in again to continue.");
     }
-    if (!response.ok) throw new Error(body.detail || body.error || `Request failed (${response.status})`);
+    if (!response.ok) {
+      const error = new Error(body.detail || body.error || `Request failed (${response.status})`);
+      error.status = response.status;
+      throw error;
+    }
     return body;
   }
   function persist(result) { localStorage.setItem(sessionKey, JSON.stringify(result.user)); localStorage.setItem(tokenKey, result.accessToken); return result; }
   window.PresentStudioApi = {
+    // Serialize updates, recovering missed/out-of-order deltas through the caller's
+    // authenticated fetch. A failed fetch leaves the old version for the next retry.
+    presentationUpdates(getCurrent, refresh, apply, onError = console.error, socket = null) {
+      let pending = Promise.resolve();
+      const version = value => String(value || '').replace(/(?:Z|\+00:00)$/, '');
+      const update = event => {
+        pending = pending.then(async () => {
+          const current = getCurrent();
+          if (!current || event.presentationId !== current.id) return;
+          if (event.resync) {
+            const result = await refresh();
+            apply({ ...result, presentationId: current.id });
+            return;
+          }
+          if (event.presentation) { apply(event); return; }
+          const changes = event.changes;
+          if (!changes) return;
+          if (version(current.updatedAt) === version(changes.updatedAt)) return;
+          if (version(current.updatedAt) !== version(event.baseUpdatedAt)) {
+            const result = await refresh();
+            apply({ ...result, presentationId: current.id });
+            return;
+          }
+          const slides = new Map(current.slides.map(slide => [slide.id, slide]));
+          changes.slides.forEach(slide => slides.set(slide.id, slide));
+          if (changes.slideOrder.some(id => !slides.has(id))) {
+            const result = await refresh();
+            apply({ ...result, presentationId: current.id });
+            return;
+          }
+          apply({ ...event, presentation: { ...current, ...changes, slides: changes.slideOrder.map(id => slides.get(id)) } });
+        }).catch(onError);
+        return pending;
+      };
+      socket?.on('connect', () => update({ presentationId: getCurrent()?.id, resync: true }));
+      return update;
+    },
     login: (email, password) => request("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }).then(persist),
     signup: (name, email, password) => request("/api/auth/signup", { method: "POST", body: JSON.stringify({ name, email, password }) }).then(persist),
     async logout() { const result = await request("/api/auth/logout", { method: "POST" }); localStorage.removeItem(sessionKey); localStorage.removeItem(tokenKey); return result; },

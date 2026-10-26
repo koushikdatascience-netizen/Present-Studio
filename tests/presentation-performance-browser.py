@@ -150,9 +150,27 @@ async def run():
                 await page.wait_for_function("presentation.slides[2].canvas.fabric.objects.some(o=>o.src?.includes('pasted-image.png'))", timeout=4000)
                 assert len(uploads) == 1, "Clipboard image bypassed object-storage upload"
                 assert not await page.evaluate("canvas.getObjects().some(o=>o.src?.includes('pasted-image.png'))"), "Upload was inserted into the wrong slide"
+                await page.wait_for_function("!savePromise && document.querySelector('#modeLabel').textContent==='Saved'", timeout=6000)
+                other = await context.new_page()
+                other.on("pageerror", lambda error: errors.append(str(error)))
+                await other.goto(base + f"/builder.html?id={deck['id']}", wait_until="domcontentloaded")
+                await other.wait_for_function("typeof presentation !== 'undefined' && !loading", timeout=6000)
+                await page.evaluate("presentation.title='Winning editor';schedule();save()")
+                await other.evaluate("canvas.getObjects().find(o=>o.id==='title').set('text','Keep my local work');schedule();void save().catch(()=>{})")
+                await other.locator("#saveConflict").wait_for(timeout=6000)
+                assert await other.evaluate("saveConflict && canvas.getObjects().some(o=>o.text==='Keep my local work')")
+                assert "Save conflict" in await other.locator("#modeLabel").inner_text()
+                async with other.expect_download() as download_info:
+                    await other.get_by_role("button", name="Download unsaved copy").click()
+                download = await download_info.value
+                exported = json.loads(Path(await download.path()).read_text(encoding="utf-8"))
+                assert exported["slides"][0]["canvas"]["fabric"]["objects"][0]["text"] == "Keep my local work"
+                current = (await (await api.get(f"/api/presentations/{deck['id']}", headers=headers)).json())["presentation"]
+                assert current["title"] == "Winning editor"
+                await other.close()
                 await page.screenshot(path=os.environ.get("PERF_SCREENSHOT", str(Path(directory) / "builder.png")))
                 assert not errors, errors
-                print("Browser checks passed: independent dashboard/editor loading, sidebar reuse, rapid slide switching, and slow-save edit preservation")
+                print("Browser checks passed: independent dashboard/editor loading, sidebar reuse, rapid slide switching, slow-save edit preservation, concurrent-editor conflict and unsaved-copy download")
                 await context.close()
                 await browser.close()
                 await api.dispose()

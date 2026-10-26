@@ -18,12 +18,22 @@ those images to every viewer made that data repeat across requests.
   apply. Failure leaves the saved slides unchanged. Other formats/storage providers
   keep their existing representation.
 - Persistence uses its own session in a worker thread and updates existing slide
-  rows rather than deleting/reinserting the whole deck. Socket.IO's existing full
-  update event remains compatible with connected clients; once images are URLs,
-  those updates no longer contain the image binaries.
+  rows rather than deleting/reinserting the whole deck. Saves must include the
+  `updatedAt` value from the loaded deck. A stale version returns 409 before any
+  uploads or slide changes; a missing version returns 428. An atomic conditional
+  update enforces this on SQLite as well as PostgreSQL, without a schema migration.
+- Socket.IO's `presentation_updated` event carries `baseUpdatedAt` and `changes`
+  (title, status, updatedAt, changed slides, and the complete ordered list of slide
+  IDs). It omits unchanged canvases. Clients serialize delta application and
+  refetch through their existing authorized endpoint on a version mismatch or
+  reconnect. Full snapshots from older servers can still be read by new clients.
+  Deploy frontend and backend together; already-open old pages must be reloaded.
 - Slow saves cannot overwrite newer local edits. Images decoding after navigation
   cannot replace the selected slide; an upload finishing after navigation targets
   its original slide.
+- A save conflict pauses autosaving and retains local work. The editor offers a
+  JSON download of unsaved work and a confirmed reload of the saved version.
+  Successful saves advance the saved version even when newer local edits exist.
 - Immutable media redirects use a private browser cache for at most five minutes,
   bounded below the signed URL expiry. No public cache for private deck JSON is
   introduced. Stable object IDs are not reused for different image contents.
@@ -61,7 +71,8 @@ after the meeting ends. The migration does not emit events to existing meetings.
 
 Tests cover owner isolation, bounded summaries, image deduplication and quotas,
 storage-failure rollback, immutable caching, retained live state/event contracts,
-and dry-run/backup/live-session protection. Browser checks delay meeting/media
+dry-run/backup/live-session protection, competing editor saves, and delta recovery.
+Browser checks exercise conflict downloads, delay meeting/media
 requests, switch slides during image decoding and upload, and edit during a slow
 save. Peak-load timing with 3–5 real meetings remains a production verification
 step; unit/browser checks do not establish a particular speedup under that load.

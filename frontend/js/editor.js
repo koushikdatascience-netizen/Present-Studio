@@ -3,7 +3,7 @@ const presentationId=new URLSearchParams(location.search).get("id")||"pres_demo"
 const authToken=localStorage.getItem("presentStudio.accessToken")||"", socket=window.io?window.io():null;
 let presentation,currentSlideIndex=0,canvas,saveTimer,shareUrl="",screenShareUrl="",audienceShareUrl="",loading=false,mediaAssets=[],selectedPresenter="Self",uploadRequestId=0,retryUploadFile=null;
 const W=1280,H=720;
-let editRevision=0,savePromise=null;
+let editRevision=0,savePromise=null,saveConflict=false;
 function secureAppUrl(path){const url=new URL(path,location.origin);if(!["localhost","127.0.0.1","::1"].includes(url.hostname))url.protocol="https:";return url.href}
 function toast(m){const n=$("#toast");n.textContent=m;n.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.remove("show"),2600)}
 function setShareLink(url,permission,screenUrl="",audienceUrl=""){shareUrl=url||"";screenShareUrl=screenUrl||"";audienceShareUrl=audienceUrl||"";const isPresenter=permission==="presenter",button=$("#openShareLink"),copyScreenButton=$("#copyScreenLink"),screenStatus=$("#screenShareStatus"),copyAudienceButton=$("#copyAudienceLink"),audienceStatus=$("#audienceShareStatus");$("#shareStatus").textContent=shareUrl?(isPresenter?`Remote Control: ${shareUrl}`:`Presentation Screen: ${shareUrl}`):"";button.disabled=!shareUrl;button.querySelector("span").textContent=shareUrl?(isPresenter?"Open Remote Control":"Open Presentation Screen"):"Open Link";button.setAttribute("aria-label",shareUrl?`Open ${isPresenter?"Remote Control":"Presentation Screen"} link in a new tab`:"Open generated link in a new tab");if(screenStatus)screenStatus.textContent=screenShareUrl?`Locked Screen: ${screenShareUrl}`:"";if(copyScreenButton)copyScreenButton.disabled=!screenShareUrl;if(audienceStatus)audienceStatus.textContent=audienceShareUrl?`Interactive Audience: ${audienceShareUrl}`:"";if(copyAudienceButton)copyAudienceButton.disabled=!audienceShareUrl}
@@ -108,6 +108,7 @@ function applySavedImageReferences(before,after){
 }
 async function save(){
   clearTimeout(saveTimer);
+  if(saveConflict)throw new Error("Download your unsaved copy, then reload the saved version.");
   if(savePromise)return savePromise.then(()=>save());
   capture();normalize();
   const revision=editRevision;
@@ -118,14 +119,31 @@ async function save(){
       const r=await api.savePresentation(snapshot);
       // A slow response must never overwrite edits made while saving.
       if(editRevision===revision){presentation=r.presentation;presentation.slides.forEach(ensure);playback()}
+      // Keep the server version even when local edits arrived during this save.
+      presentation.updatedAt=r.presentation.updatedAt;
       applySavedImageReferences(snapshot,r.presentation);
       $("#modeLabel").textContent=editRevision===revision?"Saved":"Unsaved changes";
-    }catch(e){$("#modeLabel").textContent="Save failed";toast(e.message);throw e}
+    }catch(e){
+      if(e.status===409||e.status===428){saveConflict=true;clearTimeout(saveTimer);showSaveConflict()}
+      $("#modeLabel").textContent=saveConflict?"Save conflict — local work kept":"Save failed";toast(e.message);throw e
+    }
     finally{savePromise=null}
   })();
   return savePromise;
 }
-function schedule(){if(loading)return;editRevision++;$("#modeLabel").textContent="Unsaved changes";clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
+function showSaveConflict(){
+  if(document.getElementById("saveConflict"))return;
+  const panel=document.createElement("div");panel.id="saveConflict";panel.setAttribute("role","alert");
+  panel.style.cssText="position:fixed;bottom:20px;left:20px;right:20px;z-index:10000;background:#fff;color:#171717;padding:20px;border:2px solid #b45309";
+  const message=document.createElement("p");message.textContent="Another editor saved this presentation. Your local work is kept here. Download a copy before reloading; reloading discards unsaved edits.";
+  const download=document.createElement("button");download.textContent="Download unsaved copy";download.onclick=()=>{
+    capture();normalize();const url=URL.createObjectURL(new Blob([JSON.stringify(presentation,null,2)],{type:"application/json"}));
+    const link=document.createElement("a");link.href=url;link.download="presentation-unsaved.json";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+  const reload=document.createElement("button");reload.textContent="Reload saved version";reload.onclick=()=>{if(window.confirm("Reload and discard unsaved local edits? Download your copy first."))location.reload()};
+  panel.append(message,download,reload);document.body.append(panel);
+}
+function schedule(){if(loading)return;editRevision++;$("#modeLabel").textContent=saveConflict?"Save conflict — local work kept":"Unsaved changes";clearTimeout(saveTimer);if(!saveConflict)saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
 function move(n){capture();currentSlideIndex=(currentSlideIndex+n+presentation.slides.length)%presentation.slides.length;render()} function addSlide(){capture();presentation.slides.splice(currentSlideIndex+1,0,ensure({id:"slide_"+Date.now(),order:0,title:"Slide "+(presentation.slides.length+1),canvas:{background:"#f8f4ea",elements:[]}}));currentSlideIndex++;normalize();render();schedule()} function duplicateSlide(){capture();const s=JSON.parse(JSON.stringify(activeSlide()));s.id="slide_"+Date.now();s.title+=" copy";presentation.slides.splice(currentSlideIndex+1,0,s);currentSlideIndex++;normalize();render();schedule()} function deleteSlide(){if(presentation.slides.length===1)return toast("A presentation needs at least one slide.");capture();const r=presentation.slides.splice(currentSlideIndex,1)[0];playback().slide_ids=playback().slide_ids.filter(id=>id!==r.id);currentSlideIndex=Math.min(currentSlideIndex,presentation.slides.length-1);render();schedule()}
 function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,thumbnailSrc:a.thumbnailUrl||"",x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
 async function uploadFile(f){const targetSlideId=activeSlide()?.id;const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);

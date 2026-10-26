@@ -647,7 +647,7 @@
       setSaveAppearance(byId("modeLabel").textContent);
       return result;
     } catch (error) {
-      setSaveAppearance("Save failed");
+      setSaveAppearance(byId("modeLabel").textContent || "Save failed");
       throw error;
     }
   };
