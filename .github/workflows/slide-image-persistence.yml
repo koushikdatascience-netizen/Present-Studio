@@ -46,5 +46,4 @@ jobs:
       - run: pip install -r backend/requirements.txt
       - run: PYTHONPATH=backend python -m pytest backend/tests/test_slide_image_recovery.py backend/tests/test_remote_control.py -q
       - name: Full backend suite (identify existing regressions)
-        continue-on-error: true
         run: PYTHONPATH=backend python -m pytest backend/tests -q
