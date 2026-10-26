@@ -72,3 +72,42 @@ def test_stale_editor_save_rejected_without_deleting_images(data):
     assert exc.value.status_code == 409
     db.expire_all()
     assert len(db.get(Slide, slide.id).canvas["fabric"]["objects"]) == 1
+
+
+def test_saving_updated_slide_preserves_row_and_creates_pre_save_snapshot(data):
+    db, user, pres, slide = data
+    slide.canvas = {"fabric": {"objects": [
+        {"id": "existing", "type": "image", "src": "/api/media/original/content"}
+    ]}}
+    db.commit()
+    db.refresh(pres)
+    old_updated_at = pres.updated_at.isoformat()
+    payload = PresentationSave(
+        id=pres.id, title="New title", baseUpdatedAt=old_updated_at,
+        slides=[SlideIn(id=slide.id, order=1, title="Slide updated", canvas={
+            "fabric": {"objects": [
+                {"id": "existing", "type": "image", "src": "/api/media/original/content"},
+                {"id": "other", "type": "textbox", "text": "New paragraph"}]}})],
+    )
+    result = asyncio.run(routes.save_presentation(pres.id, payload, user=user, db=db))
+    assert result.presentation.updatedAt != old_updated_at
+    db.expire_all()
+    rows = db.query(Slide).filter(Slide.presentation_id == pres.id).all()
+    assert len(rows) == 1
+    assert rows[0].id == slide.id
+    assert {item["id"] for item in rows[0].canvas["fabric"]["objects"]} == {"existing", "other"}
+    snapshots = db.query(PresentationSnapshot).filter(
+        PresentationSnapshot.presentation_id == pres.id).all()
+    assert len(snapshots) == 1
+    assert snapshots[0].document["slides"][0]["canvas"]["fabric"]["objects"][0]["id"] == "existing"
+
+
+def test_save_requires_explicit_revision(data):
+    db, user, pres, slide = data
+    payload = PresentationSave(
+        id=pres.id, title="Old tab with missing revision",
+        slides=[SlideIn(id=slide.id, order=1, title="Slide", canvas={"fabric":{"objects":[]}})],
+    )
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(routes.save_presentation(pres.id, payload, user=user, db=db))
+    assert exc.value.status_code == 409
