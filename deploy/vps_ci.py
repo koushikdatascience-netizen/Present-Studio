@@ -50,13 +50,20 @@ def identity_policy(commit, allow_active):
             'workflow_ref': REPOSITORY + '/.github/workflows/deploy.yml@refs/heads/main'}
 
 
+def verifier_image():
+    image = (ROOT / 'ci-identity-image').read_text().strip()
+    if not re.fullmatch('sha256:[a-f0-9]{64}', image):
+        raise ValueError('Invalid identity verifier image')
+    return image
+
+
 def verify_identity(stream, commit, allow_active):
     line = stream.readline(16385)
     if not line.endswith(b'\n') or len(line) > 16384:
         raise ValueError('Missing GitHub deployment identity')
     token = line.decode('ascii').strip()
-    # Use an isolated instance of the already-approved image, not the mutable
-    # filesystem of the running backend. It receives no production credentials.
+    # Use an independently pinned verifier, not the mutable filesystem or
+    # dependencies of the running backend. It receives no production credentials.
     code = '''import json,sys,jwt
 request=json.load(sys.stdin)
 key=jwt.PyJWKClient('https://token.actions.githubusercontent.com/.well-known/jwks',timeout=15).get_signing_key_from_jwt(request['token'])
@@ -67,7 +74,7 @@ if claims.get('event_name') not in {'push','workflow_dispatch'}:raise ValueError
 if request['allow_active'] and claims['event_name']!='workflow_dispatch':raise ValueError('Meeting override requires manual dispatch')
 print('GitHub main-branch deployment identity verified')
 '''
-    image = inspect(BACKEND)['Image']
+    image = verifier_image()
     command(['docker', 'run', '--rm', '--read-only', '--cap-drop', 'ALL',
              '--security-opt', 'no-new-privileges', '--cpus', '.25', '--memory', '128m',
              '--pids-limit', '64', '-e', 'PYTHONDONTWRITEBYTECODE=1',

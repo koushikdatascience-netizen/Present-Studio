@@ -37,7 +37,7 @@ def test_deployment_command_and_policy_are_bound_to_main():
 @pytest.fixture
 def identity(monkeypatch):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    monkeypatch.setattr(ci, "inspect", lambda _: {"Image": "approved-image"})
+    monkeypatch.setattr(ci, "verifier_image", lambda: "approved-image")
     monkeypatch.setattr(jwt, "PyJWKClient", lambda *a, **kw: SimpleNamespace(get_signing_key_from_jwt=lambda _: SimpleNamespace(key=key.public_key())))
     def isolated(arguments, **options):
         assert "--read-only" in arguments and "--cap-drop" in arguments

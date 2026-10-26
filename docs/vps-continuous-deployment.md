@@ -35,7 +35,9 @@ The server also verifies a short-lived, signed GitHub OIDC token: repository and
 owner IDs, repository name, `main`, exact commit, hosted runner, event type and
 `.github/workflows/deploy.yml` must match. A copied deploy key alone cannot deploy
 from another branch or repository. Meeting overrides require a manually
-dispatched workflow. Tokens and production environment values are not printed.
+dispatched workflow. Tokens and production environment values are not printed. Signature verification
+runs in an isolated, credential-free verifier image pinned by a root-owned file,
+independent of the live app filesystem and its changing dependencies.
 
 The server helper is installed from `deploy/vps_ci.py`; it accepts only validated
 release IDs and archives, checks archive SHA-256 and image revision, limits
