@@ -1,0 +1,32 @@
+name: Slide image persistence regression
+on:
+  push:
+    branches:
+      - fix/slide-image-persistence
+  pull_request:
+    paths:
+      - frontend/js/editor.js
+      - tests/slide-image-persistence.test.cjs
+      - backend/app/routers/presentations.py
+      - backend/app/models.py
+      - backend/app/schemas.py
+permissions:
+  contents: read
+jobs:
+  frontend-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check frontend/js/editor.js
+      - run: node --test tests/slide-image-persistence.test.cjs
+  backend-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m compileall -q backend/app/routers/presentations.py backend/app/models.py backend/app/schemas.py tools/audit_presentation_media.py
