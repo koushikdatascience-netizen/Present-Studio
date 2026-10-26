@@ -442,7 +442,7 @@ async def save_presentation(
     if not presentation or not can_edit_presentation(db, presentation, user):
         raise HTTPException(status_code=404, detail="Presentation not found")
     current_revision = presentation.updated_at.isoformat() if presentation.updated_at else None
-    if payload.baseUpdatedAt and payload.baseUpdatedAt != current_revision:
+    if payload.baseUpdatedAt != current_revision:
         raise HTTPException(status_code=409, detail="This presentation changed in another tab or device. Your unsaved changes were not overwritten. Reopen the presentation to review them.")
 
     # Preserve the previous saved document before ANY destructive slide rewrite.
@@ -466,21 +466,23 @@ async def save_presentation(
         db.query(PresentationSnapshot).filter(PresentationSnapshot.id.in_(historical_ids[29:])).delete(synchronize_session=False)
     presentation.title = payload.title.strip() or "Untitled presentation"
     presentation.updated_at = datetime.now(timezone.utc)
-    db.query(Slide).filter(Slide.presentation_id == presentation.id).delete()
+    # Update existing slide rows in place; deleting/recreating every slide on every
+    # autosave increases DB work and amplifies errors in an already fragile path.
+    existing_slides = {slide.id: slide for slide in presentation.slides}
     used_slide_ids: set[str] = set()
     saved_slide_ids: list[str] = []
     for slide in payload.slides:
         slide_id = unique_slide_id(slide.id, used_slide_ids)
         saved_slide_ids.append(slide_id)
-        db.add(
-            Slide(
-                id=slide_id,
-                presentation_id=presentation.id,
-                order=slide.order,
-                title=slide.title.strip()[:255] or "Untitled Slide",
-                canvas=slide.canvas,
-            )
-        )
+        record = existing_slides.pop(slide_id, None)
+        if record is None:
+            record = Slide(id=slide_id, presentation_id=presentation.id)
+            db.add(record)
+        record.order = slide.order
+        record.title = slide.title.strip()[:255] or "Untitled Slide"
+        record.canvas = slide.canvas
+    for deleted_slide in existing_slides.values():
+        db.delete(deleted_slide)
     live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation.id).first()
     if live and live.active_slide_id not in saved_slide_ids:
         if saved_slide_ids:
