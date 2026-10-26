@@ -2,14 +2,17 @@ name: Deploy SnapKey Studio
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
     inputs:
-      confirmation:
-        description: 'Type DEPLOY_CURRENT_CONFIGURED_HOST only after verifying the target and maintenance window'
+      allow_active_meetings:
+        description: 'Restart slide/control synchronization even if meetings have participants'
         required: true
-        type: string
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
 
 concurrency:
   group: snapkey-production
@@ -19,152 +22,76 @@ jobs:
   validate:
     uses: ./.github/workflows/checks.yml
 
-  deploy:
+  image:
     needs: validate
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'DEPLOY_CURRENT_CONFIGURED_HOST'
+    uses: ./.github/workflows/prepare-vps-image.yml
+
+  deploy:
+    needs: [validate, image]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VPS_HOST: 200.97.169.48
+      VPS_PORT: '22'
+      VPS_USER: root
+      ALLOW_ACTIVE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_active_meetings && '1' || '0' }}
     steps:
-      - name: Deploy to production server
-        uses: appleboy/ssh-action@v1.2.0
+      - uses: actions/download-artifact@v4
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: ${{ secrets.SERVER_PORT }}
-          command_timeout: 15m
-
-          script: |
-            set -e
-
-            SOURCE_DIR="${{ secrets.SERVER_PROJECT_PATH }}"
-            PROD_DIR="/srv/projects/present-studio"
-            BACKUP_ROOT="/srv/projects/present-studio-backups"
-
-            echo "=== UPDATE SOURCE REPO ==="
-            cd "$SOURCE_DIR"
-            git fetch origin main
-            git checkout main
-            git reset --hard origin/main
-
-            echo "Deploying commit:"
-            git log -1 --oneline
-
-            echo "=== CREATE BACKUP ==="
-            STAMP=$(date +%Y%m%d-%H%M%S)
-            mkdir -p "$BACKUP_ROOT/$STAMP"
-
-            cp -a "$PROD_DIR/backend" "$BACKUP_ROOT/$STAMP/backend"
-            cp -a "$PROD_DIR/frontend" "$BACKUP_ROOT/$STAMP/frontend"
-            cp "$PROD_DIR/.env" "$BACKUP_ROOT/$STAMP/.env"
-            cp "$PROD_DIR/docker-compose.yml" "$BACKUP_ROOT/$STAMP/docker-compose.yml"
-
-            echo "Backup created: $BACKUP_ROOT/$STAMP"
-
-            echo "=== DEPLOY BACKEND + FRONTEND ==="
-            rm -rf "$PROD_DIR/backend"
-            rm -rf "$PROD_DIR/frontend"
-
-            cp -a "$SOURCE_DIR/backend" "$PROD_DIR/backend"
-            cp -a "$SOURCE_DIR/frontend" "$PROD_DIR/frontend"
-
-            echo "=== UPDATE COMPOSE FILE ==="
-            cp "$SOURCE_DIR/docker-compose.yml" "$PROD_DIR/docker-compose.yml"
-
-            echo "=== VALIDATE COMPOSE ==="
-            cd "$PROD_DIR"
-
-            docker compose \
-              --env-file .env \
-              -p present-studio-prod \
-              config --quiet
-
-            echo "=== BUILD BACKEND ==="
-            docker compose \
-              --env-file .env \
-              -p present-studio-prod \
-              build backend
-
-            echo "=== RECREATE BACKEND ==="
-            docker compose \
-              --env-file .env \
-              -p present-studio-prod \
-              up -d --no-deps --force-recreate backend
-
-            echo "=== CONTAINER STATUS ==="
-            docker compose \
-              --env-file .env \
-              -p present-studio-prod \
-              ps
-
-            echo "=== WAIT FOR BACKEND ==="
-
-            HEALTH_OK=false
-
-            for i in $(seq 1 30); do
-              echo "Health check attempt $i/30..."
-
-              if curl \
-                --silent \
-                --show-error \
-                --fail \
-                --max-time 5 \
-                http://127.0.0.1:18473/api/health; then
-
-                echo
-                echo "Backend is healthy."
-                HEALTH_OK=true
-                break
-              fi
-
-              sleep 2
-            done
-
-            if [ "$HEALTH_OK" != "true" ]; then
-              echo "Backend failed health check."
-
-              echo "=== BACKEND LOGS ==="
-              docker compose \
-                --env-file .env \
-                -p present-studio-prod \
-                logs --tail=100 backend
-
-              exit 1
-            fi
-
-            echo "=== PUBLIC HEALTH CHECK ==="
-
-            PUBLIC_OK=false
-
-            for i in $(seq 1 15); do
-              if curl \
-                --silent \
-                --show-error \
-                --fail \
-                --max-time 10 \
-                https://connect.snapkeystudio.com/api/health; then
-
-                echo
-                echo "Public endpoint is healthy."
-                PUBLIC_OK=true
-                break
-              fi
-
-              echo "Public health attempt $i/15 failed; retrying..."
-              sleep 2
-            done
-
-            if [ "$PUBLIC_OK" != "true" ]; then
-              echo "Public health check failed."
-              exit 1
-            fi
-
-            echo "=== FINAL STATUS ==="
-
-            docker compose \
-              --env-file .env \
-              -p present-studio-prod \
-              ps
-
-            echo
-            echo "Deployment successful."
+          name: snapkey-vps-image-${{ github.sha }}
+          path: release
+      - name: Verify release archive and avoid stale deployments
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+          cd release
+          sha256sum -c SHA256SUMS
+          grep -Fx "SOURCE_COMMIT=$GITHUB_SHA" source.txt
+      - name: Configure restricted deployment identity
+        env:
+          DEPLOY_KEY: ${{ secrets.VPS_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$VPS_HOST" && test -n "$VPS_PORT" && test -n "$VPS_USER"
+          test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/snapkey_ci
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/snapkey_ci ~/.ssh/known_hosts
+      - name: Obtain signed GitHub main-branch identity
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request
+          request=urllib.request.Request(os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']+'&audience=snapkey-studio-vps',headers={'Authorization':'Bearer '+os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
+          with urllib.request.urlopen(request,timeout=20) as response: token=json.load(response)['value']
+          path=os.path.join(os.environ['RUNNER_TEMP'],'snapkey-oidc')
+          with open(path,'w') as output: output.write(token+'\n')
+          os.chmod(path,0o600)
+          PY
+      - name: Back up and deploy only the VPS presentation backend
+        run: |
+          set -euo pipefail
+          digest=$(sha256sum release/snapkey-studio-image.tar.gz | cut -d ' ' -f 1)
+          cat "$RUNNER_TEMP/snapkey-oidc" release/snapkey-studio-image.tar.gz | \
+          ssh -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -i ~/.ssh/snapkey_ci -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "deploy $GITHUB_SHA $digest $ALLOW_ACTIVE"
+      - name: Verify public health and updated application
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 https://connect.snapkeystudio.com/api/health
+          curl --fail --silent --show-error https://connect.snapkeystudio.com/builder.html -o /tmp/snapkey-builder.html
+          grep -q '/js/editor.js' /tmp/snapkey-builder.html
+          ssh -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -i ~/.ssh/snapkey_ci -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" status
+      - name: Remove temporary key
+        if: always()
+        run: rm -f ~/.ssh/snapkey_ci "$RUNNER_TEMP/snapkey-oidc"

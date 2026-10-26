@@ -1,8 +1,6 @@
 name: Prepare VPS image (no deployment)
 on:
-  push:
-    branches: [main, codex/remote-assist-production]
-    paths: ['.github/workflows/prepare-vps-image.yml', 'backend/**', 'frontend/**']
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build outside the production servers
-        run: docker build -t snapkey-studio:release-${GITHUB_SHA} -f backend/Dockerfile .
+        run: docker build --label org.opencontainers.image.revision=${GITHUB_SHA} -t snapkey-studio:release-${GITHUB_SHA} -f backend/Dockerfile .
       - name: Smoke-test isolated image
         run: |
           set -e
