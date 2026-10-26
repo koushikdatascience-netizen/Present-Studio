@@ -21,6 +21,7 @@ jobs:
         with:
           node-version: '22'
       - run: node --check frontend/js/editor.js
+      - run: node --check frontend/js/present.js
       - run: node --test tests/slide-image-persistence.test.cjs tests/remote-control.test.cjs
   backend-syntax:
     runs-on: ubuntu-latest
