@@ -7,6 +7,7 @@ on:
     paths:
       - frontend/js/editor.js
       - tests/slide-image-persistence.test.cjs
+      - tests/audience-image-loading.test.cjs
       - backend/app/routers/presentations.py
       - backend/app/models.py
       - backend/app/schemas.py
@@ -22,7 +23,7 @@ jobs:
           node-version: '22'
       - run: node --check frontend/js/editor.js
       - run: node --check frontend/js/present.js
-      - run: node --test tests/slide-image-persistence.test.cjs tests/remote-control.test.cjs
+      - run: node --test tests/slide-image-persistence.test.cjs tests/audience-image-loading.test.cjs tests/remote-control.test.cjs
   backend-syntax:
     runs-on: ubuntu-latest
     steps:
