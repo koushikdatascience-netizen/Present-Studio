@@ -27,7 +27,7 @@ test('ignore non-image canvas elements', () => {
 test('editor serializes immutable save snapshots instead of replacing working state', () => {
   assert.match(source, /saveQueue\.catch\(\(\)=>\{\}\)\.then/);
   assert.match(source, /JSON\.parse\(JSON\.stringify\(presentation\)\)/);
-  assert.doesNotMatch(source, /presentation=r\.presentation/);
+  assert.doesNotMatch(source, /presentation=r\.presentation;presentation\.slides/);
 });
 test('save refuses an incomplete image restore', () => {
   assert.match(source, /if\(imageRestoreProblem\)return Promise\.reject/);
@@ -36,7 +36,7 @@ test('save refuses an incomplete image restore', () => {
 test('cross-tab save conflict blocks further overwrites', () => {
   assert.match(source, /snapshot\.baseUpdatedAt=lastSavedUpdatedAt/);
   assert.match(source, /saveConflict=true/);
-  assert.match(source, /if\(loading\|\|imageRestoreProblem\|\|saveConflict\)return/);
+  assert.match(source, /if\(loading\|\|pendingInsertions\|\|imageRestoreProblem\|\|saveConflict\)return/);
 });
 test('avoid media library repaint on every slide navigation', () => {
   assert.match(source, /gridEl\.dataset\.assetSignature===signature/);
