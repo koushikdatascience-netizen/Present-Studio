@@ -1,6 +1,7 @@
 const api=window.PresentStudioApi, $=s=>document.querySelector(s);
 const presentationId=new URLSearchParams(location.search).get("id")||"pres_demo";
 const authToken=localStorage.getItem("presentStudio.accessToken")||"", socket=window.io?window.io():null;
+let saveQueue=Promise.resolve(), loadEpoch=0, imageRestoreProblem="", saveSequence=0;
 let presentation,currentSlideIndex=0,canvas,saveTimer,shareUrl="",screenShareUrl="",audienceShareUrl="",loading=false,mediaAssets=[],selectedPresenter="Self",uploadRequestId=0,retryUploadFile=null;
 const W=1280,H=720;
 function secureAppUrl(path){const url=new URL(path,location.origin);if(!["localhost","127.0.0.1","::1"].includes(url.hostname))url.protocol="https:";return url.href}
@@ -28,8 +29,62 @@ function image(item){
     if(!loading){canvas.setActiveObject(o);panel();schedule()}
   },{crossOrigin:"anonymous"})
 }
-function capture(){if(!presentation||loading)return;const s=ensure(activeSlide());s.canvas.background=canvas.backgroundColor||"#f8f4ea";s.canvas.fabric=canvas.toJSON(["id","mediaType","src","youtubeId","thumbnailUrl","audioSrc","audioName","full_bleed","loop","muted","fit","hyperlink","animation","animationDuration","animationDelay","wordArt","wordArtPreset","shapeRequestedFontSize","shapeText","paragraphAlignments","shapeKind","frameKind","flowchartKind","diagramKind","chartKind","componentType","componentRole","componentIndex","componentName","visualParentId","visualTheme","diagramTheme","chartData","chartStyle","editableComponent"]);const title=canvas.getObjects().find(o=>o.id==="title");if(title&&title.text.trim())s.title=title.text.trim()}
-function load(){loading=true;const d=ensure(activeSlide()).canvas;if(d.fabric)canvas.loadFromJSON(d.fabric,()=>{canvas.backgroundColor=d.background||"#f8f4ea";canvas.renderAll();loading=false;panel()});else{canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";d.elements.forEach(x=>{if(x.type==="text")canvas.add(text(x));else if(x.type==="image")image(x);else if(x.type==="video")canvas.add(video(x))});canvas.requestRenderAll();loading=false;panel()}}
+function capture(){if(!presentation||loading||imageRestoreProblem)return;const s=ensure(activeSlide());s.canvas.background=canvas.backgroundColor||"#f8f4ea";s.canvas.fabric=canvas.toJSON(["id","mediaType","src","youtubeId","thumbnailUrl","audioSrc","audioName","full_bleed","loop","muted","fit","hyperlink","animation","animationDuration","animationDelay","wordArt","wordArtPreset","shapeRequestedFontSize","shapeText","paragraphAlignments","shapeKind","frameKind","flowchartKind","diagramKind","chartKind","componentType","componentRole","componentIndex","componentName","visualParentId","visualTheme","diagramTheme","chartData","chartStyle","editableComponent"]);const title=canvas.getObjects().find(o=>o.id==="title");if(title&&title.text.trim())s.title=title.text.trim()}
+function imageIdentity(object){return object?.id||object?.src||""}
+function validateRestoredImages(savedObjects,loadedObjects){
+  const actual=new Map();
+  for(const object of loadedObjects)if(object?.type==="image"){
+    const key=imageIdentity(object);actual.set(key,(actual.get(key)||0)+1);
+  }
+  const missing=[];
+  for(const object of savedObjects)if(object?.type==="image"){
+    const key=imageIdentity(object),count=actual.get(key)||0;
+    if(count>0)actual.set(key,count-1);else missing.push(key||"(unnamed image)");
+  }
+  return missing;
+}
+function load(){
+  loading=true;imageRestoreProblem="";
+  const epoch=++loadEpoch,slideId=activeSlide()?.id,d=ensure(activeSlide()).canvas;
+  if(d.fabric){
+    const source=d.fabric;
+    canvas.loadFromJSON(source,()=>{
+      if(epoch!==loadEpoch||slideId!==activeSlide()?.id)return;
+      const missing=validateRestoredImages(source.objects||[],canvas.toJSON(["id","src"]).objects||[]);
+      canvas.backgroundColor=d.background||"#f8f4ea";canvas.renderAll();loading=false;
+      if(missing.length){
+        imageRestoreProblem=`Could not restore ${missing.length} image(s) on this slide. The original saved data is protected. Check your connection and reopen the slide to retry.`;
+        $("#modeLabel").textContent="Image restore failed — saving paused";
+        toast(imageRestoreProblem);
+      }
+      panel();
+    });
+  }else{
+    canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";
+    const legacyImages=(d.elements||[]).filter(x=>x.type==="image");
+    (d.elements||[]).forEach(x=>{if(x.type==="text")canvas.add(text(x));else if(x.type==="video")canvas.add(video(x))});
+    if(!legacyImages.length){loading=false;panel();}
+    else{
+      // Legacy images are asynchronous too. Never autosave a partly restored slide.
+      let pending=legacyImages.length,failed=0;
+      for(const item of legacyImages){
+        fabric.Image.fromURL(item.src,o=>{
+          if(epoch!==loadEpoch||slideId!==activeSlide()?.id)return;
+          if(!o||!o.width||!o.height)failed++;
+          else{
+            o.set({id:item.id,mediaType:"image",src:item.src,left:(item.x||0)*12.8,top:(item.y||0)*7.2});
+            o.scaleToWidth((item.width||40)*12.8);canvas.add(o);
+          }
+          if(!--pending){
+            loading=false;
+            if(failed){imageRestoreProblem=`Could not restore ${failed} legacy image(s); saving paused to protect original data.`;$("#modeLabel").textContent="Image restore failed — saving paused";toast(imageRestoreProblem);}
+            canvas.requestRenderAll();panel();
+          }
+        },{crossOrigin:"anonymous"});
+      }
+    }
+  }
+}
 function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function renderUploadStatus(state,message){const status=$("#uploadStatus"),icons={success:"✓",error:"!",info:"•"};status.className="upload-status "+(state?"is-"+state:"");status.setAttribute("aria-busy",String(state==="uploading"));status.innerHTML='<span class="upload-status-line"><span class="upload-state-icon" aria-hidden="true">'+(icons[state]||"")+'</span><span class="upload-status-message">'+esc(message)+"</span>"+(state==="error"?'<button class="upload-retry" type="button">Retry</button>':"")+"</span>"+(state==="uploading"?'<span class="upload-progress" aria-hidden="true"><span class="upload-progress-bar"></span></span>':"");const retry=status.querySelector(".upload-retry");if(retry)retry.onclick=()=>{if(retryUploadFile)uploadFile(retryUploadFile)}}
 function active(){return canvas.getActiveObject()}
@@ -38,7 +93,28 @@ function renderList(){$("#slideList").innerHTML=presentation.slides.map((s,i)=>'
 function mediaLibrary(){const countEl=$("#mediaCount"),gridEl=$("#mediaLibraryGrid");if(!countEl||!gridEl)return;countEl.textContent=mediaAssets.length+" item"+(mediaAssets.length===1?"":"s");gridEl.innerHTML=mediaAssets.map(a=>'<button class="media-library-item" type="button" data-asset="'+a.id+'">'+(a.mimeType.startsWith("image/")?'<img src="'+a.url+'" alt="">':'<span class="media-type-icon">'+(a.mimeType.startsWith("audio/")?"♫":"▷")+'</span>')+"<span>"+esc(a.name)+"</span></button>").join("");gridEl.querySelectorAll("[data-asset]").forEach(b=>b.onclick=()=>addAsset(mediaAssets.find(a=>a.id===b.dataset.asset)))}
 function syncPlayback(){const c=playback();$("#playbackMode").value=c.mode;$("#playbackInterval").value=c.interval_ms;$("#mediaMode").value=c.media_mode;$("#mediaCycle").value=c.media_cycle||"all";$("#mediaInterval").value=c.media_interval_ms||5000;$("#loopVideos").checked=c.loop_videos!==false;$("#playbackSlides").innerHTML=presentation.slides.map((s,i)=>'<label><input type="checkbox" data-play-slide="'+s.id+'" '+(c.slide_ids.includes(s.id)?"checked":"")+"> "+(i+1)+". "+esc(s.title)+"</label>").join("");$("#playbackSlides").querySelectorAll("[data-play-slide]").forEach(b=>b.onchange=()=>{c.slide_ids=[...$("#playbackSlides").querySelectorAll("[data-play-slide]:checked")].map(x=>x.dataset.playSlide);schedule()})}
 function render(){const s=ensure(activeSlide()),count=String(currentSlideIndex+1).padStart(2,"0")+" / "+String(presentation.slides.length).padStart(2,"0");$("#presentationTitle").textContent=presentation.title;$("#slideCount").textContent=count;$("#canvasIndex").textContent=count;$("#pageLabel").textContent="Slide "+(currentSlideIndex+1)+" of "+presentation.slides.length;$("#transitionType").value=s.canvas.transition.type;const transitionDuration=s.canvas.transition.duration_ms||500;$("#transitionDuration").value=String(transitionDuration);const customDuration=$("#transitionDurationCustom");if(customDuration)customDuration.value=transitionDuration;renderList();mediaLibrary();syncPlayback();const bgInput=$("#slideBackground");if(bgInput)bgInput.value=s.canvas.background||"#f8f4ea";load()}
-function normalize(){presentation.slides.forEach((s,i)=>s.order=i+1)} async function save(){clearTimeout(saveTimer);capture();normalize();$("#modeLabel").textContent="Saving…";try{const r=await api.savePresentation(presentation);presentation=r.presentation;presentation.slides.forEach(ensure);playback();$("#modeLabel").textContent="Saved"}catch(e){$("#modeLabel").textContent="Save failed";toast(e.message);throw e}} function schedule(){if(loading)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
+function normalize(){presentation.slides.forEach((s,i)=>s.order=i+1)}
+function save(){
+  clearTimeout(saveTimer);
+  if(loading)return Promise.reject(new Error("Slide is still loading; wait before saving."));
+  if(imageRestoreProblem)return Promise.reject(new Error(imageRestoreProblem));
+  capture();normalize();
+  // Snapshot immediately and serialize writes. A slow older response must never replace
+  // the current browser's newer edits or arrive at the server after a later save.
+  const snapshot=JSON.parse(JSON.stringify(presentation)),sequence=++saveSequence;
+  $("#modeLabel").textContent="Saving…";
+  const task=saveQueue.catch(()=>{}).then(async()=>{
+    try{
+      await api.savePresentation(snapshot);
+      if(sequence===saveSequence)$("#modeLabel").textContent="Saved";
+    }catch(error){
+      if(sequence===saveSequence)$("#modeLabel").textContent="Save failed";
+      toast(error.message);throw error;
+    }
+  });
+  saveQueue=task;return task;
+}
+function schedule(){if(loading||imageRestoreProblem)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
 function move(n){capture();currentSlideIndex=(currentSlideIndex+n+presentation.slides.length)%presentation.slides.length;render()} function addSlide(){capture();presentation.slides.splice(currentSlideIndex+1,0,ensure({id:"slide_"+Date.now(),order:0,title:"Slide "+(presentation.slides.length+1),canvas:{background:"#f8f4ea",elements:[]}}));currentSlideIndex++;normalize();render();schedule()} function duplicateSlide(){capture();const s=JSON.parse(JSON.stringify(activeSlide()));s.id="slide_"+Date.now();s.title+=" copy";presentation.slides.splice(currentSlideIndex+1,0,s);currentSlideIndex++;normalize();render();schedule()} function deleteSlide(){if(presentation.slides.length===1)return toast("A presentation needs at least one slide.");capture();const r=presentation.slides.splice(currentSlideIndex,1)[0];playback().slide_ids=playback().slide_ids.filter(id=>id!==r.id);currentSlideIndex=Math.min(currentSlideIndex,presentation.slides.length-1);render();schedule()}
 function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
 async function uploadFile(f){const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);addAsset(r.asset,false);mediaLibrary();if(requestId===uploadRequestId)renderUploadStatus("success",f.name+" uploaded successfully.")}catch(err){if(requestId!==uploadRequestId)return;retryUploadFile=f;const message=err.message.includes("Cloudinary")?"Media storage is not configured on this server.":err.message;renderUploadStatus("error",message)}}
