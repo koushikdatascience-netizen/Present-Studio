@@ -198,10 +198,12 @@ def audience_join(token: str, request: Request, db: Session = Depends(get_db)) -
                     candidate = visual["src"]
                     kind = visual.get("mediaType") or visual.get("type")
                     if kind == "youtube":
-                        video_id = str(visual.get("youtubeId", ""))
-                        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
-                            continue
-                        candidate = f"/api/media/youtube/{video_id}/preview"
+                        candidate = visual.get("thumbnailUrl") or ""
+                        if not candidate:
+                            video_id = str(visual.get("youtubeId", ""))
+                            if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+                                continue
+                            candidate = f"/api/media/youtube/{video_id}/preview"
                     elif candidate.startswith("/api/media/") and candidate.endswith("/content"):
                         candidate = candidate.removesuffix("/content") + "/preview"
                     elif kind == "video":
@@ -254,11 +256,13 @@ def shared_presentation(token: str, request: Request, db: Session = Depends(get_
             candidate = visual["src"]
             kind = visual.get("mediaType") or visual.get("type")
             if kind == "youtube":
-                video_id = str(visual.get("youtubeId", ""))
-                if re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
-                    candidate = f"/api/media/youtube/{video_id}/preview"
-                else:
-                    candidate = ""
+                candidate = visual.get("thumbnailUrl") or ""
+                if not candidate:
+                    video_id = str(visual.get("youtubeId", ""))
+                    if re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+                        candidate = f"/api/media/youtube/{video_id}/preview"
+                    else:
+                        candidate = ""
             elif candidate.startswith("/api/media/") and candidate.endswith("/content"):
                 candidate = candidate.removesuffix("/content") + "/preview"
             elif kind == "video" and "res.cloudinary.com" in candidate:

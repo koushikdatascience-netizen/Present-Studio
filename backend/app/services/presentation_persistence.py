@@ -6,7 +6,7 @@ from sqlalchemy import String, cast, update
 
 from ..database import SessionLocal
 from ..live_state import apply_controller_state, live_session_payload
-from ..models import LiveSession, Presentation, Slide, User
+from ..models import LiveSession, Presentation, PresentationSnapshot, Slide, User
 from ..schemas import PresentationOut, SlideOut
 from ..security import can_edit_presentation, new_id
 from .presentation_images import externalize_images
@@ -22,10 +22,20 @@ def persist_presentation(presentation_id, payload, user_id):
         presentation = db.query(Presentation).filter(Presentation.id == presentation_id).with_for_update().first()
         if not user or not user.is_active or not presentation or not can_edit_presentation(db, presentation, user):
             raise HTTPException(404, "Presentation not found")
-        if payload.updatedAt is None:
+        previous_title = presentation.title
+        supplied_version = payload.updatedAt
+        if payload.baseUpdatedAt is not None:
+            try:
+                base = datetime.fromisoformat(payload.baseUpdatedAt)
+            except ValueError:
+                raise HTTPException(409, "The saved version is invalid. Reload the presentation.")
+            if supplied_version is not None and utc(base) != utc(supplied_version):
+                raise HTTPException(409, "Conflicting saved versions. Reload the presentation.")
+            supplied_version = base
+        if supplied_version is None:
             raise HTTPException(428, "Reload the saved presentation before editing. A saved version is required.")
         previous = presentation.updated_at
-        if utc(payload.updatedAt) != utc(previous):
+        if utc(supplied_version) != utc(previous):
             raise HTTPException(409, "Another editor saved this presentation. Download your unsaved copy, then reload the saved version.")
         # Compare-and-swap also protects SQLite, where FOR UPDATE is ignored.
         next_version = max(datetime.now(timezone.utc), utc(previous) + timedelta(microseconds=1))
@@ -46,6 +56,17 @@ def persist_presentation(presentation_id, payload, user_id):
         presentation.updated_at = next_version
         existing = {slide.id: slide for slide in db.query(Slide).filter(Slide.presentation_id == presentation_id).all()}
         before = {s.id: SlideOut(id=s.id, order=s.order, title=s.title, canvas=s.canvas or {}).model_dump() for s in existing.values()}
+        # Preserve the last complete persisted scene, including intentionally
+        # removed images, for deliberate owner-reviewed recovery.
+        db.add(PresentationSnapshot(id=new_id('snapshot'), presentation_id=presentation_id,
+                                   owner_id=presentation.owner_id, created_at=datetime.now(timezone.utc),
+                                   document={'title': previous_title, 'updatedAt': previous.isoformat(),
+                                             'slides': sorted(before.values(), key=lambda s: s['order'])}))
+        history = db.query(PresentationSnapshot.id).filter_by(presentation_id=presentation_id).order_by(
+            PresentationSnapshot.created_at.desc(), PresentationSnapshot.id.desc()).all()
+        if len(history) > 29:
+            db.query(PresentationSnapshot).filter(PresentationSnapshot.id.in_(
+                [item.id for item in history[29:]])).delete(synchronize_session=False)
         ids = set()
         saved = []
         for incoming, scene in zip(payload.slides, canvases):

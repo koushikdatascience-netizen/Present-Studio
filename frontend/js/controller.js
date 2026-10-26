@@ -1562,6 +1562,7 @@
           id: `${kind}:${slide.id}:${object.id || mediaIndex}`,
           kind,
           youtubeId: object.mediaType === "youtube" ? window.SnapKeyYouTube.idFor(object) : "",
+          thumbnailUrl: object.thumbnailUrl || "",
           slideId: slide.id,
           mediaId: object.id || String(mediaIndex),
           title: object.audioName || `${slide.title || `Slide ${slideIndex + 1}`} · ${object.mediaType === "image" ? "Image" : "Video"} ${mediaIndex + 1}`,
@@ -1590,7 +1591,7 @@
       : target.kind === "audio"
         ? '<span class="controller-slide-number">♫</span>'
         : target.src
-          ? (target.youtubeId ? `<img src="https://i.ytimg.com/vi/${escapeHtml(target.youtubeId)}/hqdefault.jpg" alt="YouTube video"><span class="controller-play-mark">▶</span>` : target.kind === "video" ? `<video src="${escapeHtml(target.src)}" muted preload="metadata"></video><span class="controller-play-mark">▶</span>` : `<img src="${escapeHtml(target.src)}" alt="">`)
+          ? (target.youtubeId ? `<img src="${escapeHtml(target.thumbnailUrl || `https://i.ytimg.com/vi/${target.youtubeId}/hqdefault.jpg`)}" alt="YouTube video"><span class="controller-play-mark">▶</span>` : target.kind === "video" ? `<video src="${escapeHtml(target.src)}" muted preload="metadata"></video><span class="controller-play-mark">▶</span>` : `<img src="${escapeHtml(target.src)}" alt="">`)
           : `<span class="controller-slide-number">${escapeHtml(target.title.slice(0, 2))}</span>`;
     const card = `<button class="controller-target-card" type="button" data-target-id="${escapeHtml(target.id)}"><span class="controller-target-thumb">${visual}</span><span><strong>${escapeHtml(target.title)}</strong><small>${target.kind}${target.audioSrc ? " · linked audio" : ""}</small></span></button>`;
     if (target.kind !== "slide") return card;

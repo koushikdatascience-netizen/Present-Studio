@@ -39,6 +39,16 @@ class Presentation(Base):
     owner: Mapped[User] = relationship(back_populates="presentations")
     slides: Mapped[list["Slide"]] = relationship(back_populates="presentation", cascade="all, delete-orphan")
 
+ 
+class PresentationSnapshot(Base):
+    """Recoverable pre-save copy of slide JSON; never rewrites media storage."""
+    __tablename__ = "presentation_snapshots"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    presentation_id: Mapped[str] = mapped_column(ForeignKey("presentations.id", ondelete="CASCADE"), index=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    document: Mapped[dict] = mapped_column(JSON, nullable=False)
+
 
 class Meeting(Base):
     __tablename__ = "meetings"

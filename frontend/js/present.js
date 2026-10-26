@@ -320,20 +320,40 @@ function renderSlide(preserveMedia = false) {
   };
   if (data.fabric) {
     const scene = sanitizeFabricScene(JSON.parse(JSON.stringify(data.fabric)));
-    const imageObjects = (scene.objects || []).filter(object => object.type === "image" && object.src);
-    scene.objects = (scene.objects || []).filter(object => !["video", "youtube", "image"].includes(object.mediaType) && object.type !== "image");
-    // Draw the slide structure immediately. Load remote images independently so
-    // a slow asset cannot hold up slide changes or the audience's live view.
+    const completeScene = scene.objects || [];
+    const imageObjects = completeScene.map((object, index) => ({ object, index }))
+      .filter(({ object }) => object.type === "image" && object.src);
+    scene.objects = completeScene.filter(object =>
+      !["video", "youtube", "image"].includes(object.mediaType) && object.type !== "image");
+    // Render text and shapes immediately, then restore images at their original
+    // Fabric stacking positions. Images are fetched independently; no single
+    // slow download should delay a live slide transition.
     canvas.loadFromJSON(scene, () => {
+      if (renderVersion !== slideRenderVersion) return;
       done();
-      imageObjects.forEach(serialized => {
-        fabric.Image.fromURL(serialized.src, image => {
-          if (!image || renderVersion !== slideRenderVersion) return;
-          image.set({ ...serialized, selectable: false, evented: false });
-          canvas.add(image);
-          if (serialized.full_bleed || serialized.fitToSlide) canvas.sendToBack(image);
-          canvas.requestRenderAll();
-        }, { crossOrigin: "anonymous" });
+      imageObjects.forEach(({ object: serialized, index }) => {
+        const loadImage = attempt => {
+          fabric.Image.fromURL(serialized.src, image => {
+            if (renderVersion !== slideRenderVersion) return;
+            if (!image || !image.width || !image.height) {
+              if (attempt < 2) setTimeout(() => {
+                if (renderVersion === slideRenderVersion) loadImage(attempt + 1);
+              }, attempt ? 1800 : 500);
+              else console.warn("Slide image unavailable; saved slide data retained", serialized.id || serialized.src);
+              return;
+            }
+            image.set({ ...serialized, selectable: false, evented: false });
+            canvas.add(image);
+            // Multiple images may arrive out of order. Restore their intended
+            // relative layer position rather than always drawing on top.
+            const before = completeScene.slice(0, index).filter(obj =>
+              !["video", "youtube", "image"].includes(obj.mediaType) && obj.type !== "image" ||
+              obj.type === "image" && canvas.getObjects().some(loaded => loaded.id === obj.id)).length;
+            canvas.moveTo(image, Math.min(before, canvas.getObjects().length - 1));
+            canvas.requestRenderAll();
+          }, { crossOrigin: "anonymous" });
+        };
+        loadImage(0);
       });
     });
   } else {

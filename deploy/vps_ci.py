@@ -20,8 +20,10 @@ ROOT = Path('/srv/snapkey-studio')
 BACKEND = 'snapkey-vps-backend-1'
 MAX_ARCHIVE = 2 * 1024**3
 REPOSITORY = 'MadhushalaReport/SnapkeyStudio'
-REPOSITORY_ID = '1379740996'
-OWNER_ID = '282201099'
+REPOSITORIES = {
+    REPOSITORY: ('1379740996', '282201099'),
+    'koushikdatascience-netizen/Present-Studio': ('1345831771', '234684887'),
+}
 
 
 def command(arguments, **options):
@@ -43,11 +45,12 @@ def parse_request(value):
     return parts
 
 
-def identity_policy(commit, allow_active):
-    return {'repository': REPOSITORY, 'repository_id': REPOSITORY_ID,
-            'repository_owner_id': OWNER_ID, 'ref': 'refs/heads/main', 'sha': commit,
+def identity_policy(commit, allow_active, repository=REPOSITORY):
+    repository_id, owner_id = REPOSITORIES[repository]
+    return {'repository': repository, 'repository_id': repository_id,
+            'repository_owner_id': owner_id, 'ref': 'refs/heads/main', 'sha': commit,
             'workflow_sha': commit, 'runner_environment': 'github-hosted',
-            'workflow_ref': REPOSITORY + '/.github/workflows/deploy.yml@refs/heads/main'}
+            'workflow_ref': repository + '/.github/workflows/deploy.yml@refs/heads/main'}
 
 
 def verifier_image():
@@ -68,7 +71,9 @@ def verify_identity(stream, commit, allow_active):
 request=json.load(sys.stdin)
 key=jwt.PyJWKClient('https://token.actions.githubusercontent.com/.well-known/jwks',timeout=15).get_signing_key_from_jwt(request['token'])
 claims=jwt.decode(request['token'],key.key,algorithms=['RS256'],audience='snapkey-studio-vps',issuer='https://token.actions.githubusercontent.com',options={'require':['exp','iat','nbf','sub','aud','iss']})
-for field,value in request['expected'].items():
+expected=request['policies'].get(claims.get('repository'))
+if not expected:raise ValueError('Repository not authorized for this application')
+for field,value in expected.items():
  if claims.get(field)!=value:raise ValueError('GitHub deployment identity rejected')
 if claims.get('event_name') not in {'push','workflow_dispatch'}:raise ValueError('Unsupported deployment event')
 if request['allow_active'] and claims['event_name']!='workflow_dispatch':raise ValueError('Meeting override requires manual dispatch')
@@ -79,7 +84,7 @@ print('GitHub main-branch deployment identity verified')
              '--security-opt', 'no-new-privileges', '--cpus', '.25', '--memory', '128m',
              '--pids-limit', '64', '-e', 'PYTHONDONTWRITEBYTECODE=1',
              '--entrypoint', 'python', '-i', image, '-c', code],
-            input=json.dumps({'token': token, 'expected': identity_policy(commit, allow_active),
+            input=json.dumps({'token': token, 'policies': {repo: identity_policy(commit, allow_active, repo) for repo in REPOSITORIES},
                               'allow_active': allow_active}))
 
 

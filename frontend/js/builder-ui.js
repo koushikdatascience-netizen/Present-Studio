@@ -166,6 +166,7 @@
       return `<span class="slide-thumbnail-object is-video" style="${style}"><video src="${esc(object.src)}" muted preload="metadata" playsinline></video></span>`;
     }
     if (mediaType === "youtube" && window.SnapKeyYouTube?.idFor(object)) {
+      if (object.thumbnailUrl) return `<span class="slide-thumbnail-object is-youtube is-image" style="${style}"><img src="${esc(object.thumbnailUrl)}" alt="" loading="lazy"><span class="slide-thumbnail-play-mark" aria-hidden="true">▶</span></span>`;
       return `<span class="slide-thumbnail-object is-youtube" style="${style}"><span aria-hidden="true">▶</span> YouTube</span>`;
     }
     if (mediaType === "screen-share") {
@@ -1995,13 +1996,44 @@
   const youtubeDialog = byId("youtubeEmbedDialog");
   const youtubeLink = byId("youtubeEmbedLink");
   const youtubeFeedback = byId("youtubeEmbedFeedback");
+  const youtubeThumbnailFile = byId("youtubeThumbnailFile");
+  const youtubeThumbnailPreview = byId("youtubeThumbnailPreview");
+  const youtubeThumbnailImage = youtubeThumbnailPreview.querySelector("img");
+  let youtubeThumbnailObjectUrl = "";
+  function clearYoutubeThumbnail() {
+    if (youtubeThumbnailObjectUrl) URL.revokeObjectURL(youtubeThumbnailObjectUrl);
+    youtubeThumbnailObjectUrl = "";
+    youtubeThumbnailFile.value = "";
+    youtubeThumbnailPreview.hidden = true;
+  }
+  youtubeThumbnailFile.addEventListener("change", () => {
+    const file = youtubeThumbnailFile.files?.[0];
+    if (!file) return clearYoutubeThumbnail();
+    if (!file.type.startsWith("image/")) {
+      clearYoutubeThumbnail();
+      youtubeFeedback.textContent = "Choose an image file for the thumbnail.";
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      clearYoutubeThumbnail();
+      youtubeFeedback.textContent = "Thumbnail images must be 20 MB or smaller.";
+      return;
+    }
+    if (youtubeThumbnailObjectUrl) URL.revokeObjectURL(youtubeThumbnailObjectUrl);
+    youtubeThumbnailObjectUrl = URL.createObjectURL(file);
+    youtubeThumbnailImage.src = youtubeThumbnailObjectUrl;
+    youtubeThumbnailPreview.hidden = false;
+    youtubeFeedback.textContent = "Custom thumbnail selected. It will be used in slide and share previews.";
+  });
+  byId("youtubeThumbnailRemove").addEventListener("click", clearYoutubeThumbnail);
   function openYoutubeDialog() {
     youtubeFeedback.textContent = "Videos that allow embedding can play in the presentation.";
+    clearYoutubeThumbnail();
     youtubeDialog.showModal();
     youtubeLink.focus();
   }
   byId("youtubeEmbedCancel").addEventListener("click", () => youtubeDialog.close());
-  byId("youtubeEmbedForm").addEventListener("submit", event => {
+  byId("youtubeEmbedForm").addEventListener("submit", async event => {
     event.preventDefault();
     const id = window.SnapKeyYouTube?.parse(youtubeLink.value);
     if (!id) {
@@ -2009,8 +2041,24 @@
       youtubeLink.focus();
       return;
     }
+    const submit = youtubeDialog.querySelector('[type="submit"]');
+    submit.disabled = true;
+    let thumbnailUrl = "";
+    try {
+      const file = youtubeThumbnailFile.files?.[0];
+      if (file) {
+        youtubeFeedback.textContent = "Uploading thumbnail…";
+        const result = await window.PresentStudioApi.uploadMedia(file);
+        thumbnailUrl = result.asset.url;
+      }
+    } catch (error) {
+      youtubeFeedback.textContent = error.message || "Thumbnail upload failed. Try again.";
+      submit.disabled = false;
+      return;
+    }
     const object = new fabric.Rect({
       id: `youtube_${Date.now()}`, mediaType: "youtube", youtubeId: id,
+      ...(thumbnailUrl ? { thumbnailUrl } : {}),
       src: window.SnapKeyYouTube.embedUrl(id, false), left: 0, top: 0, width: W, height: H,
       fill: "#141414", stroke: "#e84b46", strokeWidth: 2, rx: 0, ry: 0, fit: "contain"
     });
@@ -2019,7 +2067,9 @@
     object.setCoords();
     canvas.requestRenderAll();
     youtubeDialog.close();
+    submit.disabled = false;
     youtubeLink.value = "";
+    clearYoutubeThumbnail();
     queueVideoOverlayUpdate();
     schedule();
     toast("YouTube video added. Drag it or use the corner handles to resize.");

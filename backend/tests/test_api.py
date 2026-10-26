@@ -490,7 +490,7 @@ def test_saving_presentation_emits_live_update():
         current = client.get("/api/presentations/pres_demo", headers=headers).json()["presentation"]
 
         with patch("app.routers.presentations.sio.emit", new_callable=AsyncMock) as emit:
-            response = client.put("/api/presentations/pres_demo", json=current, headers=headers)
+            response = client.put("/api/presentations/pres_demo", json={**current, "baseUpdatedAt": current["updatedAt"]}, headers=headers)
 
         assert response.status_code == 200
         emit.assert_awaited_once()
@@ -516,7 +516,7 @@ def test_saving_presentation_normalizes_duplicate_slide_ids():
             {**created["slides"][0], "id": duplicate_id, "order": 1, "title": "First"},
             {**created["slides"][0], "id": duplicate_id, "order": 2, "title": "Second"},
         ]
-        response = client.put(f"/api/presentations/{created['id']}", json=created, headers=headers)
+        response = client.put(f"/api/presentations/{created['id']}", json={**created, "baseUpdatedAt": created["updatedAt"]}, headers=headers)
 
     assert response.status_code == 200
     slide_ids = [slide["id"] for slide in response.json()["presentation"]["slides"]]

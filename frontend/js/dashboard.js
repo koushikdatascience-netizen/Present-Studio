@@ -85,9 +85,9 @@ function renderDashboardThumbnails(presentations) {
     }
     media.forEach(object => {
       const youtubeId = window.SnapKeyYouTube?.idFor(object);
-      const node = document.createElement(youtubeId || object.poster ? 'img' : 'video');
+      const node = document.createElement(youtubeId || object.thumbnailUrl || object.poster ? 'img' : 'video');
       node.className = 'dashboard-slide-media';
-      if (node.tagName === 'IMG') { node.src = youtubeId ? `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg` : object.poster; node.alt = ''; }
+      if (node.tagName === 'IMG') { node.src = object.thumbnailUrl || (youtubeId ? `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg` : object.poster); node.alt = ''; }
       else { node.src = object.src || ''; node.muted = true; node.preload = 'metadata'; node.playsInline = true; node.addEventListener('loadedmetadata', () => { try { node.currentTime = Math.min(0.1, node.duration / 2); } catch {} }, { once: true }); }
       const legacy = object.legacy;
       Object.assign(node.style, { left: `${legacy ? Number(object.x || 0) : Number(object.left || 0) / 12.8}%`, top: `${legacy ? Number(object.y || 0) : Number(object.top || 0) / 7.2}%`, width: `${legacy ? Number(object.width || 100) : Number(object.width || 1280) * Number(object.scaleX || 1) / 12.8}%`, height: `${legacy ? Number(object.height || 100) : Number(object.height || 720) * Number(object.scaleY || 1) / 7.2}%`, objectFit: object.fit === 'contain' ? 'contain' : 'cover' });

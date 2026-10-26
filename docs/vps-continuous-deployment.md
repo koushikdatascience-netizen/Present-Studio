@@ -1,7 +1,9 @@
 # Automatic VPS deployments
 
 Push or merge application changes to `main` in
-`MadhushalaReport/SnapkeyStudio`. GitHub Actions runs backend, frontend,
+`koushikdatascience-netizen/Present-Studio` (your accessible repository), or
+`MadhushalaReport/SnapkeyStudio`. Both are authorized to deploy the same app.
+GitHub Actions runs backend, frontend,
 TypeScript and browser regressions, builds and smoke-tests a release image, then
 deploys it to the current VPS. Feature branches and pull requests run checks
 without deploying. The desktop app and this computer are not required.

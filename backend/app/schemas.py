@@ -58,6 +58,7 @@ class PresentationSave(BaseModel):
     title: str
     slides: list[SlideIn]
     updatedAt: datetime | None = None
+    baseUpdatedAt: str | None = None
 
 
 class PresentationOut(BaseModel):

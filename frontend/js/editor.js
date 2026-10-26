@@ -3,7 +3,7 @@ const presentationId=new URLSearchParams(location.search).get("id")||"pres_demo"
 const authToken=localStorage.getItem("presentStudio.accessToken")||"", socket=window.io?window.io():null;
 let presentation,currentSlideIndex=0,canvas,saveTimer,shareUrl="",screenShareUrl="",audienceShareUrl="",loading=false,mediaAssets=[],selectedPresenter="Self",uploadRequestId=0,retryUploadFile=null;
 const W=1280,H=720;
-let editRevision=0,savePromise=null,saveConflict=false;
+let editRevision=0,savePromise=null,saveConflict=false,imageRestoreProblem="",pendingInsertions=0;
 function secureAppUrl(path){const url=new URL(path,location.origin);if(!["localhost","127.0.0.1","::1"].includes(url.hostname))url.protocol="https:";return url.href}
 function toast(m){const n=$("#toast");n.textContent=m;n.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.remove("show"),2600)}
 function setShareLink(url,permission,screenUrl="",audienceUrl=""){shareUrl=url||"";screenShareUrl=screenUrl||"";audienceShareUrl=audienceUrl||"";const isPresenter=permission==="presenter",button=$("#openShareLink"),copyScreenButton=$("#copyScreenLink"),screenStatus=$("#screenShareStatus"),copyAudienceButton=$("#copyAudienceLink"),audienceStatus=$("#audienceShareStatus");$("#shareStatus").textContent=shareUrl?(isPresenter?`Remote Control: ${shareUrl}`:`Presentation Screen: ${shareUrl}`):"";button.disabled=!shareUrl;button.querySelector("span").textContent=shareUrl?(isPresenter?"Open Remote Control":"Open Presentation Screen"):"Open Link";button.setAttribute("aria-label",shareUrl?`Open ${isPresenter?"Remote Control":"Presentation Screen"} link in a new tab`:"Open generated link in a new tab");if(screenStatus)screenStatus.textContent=screenShareUrl?`Locked Screen: ${screenShareUrl}`:"";if(copyScreenButton)copyScreenButton.disabled=!screenShareUrl;if(audienceStatus)audienceStatus.textContent=audienceShareUrl?`Interactive Audience: ${audienceShareUrl}`:"";if(copyAudienceButton)copyAudienceButton.disabled=!audienceShareUrl}
@@ -15,7 +15,9 @@ function text(item){return new fabric.Textbox(item.text||"",{id:item.id,left:(it
 function video(item){const fitToSlide=item.fitToSlide===true;return new fabric.Rect({id:item.id,left:item.full_bleed||fitToSlide?0:(item.x||0)*12.8,top:item.full_bleed||fitToSlide?0:(item.y||0)*7.2,width:item.full_bleed||fitToSlide?W:(item.width||40)*12.8,height:item.full_bleed||fitToSlide?H:(item.height||30)*7.2,fill:"#1c1a16",stroke:item.full_bleed||fitToSlide?null:"#d1a948",strokeWidth:item.full_bleed||fitToSlide?0:4,rx:item.full_bleed||fitToSlide?0:8,ry:item.full_bleed||fitToSlide?0:8,mediaType:"video",src:item.src,full_bleed:item.full_bleed===true,loop:item.loop,muted:item.muted===true,fit:item.fit||(item.full_bleed?"fill":"contain")})}
 function image(item, targetSlideId=activeSlide()?.id){
   const targetCanvas=canvas, wasLoading=loading;
+  pendingInsertions++;
   fabric.Image.fromURL(item.src,o=>{
+    pendingInsertions=Math.max(0,pendingInsertions-1);
     if(!o||!o.width||!o.height){
       toast("This image could not load. Check the media link or upload it again.");
       return;
@@ -39,7 +41,7 @@ function image(item, targetSlideId=activeSlide()?.id){
     if(!wasLoading&&!loading){canvas.setActiveObject(o);panel();schedule()}
   },{crossOrigin:"anonymous"})
 }
-function capture(){if(!presentation||loading)return;const s=ensure(activeSlide());s.canvas.background=canvas.backgroundColor||"#f8f4ea";s.canvas.fabric=canvas.toJSON(["id","mediaType","src","youtubeId","audioSrc","audioName","full_bleed","loop","muted","fit","hyperlink","animation","animationDuration","animationDelay","wordArt","wordArtPreset","shapeRequestedFontSize","shapeText","paragraphAlignments","shapeKind","frameKind","flowchartKind","diagramKind","chartKind","componentType","componentRole","componentIndex","componentName","visualParentId","visualTheme","diagramTheme","chartData","chartStyle","editableComponent"]);const title=canvas.getObjects().find(o=>o.id==="title");if(title&&title.text.trim())s.title=title.text.trim()}
+function capture(){if(!presentation||loading||pendingInsertions||imageRestoreProblem)return;const s=ensure(activeSlide());s.canvas.background=canvas.backgroundColor||"#f8f4ea";s.canvas.fabric=canvas.toJSON(["id","mediaType","src","youtubeId","thumbnailUrl","audioSrc","audioName","full_bleed","loop","muted","fit","hyperlink","animation","animationDuration","animationDelay","wordArt","wordArtPreset","shapeRequestedFontSize","shapeText","paragraphAlignments","shapeKind","frameKind","flowchartKind","diagramKind","chartKind","componentType","componentRole","componentIndex","componentName","visualParentId","visualTheme","diagramTheme","chartData","chartStyle","editableComponent"]);const title=canvas.getObjects().find(o=>o.id==="title");if(title&&title.text.trim())s.title=title.text.trim()}
 let slideLoadVersion=0;
 const prefetchedSlideImages=new Map();
 function prefetchAdjacentImages(){
@@ -58,25 +60,50 @@ function prefetchAdjacentImages(){
     };walk(slide.canvas.fabric||slide.canvas.elements);
   }
 }
+function imageIdentity(object){return object?.id||object?.src||""}
+function validateRestoredImages(savedObjects,loadedObjects){
+  const actual=new Map();
+  for(const object of loadedObjects)if(object?.type==="image"){
+    const key=imageIdentity(object);actual.set(key,(actual.get(key)||0)+1);
+  }
+  const missing=[];
+  for(const object of savedObjects)if(object?.type==="image"){
+    const key=imageIdentity(object),count=actual.get(key)||0;
+    if(count>0)actual.set(key,count-1);else missing.push(key||"(unnamed image)");
+  }
+  return missing;
+}
 function load(){
-  loading=true;
-  const version=++slideLoadVersion, targetSlideId=activeSlide().id;
-  const d=ensure(activeSlide()).canvas;
+  loading=true;imageRestoreProblem="";
+  const version=++slideLoadVersion,targetSlideId=activeSlide().id,d=ensure(activeSlide()).canvas;
+  const finish=(objects,expected)=>{
+    if(version!==slideLoadVersion||targetSlideId!==activeSlide()?.id)return;
+    const missing=validateRestoredImages(expected,objects);
+    if(missing.length){imageRestoreProblem=`Could not restore ${missing.length} saved image(s); saving paused to protect original data.`;$("#modeLabel").textContent="Image restore failed — saving paused";toast(imageRestoreProblem)}
+    canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";
+    canvas.add(...objects);canvas.renderAll();loading=false;panel();prefetchAdjacentImages();
+  };
   if(d.fabric){
-    // Decode offscreen so a late image callback cannot replace a newer slide.
+    // Decode offscreen: overlapping loads cannot mutate the visible/newer slide.
     const staging=new fabric.StaticCanvas(null,{width:W,height:H,renderOnAddRemove:false});
     staging.loadFromJSON(d.fabric,()=>{
-      if(version!==slideLoadVersion||targetSlideId!==activeSlide()?.id){staging.dispose();return}
-      const objects=staging.getObjects().slice();
-      objects.forEach(object=>staging.remove(object));
-      canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";
-      canvas.add(...objects);canvas.renderAll();
-      staging.dispose();loading=false;panel();prefetchAdjacentImages();
+      const objects=staging.getObjects().slice();objects.forEach(object=>staging.remove(object));
+      staging.dispose();finish(objects,d.fabric.objects||[]);
     });
   }else{
-    canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";
-    d.elements.forEach(x=>{if(x.type==="text")canvas.add(text(x));else if(x.type==="image")image(x);else if(x.type==="video")canvas.add(video(x))});
-    canvas.requestRenderAll();loading=false;panel();prefetchAdjacentImages();
+    const pending=d.elements.map(item=>{
+      if(item.type==="text")return Promise.resolve(text(item));
+      if(item.type==="video")return Promise.resolve(video(item));
+      if(item.type!=="image")return Promise.resolve(null);
+      return new Promise(resolve=>fabric.Image.fromURL(item.src,object=>{
+        if(!object||!object.width||!object.height){resolve(null);return}
+        object.set({...item,mediaType:"image",left:(item.x||0)*12.8,top:(item.y||0)*7.2});
+        if(item.full_bleed)object.set({scaleX:W/object.width,scaleY:H/object.height,left:0,top:0});
+        else{object.scaleToWidth((item.width||40)*12.8);if(object.getScaledHeight()>(item.height||30)*7.2)object.scaleToHeight((item.height||30)*7.2)}
+        resolve(object);
+      },{crossOrigin:"anonymous"}));
+    });
+    Promise.all(pending).then(objects=>finish(objects.filter(Boolean),d.elements));
   }
 }
 function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
@@ -84,7 +111,7 @@ function renderUploadStatus(state,message){const status=$("#uploadStatus"),icons
 function active(){return canvas.getActiveObject()}
 function showHomeRibbon(){document.querySelectorAll("[data-builder-tab]").forEach(b=>b.classList.toggle("is-active",b.dataset.builderTab==="home"));document.querySelectorAll("[data-ribbon-panel]").forEach(p=>{const on=p.dataset.ribbonPanel==="home";p.hidden=!on;p.classList.toggle("is-active",on)})}function panel(){const o=active(),ok=o&&["textbox","text","i-text"].includes(o.type),isImage=["image","video","youtube"].includes(o?.mediaType);const editorPanel=$("#editorPanel");if(editorPanel)editorPanel.hidden=!ok;$("#imageAudioPanel").hidden=o?.mediaType!=="image";if(isImage){const fitButton=document.querySelector("[data-builder-action=fit-media]");if(fitButton)fitButton.classList.add("is-active")}else document.querySelector("[data-builder-action=fit-media]")?.classList.remove("is-active");document.querySelectorAll("[data-animation]").forEach(b=>b.classList.toggle("is-active",b.dataset.animation===(o?.animation||"none")));const animDuration=$("#animationDuration"),animDelay=$("#animationDelay");if(animDuration)animDuration.value=o?.animationDuration||600;if(animDelay)animDelay.value=o?.animationDelay||0;if(o?.mediaType==="image"){const audio=mediaAssets.filter(a=>a.mimeType.startsWith("audio/"));$("#imageAudio").innerHTML='<option value="">No linked audio</option>'+audio.map(a=>'<option value="'+esc(a.url)+'">'+esc(a.name)+"</option>").join("");$("#imageAudio").value=o.audioSrc||""}if(!ok)return;const selectedSize=selectedTextStyle(o,"fontSize"),selectedFill=selectedTextStyle(o,"fill"),selectedWeight=selectedTextStyle(o,"fontWeight"),selectedItalic=selectedTextStyle(o,"fontStyle");$("#selectionNote").textContent=o.id==="title"?"Title":o.id==="subtitle"?"Subtitle":"Text";$("#fontSize").value=Math.round(selectedSize||o.fontSize||32);$("#textColor").value=selectedFill||o.fill||"#171717";$("#boldButton").classList.toggle("active",String(selectedWeight)==="bold"||Number(selectedWeight)>=700);$("#italicButton").classList.toggle("active",selectedItalic==="italic");setTimeout(()=>editorPanel?.scrollIntoView({block:"nearest",inline:"center",behavior:"smooth"}),0)}
 function renderList(){$("#slideList").innerHTML=presentation.slides.map((s,i)=>'<button class="slide-item '+(i===currentSlideIndex?"active":"")+'" type="button" data-index="'+i+'">'+esc(s.title||"Untitled slide")+"</button>").join("");$("#slideList").querySelectorAll("[data-index]").forEach(b=>b.onclick=()=>{capture();currentSlideIndex=Number(b.dataset.index);render()})}
-function mediaLibrary(){const countEl=$("#mediaCount"),gridEl=$("#mediaLibraryGrid");if(!countEl||!gridEl)return;countEl.textContent=mediaAssets.length+" item"+(mediaAssets.length===1?"":"s");gridEl.innerHTML=mediaAssets.map(a=>'<button class="media-library-item" type="button" data-asset="'+a.id+'">'+(a.mimeType.startsWith("image/")?'<img src="'+a.url+'" alt="">':'<span class="media-type-icon">'+(a.mimeType.startsWith("audio/")?"♫":"▷")+'</span>')+"<span>"+esc(a.name)+"</span></button>").join("");gridEl.querySelectorAll("[data-asset]").forEach(b=>b.onclick=()=>addAsset(mediaAssets.find(a=>a.id===b.dataset.asset)))}
+function mediaLibrary(){const countEl=$("#mediaCount"),gridEl=$("#mediaLibraryGrid");if(!countEl||!gridEl)return;const signature=mediaAssets.map(a=>a.id+":"+a.url).join("|");if(gridEl.dataset.assetSignature===signature)return;gridEl.dataset.assetSignature=signature;countEl.textContent=mediaAssets.length+" item"+(mediaAssets.length===1?"":"s");gridEl.innerHTML=mediaAssets.map(a=>'<button class="media-library-item" type="button" data-asset="'+a.id+'">'+(a.mimeType.startsWith("image/")?'<img src="'+a.url+'" alt="">':'<span class="media-type-icon">'+(a.mimeType.startsWith("audio/")?"♫":"▷")+'</span>')+"<span>"+esc(a.name)+"</span></button>").join("");gridEl.querySelectorAll("[data-asset]").forEach(b=>b.onclick=()=>addAsset(mediaAssets.find(a=>a.id===b.dataset.asset)))}
 function syncPlayback(){const c=playback();$("#playbackMode").value=c.mode;$("#playbackInterval").value=c.interval_ms;$("#mediaMode").value=c.media_mode;$("#mediaCycle").value=c.media_cycle||"all";$("#mediaInterval").value=c.media_interval_ms||5000;$("#loopVideos").checked=c.loop_videos!==false;$("#playbackSlides").innerHTML=presentation.slides.map((s,i)=>'<label><input type="checkbox" data-play-slide="'+s.id+'" '+(c.slide_ids.includes(s.id)?"checked":"")+"> "+(i+1)+". "+esc(s.title)+"</label>").join("");$("#playbackSlides").querySelectorAll("[data-play-slide]").forEach(b=>b.onchange=()=>{c.slide_ids=[...$("#playbackSlides").querySelectorAll("[data-play-slide]:checked")].map(x=>x.dataset.playSlide);schedule()})}
 function render(){const s=ensure(activeSlide()),count=String(currentSlideIndex+1).padStart(2,"0")+" / "+String(presentation.slides.length).padStart(2,"0");$("#presentationTitle").textContent=presentation.title;$("#slideCount").textContent=count;$("#canvasIndex").textContent=count;$("#pageLabel").textContent="Slide "+(currentSlideIndex+1)+" of "+presentation.slides.length;$("#transitionType").value=s.canvas.transition.type;const transitionDuration=s.canvas.transition.duration_ms||500;$("#transitionDuration").value=String(transitionDuration);const customDuration=$("#transitionDurationCustom");if(customDuration)customDuration.value=transitionDuration;renderList();mediaLibrary();syncPlayback();const bgInput=$("#slideBackground");if(bgInput)bgInput.value=s.canvas.background||"#f8f4ea";load()}
 function normalize(){presentation.slides.forEach((s,i)=>s.order=i+1)}
@@ -108,6 +135,8 @@ function applySavedImageReferences(before,after){
 }
 async function save(){
   clearTimeout(saveTimer);
+  if(loading||pendingInsertions)return Promise.reject(new Error("Images are still loading. Wait before saving."));
+  if(imageRestoreProblem)return Promise.reject(new Error(imageRestoreProblem));
   if(saveConflict)throw new Error("Download your unsaved copy, then reload the saved version.");
   if(savePromise)return savePromise.then(()=>save());
   capture();normalize();
@@ -143,7 +172,7 @@ function showSaveConflict(){
   const reload=document.createElement("button");reload.textContent="Reload saved version";reload.onclick=()=>{if(window.confirm("Reload and discard unsaved local edits? Download your copy first."))location.reload()};
   panel.append(message,download,reload);document.body.append(panel);
 }
-function schedule(){if(loading)return;editRevision++;$("#modeLabel").textContent=saveConflict?"Save conflict — local work kept":"Unsaved changes";clearTimeout(saveTimer);if(!saveConflict)saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
+function schedule(){if(loading||pendingInsertions||imageRestoreProblem||saveConflict)return;editRevision++;$("#modeLabel").textContent=saveConflict?"Save conflict — local work kept":"Unsaved changes";clearTimeout(saveTimer);if(!saveConflict)saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
 function move(n){capture();currentSlideIndex=(currentSlideIndex+n+presentation.slides.length)%presentation.slides.length;render()} function addSlide(){capture();presentation.slides.splice(currentSlideIndex+1,0,ensure({id:"slide_"+Date.now(),order:0,title:"Slide "+(presentation.slides.length+1),canvas:{background:"#f8f4ea",elements:[]}}));currentSlideIndex++;normalize();render();schedule()} function duplicateSlide(){capture();const s=JSON.parse(JSON.stringify(activeSlide()));s.id="slide_"+Date.now();s.title+=" copy";presentation.slides.splice(currentSlideIndex+1,0,s);currentSlideIndex++;normalize();render();schedule()} function deleteSlide(){if(presentation.slides.length===1)return toast("A presentation needs at least one slide.");capture();const r=presentation.slides.splice(currentSlideIndex,1)[0];playback().slide_ids=playback().slide_ids.filter(id=>id!==r.id);currentSlideIndex=Math.min(currentSlideIndex,presentation.slides.length-1);render();schedule()}
 function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,thumbnailSrc:a.thumbnailUrl||"",x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
 async function uploadFile(f){const targetSlideId=activeSlide()?.id;const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);

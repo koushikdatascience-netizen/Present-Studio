@@ -155,3 +155,12 @@ def test_already_deployed_retry_consumes_upload_without_restarting(tmp_path, mon
     stream = io.BytesIO(data)
     result = ci.deploy(SHA, hashlib.sha256(data).hexdigest(), False, stream, root=tmp_path)
     assert result["alreadyDeployed"] and stream.read() == b""
+
+
+def test_owned_repository_identity_is_also_authorized(identity):
+    key, claims = identity
+    policy = ci.identity_policy(SHA, False, 'koushikdatascience-netizen/Present-Studio')
+    token = jwt.encode({**claims, **policy}, key, algorithm='RS256')
+    ci.verify_identity(io.BytesIO(token.encode()+b'\n'), SHA, False)
+    assert policy['repository_id'] == '1345831771'
+    assert policy['repository_owner_id'] == '234684887'
