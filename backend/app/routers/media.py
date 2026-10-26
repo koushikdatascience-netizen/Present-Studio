@@ -81,7 +81,7 @@ def serve_media_asset(asset_id: str, db: Session = Depends(get_db)):
     if not asset or asset.url != f"/api/media/{asset_id}/content":
         raise HTTPException(status_code=404, detail="Media not found")
     storage = s3_storage()
-    return RedirectResponse(storage.presigned_get(storage.media_key(asset.owner_id, asset.id)), status_code=307, headers={"Cache-Control": "private, no-store"})
+    return RedirectResponse(storage.presigned_get(storage.media_key(asset.owner_id, asset.id)), status_code=307, headers={"Cache-Control": "private, max-age=120"})
 
 
 @router.get("/{asset_id}/thumbnail")
