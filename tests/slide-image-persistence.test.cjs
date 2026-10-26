@@ -32,3 +32,12 @@ test('editor serializes immutable save snapshots instead of replacing working st
 test('save refuses an incomplete image restore', () => {
   assert.match(source, /if\(imageRestoreProblem\)return Promise\.reject/);
 });
+
+test('cross-tab save conflict blocks further overwrites', () => {
+  assert.match(source, /snapshot\.baseUpdatedAt=lastSavedUpdatedAt/);
+  assert.match(source, /saveConflict=true/);
+  assert.match(source, /if\(loading\|\|imageRestoreProblem\|\|saveConflict\)return/);
+});
+test('avoid media library repaint on every slide navigation', () => {
+  assert.match(source, /gridEl\.dataset\.assetSignature===signature/);
+});
