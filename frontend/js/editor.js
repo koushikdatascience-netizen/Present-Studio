@@ -1,7 +1,7 @@
 const api=window.PresentStudioApi, $=s=>document.querySelector(s);
 const presentationId=new URLSearchParams(location.search).get("id")||"pres_demo";
 const authToken=localStorage.getItem("presentStudio.accessToken")||"", socket=window.io?window.io():null;
-let saveQueue=Promise.resolve(), loadEpoch=0, imageRestoreProblem="", saveSequence=0;
+let saveQueue=Promise.resolve(), loadEpoch=0, imageRestoreProblem="", saveSequence=0, lastSavedUpdatedAt=null, saveConflict=false;
 let presentation,currentSlideIndex=0,canvas,saveTimer,shareUrl="",screenShareUrl="",audienceShareUrl="",loading=false,mediaAssets=[],selectedPresenter="Self",uploadRequestId=0,retryUploadFile=null;
 const W=1280,H=720;
 function secureAppUrl(path){const url=new URL(path,location.origin);if(!["localhost","127.0.0.1","::1"].includes(url.hostname))url.protocol="https:";return url.href}
@@ -98,6 +98,7 @@ function save(){
   clearTimeout(saveTimer);
   if(loading)return Promise.reject(new Error("Slide is still loading; wait before saving."));
   if(imageRestoreProblem)return Promise.reject(new Error(imageRestoreProblem));
+  if(saveConflict)return Promise.reject(new Error("This presentation was updated elsewhere. Reload and review changes before saving."));
   capture();normalize();
   // Snapshot immediately and serialize writes. A slow older response must never replace
   // the current browser's newer edits or arrive at the server after a later save.
@@ -105,16 +106,20 @@ function save(){
   $("#modeLabel").textContent="Saving…";
   const task=saveQueue.catch(()=>{}).then(async()=>{
     try{
-      await api.savePresentation(snapshot);
+      if(saveConflict)throw new Error("Save conflict: reload before continuing.");
+      snapshot.baseUpdatedAt=lastSavedUpdatedAt;
+      const response=await api.savePresentation(snapshot);
+      lastSavedUpdatedAt=response.presentation.updatedAt;
       if(sequence===saveSequence)$("#modeLabel").textContent="Saved";
     }catch(error){
-      if(sequence===saveSequence)$("#modeLabel").textContent="Save failed";
+      if(/another tab or device|changed elsewhere|Save conflict/i.test(error.message||""))saveConflict=true;
+      if(sequence===saveSequence)$("#modeLabel").textContent=saveConflict?"Save conflict — reload to resolve":"Save failed";
       toast(error.message);throw error;
     }
   });
   saveQueue=task;return task;
 }
-function schedule(){if(loading||imageRestoreProblem)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
+function schedule(){if(loading||imageRestoreProblem||saveConflict)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
 function move(n){capture();currentSlideIndex=(currentSlideIndex+n+presentation.slides.length)%presentation.slides.length;render()} function addSlide(){capture();presentation.slides.splice(currentSlideIndex+1,0,ensure({id:"slide_"+Date.now(),order:0,title:"Slide "+(presentation.slides.length+1),canvas:{background:"#f8f4ea",elements:[]}}));currentSlideIndex++;normalize();render();schedule()} function duplicateSlide(){capture();const s=JSON.parse(JSON.stringify(activeSlide()));s.id="slide_"+Date.now();s.title+=" copy";presentation.slides.splice(currentSlideIndex+1,0,s);currentSlideIndex++;normalize();render();schedule()} function deleteSlide(){if(presentation.slides.length===1)return toast("A presentation needs at least one slide.");capture();const r=presentation.slides.splice(currentSlideIndex,1)[0];playback().slide_ids=playback().slide_ids.filter(id=>id!==r.id);currentSlideIndex=Math.min(currentSlideIndex,presentation.slides.length-1);render();schedule()}
 function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
 async function uploadFile(f){const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);addAsset(r.asset,false);mediaLibrary();if(requestId===uploadRequestId)renderUploadStatus("success",f.name+" uploaded successfully.")}catch(err){if(requestId!==uploadRequestId)return;retryUploadFile=f;const message=err.message.includes("Cloudinary")?"Media storage is not configured on this server.":err.message;renderUploadStatus("error",message)}}
@@ -161,6 +166,7 @@ async function init(){
   ]);
 
   presentation=r.presentation;
+  lastSavedUpdatedAt=presentation.updatedAt;
   mediaAssets=library.assets||[];
 
   if(!presentation.slides.length)addSlide();
