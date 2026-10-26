@@ -1,7 +1,7 @@
 # SnapKey Studio attended remote assistance
 
 Status: feature branch only; disabled by default. No main merge or production deployment.
-Repository base: koushikdatascience-netizen/Present-Studio main 1a6472d4fc2008be48eb9b709b06ca6830eeab57, fetched before implementation. This is distinct from the currently deployed MadhushalaReport/SnapkeyStudio repository. Do not deploy this older base over production without reconciling the existing performance and preview changes.
+Production integration: only the remote-assistance commits were applied onto MadhushalaReport/SnapkeyStudio main 8797ac084c18def75a670ea2aa962126d2a9d346. Existing presentation performance, image migration and preview fixes are retained. The original feature was implemented against koushikdatascience-netizen/Present-Studio main 1a6472d4fc2008be48eb9b709b06ca6830eeab57 and merged there separately; that older base must not replace production.
 
 ## Architecture and scope
 
@@ -77,4 +77,4 @@ See [SECURITY.md](SECURITY.md) and [MANUAL-TEST.md](MANUAL-TEST.md). The durable
 - No Unicode/IME text injection, clipboard, file transfer, secondary-monitor control, elevated-window control, unattended access, recording or remote shell. Optional Open Helper links require the user to enable per-user protocol registration first; otherwise manual opening/pasting works.
 - Helper native tests check ABI; they do not establish real-device input correctness. A compile success is not end-to-end consent or revocation verification.
 - Co-host/presenter control is intentionally not enabled. Only the meeting owner may request.
-- The older branch base has pre-existing regression failures; see validation report. Reconcile with production performance fixes before considering deployment.
+- This production integration retains deployed performance and preview fixes; see the original feature validation report and production integration checks separately.

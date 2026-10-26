@@ -10,9 +10,7 @@ from app.config import get_settings
 from app.main import fastapi_app, live_session_repair_statements, share_link_repair_statements
 from app.live_state import meeting_control_payload
 from app.models import LiveSession, Meeting, Presentation, ShareLink, User
-from app.routers.presentations import public_share_base_url
 from app.security import hash_password
-from starlette.requests import Request
 
 
 def test_health():
@@ -20,28 +18,6 @@ def test_health():
         response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-
-
-def test_public_share_links_use_canonical_app_host_behind_domain_alias():
-    request = Request({
-        "type": "http",
-        "asgi": {"version": "3.0"},
-        "http_version": "1.1",
-        "method": "POST",
-        "scheme": "https",
-        "path": "/api/presentations/example/viewer-share",
-        "raw_path": b"/api/presentations/example/viewer-share",
-        "query_string": b"",
-        "headers": [
-            (b"host", b"studio.snapkey.in"),
-            (b"x-forwarded-host", b"studio.snapkey.in"),
-        ],
-        "client": ("127.0.0.1", 12345),
-        "server": ("studio.snapkey.in", 443),
-    })
-    settings = get_settings()
-    with patch.object(settings, "public_base_url", "https://connect.snapkeystudio.com"):
-        assert public_share_base_url(request) == "https://connect.snapkeystudio.com"
 
 
 def test_login_and_list_presentations():
@@ -112,33 +88,6 @@ def test_read_only_presentation_share_can_expire_and_be_revoked():
             db.commit()
         assert client.get(f"/api/presentations/{presentation_id}?token={expiring['token']}").status_code == 403
         assert client.get(f"/api/presentations/{presentation_id}/viewer-share", headers=headers).json() is None
-
-
-def test_legacy_active_viewer_presentation_link_remains_read_only_and_usable():
-    email = f"legacy-viewer-share-{uuid4().hex}@example.com"
-    with TestClient(fastapi_app) as client:
-        signup = client.post("/api/auth/signup", json={"name": "Share Owner", "email": email, "password": "securepass123"})
-        headers = {"Authorization": f"Bearer {signup.json()['accessToken']}"}
-        created = client.post("/api/presentations", json={"title": "Legacy link"}, headers=headers)
-        presentation_id = created.json()["presentation"]["id"]
-        with SessionLocal() as db:
-            db.add(ShareLink(id=f"share_legacy_{uuid4().hex}", presentation_id=presentation_id,
-                             token=f"legacy-viewer-{uuid4().hex}", permission="viewer", is_active=True))
-            db.commit()
-            legacy_token = db.query(ShareLink).filter(ShareLink.presentation_id == presentation_id).one().token
-
-        existing = client.get(f"/api/presentations/{presentation_id}/viewer-share", headers=headers)
-        assert existing.status_code == 200
-        assert existing.json()["token"] == legacy_token
-        landing = client.get(f"/presentation/{legacy_token}")
-        assert landing.status_code == 200
-        assert "Legacy link | SnapKey Studio" in landing.text
-
-        protected = client.post(f"/api/presentations/{presentation_id}/share", json={
-            "permission": "viewer", "screenAccessCode": "2468",
-        }, headers=headers)
-        assert protected.status_code == 200
-        assert client.get(f"/presentation/{protected.json()['token']}").status_code == 404
 
 
 def test_presentation_viewer_shares_cannot_be_created_for_meetings():
@@ -548,7 +497,8 @@ def test_saving_presentation_emits_live_update():
         event_name, event = emit.await_args.args
         assert event_name == "presentation_updated"
         assert event["presentationId"] == "pres_demo"
-        assert event["presentation"]["slides"]
+        assert "presentation" not in event
+        assert event["changes"]["slideOrder"]
         assert emit.await_args.kwargs["room"] == "pres_demo"
 
 

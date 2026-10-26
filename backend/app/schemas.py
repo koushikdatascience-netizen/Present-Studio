@@ -57,6 +57,7 @@ class PresentationSave(BaseModel):
     id: str
     title: str
     slides: list[SlideIn]
+    updatedAt: datetime | None = None
     baseUpdatedAt: str | None = None
 
 
@@ -131,6 +132,7 @@ class MediaAssetOut(BaseModel):
     mimeType: str
     url: str
     size: int
+    thumbnailUrl: str | None = None
 
 
 class LiveSlideEvent(BaseModel):

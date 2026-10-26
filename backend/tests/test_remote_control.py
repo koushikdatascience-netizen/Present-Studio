@@ -187,6 +187,17 @@ def test_stopping_screen_share_invalidates_control(setup):
     id=ask(setup)
     rc.sessions[id].guest.sharing=False
     assert not rc.valid(rc.sessions[id])
+    assert rc.invalid_reason(rc.sessions[id]) == 'audience_stopped_sharing'
+
+def test_stop_reason_preserves_expired_heartbeat_boundary(setup):
+    id = ask(setup)
+    session = rc.sessions[id]
+    session.owner.seen = time.monotonic()-rc.LEASE-1
+    assert not rc.valid(session)
+    assert rc.invalid_reason(session) == 'owner_heartbeat_expired'
+    asyncio.run(rc.end(session))
+    assert rc.view(session)['stopDetail'] == 'owner_heartbeat_expired'
+    assert session.state == 'ended'
 
 def test_meeting_end_invalidates_control(setup):
     id=ask(setup)
@@ -218,3 +229,41 @@ def test_controller_cannot_abandon_active_session_for_another_guest(setup):
     response=setup[0].post('/api/remote-control/request',headers=setup[1],json={'targetIdentity':'viewer-second'})
     assert response.status_code==409
     assert len(rc.sessions)==1
+
+
+@pytest.mark.parametrize("cause, expected", [
+    ("heartbeat", "helper_heartbeat_expired"),
+    ("sequence", "invalid_input_sequence_or_packet"),
+    ("rate", "input_rate_exceeded"),
+    ("delivery", "helper_input_delivery_failed"),
+])
+def test_input_failures_report_precise_stop_details(setup, cause, expected):
+    id, _, _ = paired(setup)
+    session = rc.sessions[id]
+    session.state = 'active'
+    session.helper = AsyncMock()
+    session.helper_seen = time.monotonic()
+    if cause == 'heartbeat': session.helper_seen -= rc.LEASE + 1
+    if cause == 'rate': session.window = time.monotonic(); session.count = 120
+    if cause == 'delivery': session.helper.send_json.side_effect = RuntimeError('closed')
+    result = asyncio.run(rc.relay_input('owner-sid', {'sessionId': id, 'seq': 2 if cause == 'sequence' else 1,
+                                                    'input': {'kind': 'move', 'x': .5, 'y': .5}}))
+    assert 'error' in result
+    assert session.state == 'ended'
+    assert rc.view(session)['stopDetail'] == expected
+
+
+def test_browser_release_identifies_initiator(setup):
+    id = ask(setup)
+    response = setup[0].post('/api/remote-control/revoke', headers=setup[1], json={'sessionId': id})
+    assert response.json()['stopDetail'] == 'owner_released_control'
+
+
+def test_helper_rejects_non_object_message_with_diagnostic(setup):
+    id, credential, _ = paired(setup)
+    with setup[0].websocket_connect('/api/remote-control/helper') as ws:
+        ws.send_json({'sessionId': id, 'credential': credential})
+        assert ws.receive_json()['type'] == 'ready'
+        ws.send_json([])
+        assert ws.receive_json()['reason'] == 'invalid_helper_message'
+    assert rc.view(rc.sessions[id])['stopDetail'] == 'invalid_helper_message'

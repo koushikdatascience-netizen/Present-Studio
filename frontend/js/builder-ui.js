@@ -160,7 +160,7 @@
     const style = `left:${left}%;top:${top}%;width:${Math.max(2, width)}%;height:${Math.max(2, height)}%;transform:rotate(${rotation}deg);`;
     const mediaType = object.mediaType || object.type;
     if (mediaType === "image" && object.src) {
-      return `<span class="slide-thumbnail-object is-image" style="${style}"><img src="${esc(object.src)}" alt="" loading="lazy"><span class="slide-thumbnail-image-error" aria-hidden="true"><i class="bi bi-image"></i></span></span>`;
+      return `<span class="slide-thumbnail-object is-image" style="${style}"><img src="${esc(object.thumbnailSrc || object.src)}" data-original-src="${esc(object.src)}" alt="" loading="lazy" decoding="async"><span class="slide-thumbnail-image-error" aria-hidden="true"><i class="bi bi-image"></i></span></span>`;
     }
     if (mediaType === "video" && object.src) {
       return `<span class="slide-thumbnail-object is-video" style="${style}"><video src="${esc(object.src)}" muted preload="metadata" playsinline></video></span>`;
@@ -267,24 +267,48 @@
     moveSlideTo(drag.sourceIndex, finalIndex);
   }
 
+  const slidePreviewNodes = new Map();
   renderList = function renderBuilderSlideList() {
     if (!presentation) return;
-    byId("slideList").innerHTML = presentation.slides.map((slide, index) => {
+    const list = byId("slideList");
+    const keep = new Set(presentation.slides.map(slide => slide.id));
+    for (const [id, entry] of slidePreviewNodes) {
+      if (!keep.has(id)) { entry.node.remove(); slidePreviewNodes.delete(id); }
+    }
+    presentation.slides.forEach((slide, index) => {
       const data = ensure(slide).canvas;
+      const cached = slidePreviewNodes.get(slide.id);
+      const signature = `${index}:${slide.title}:${data.background}:${data.notes || ""}:${data.audio?.src || ""}`;
+      if (cached && cached.fabric === data.fabric && cached.elements === data.elements && cached.signature === signature) {
+        cached.node.classList.toggle("active", index === currentSlideIndex);
+        if (list.children[index] !== cached.node) list.insertBefore(cached.node, list.children[index] || null);
+        return;
+      }
       const fabricObjects = data.fabric?.objects || [];
       const legacyObjects = fabricObjects.length ? [] : (data.elements || []);
       const objects = fabricObjects.map((object) => thumbnailObjectMarkup(object)).join("") + legacyObjects.map((object) => thumbnailObjectMarkup(object, true)).join("");
       const audioBadge = data.audio?.src ? '<span class="slide-thumbnail-audio" title="Slide has music"><i class="bi bi-music-note-beamed"></i></span>' : "";
       const hasNotes = Boolean(String(data.notes || "").trim());
       const notesLabel = `${hasNotes ? "Edit" : "Add"} notes for slide ${index + 1}`;
-      return `<article class="slide-item ${index === currentSlideIndex ? "active" : ""}" data-index="${index}" data-slide-number="${index + 1}" tabindex="0" role="button" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="Open slide ${index + 1}: ${esc(slide.title || "Untitled slide")}. Drag to reorder."><span class="slide-drag-handle" title="Drag to reorder" aria-hidden="true"><i class="bi bi-grip-horizontal"></i></span><div class="slide-thumbnail-stage" style="--slide-thumbnail-bg:${safeColor(data.background, "#fffefb")}">${objects}${audioBadge}</div><div class="slide-actions-inline"><button type="button" class="slide-notes-button${hasNotes ? " has-notes" : ""}" data-slide-notes="${index}" aria-label="${notesLabel}" title="${notesLabel}"><i class="bi bi-journal-text"></i></button><button type="button" data-slide-duplicate="${index}" aria-label="Duplicate slide ${index + 1}" title="Duplicate"><i class="bi bi-copy"></i></button><button class="is-danger" type="button" data-slide-delete="${index}" aria-label="Delete slide ${index + 1}" title="Delete"><i class="bi bi-trash"></i></button></div></article>`;
-    }).join("");
-    all("#slideList .slide-thumbnail-object.is-image img").forEach((image) => {
-      const markUnavailable = () => image.closest(".is-image")?.classList.add("is-unavailable");
+      const markup = `<article class="slide-item ${index === currentSlideIndex ? "active" : ""}" data-index="${index}" data-slide-number="${index + 1}" tabindex="0" role="button" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="Open slide ${index + 1}: ${esc(slide.title || "Untitled slide")}. Drag to reorder."><span class="slide-drag-handle" title="Drag to reorder" aria-hidden="true"><i class="bi bi-grip-horizontal"></i></span><div class="slide-thumbnail-stage" style="--slide-thumbnail-bg:${safeColor(data.background, "#fffefb")}">${objects}${audioBadge}</div><div class="slide-actions-inline"><button type="button" class="slide-notes-button${hasNotes ? " has-notes" : ""}" data-slide-notes="${index}" aria-label="${notesLabel}" title="${notesLabel}"><i class="bi bi-journal-text"></i></button><button type="button" data-slide-duplicate="${index}" aria-label="Duplicate slide ${index + 1}" title="Duplicate"><i class="bi bi-copy"></i></button><button class="is-danger" type="button" data-slide-delete="${index}" aria-label="Delete slide ${index + 1}" title="Delete"><i class="bi bi-trash"></i></button></div></article>`;
+      const template = document.createElement("template");
+      template.innerHTML = markup;
+      const node = template.content.firstElementChild;
+      cached?.node.remove();
+      list.insertBefore(node, list.children[index] || null);
+      slidePreviewNodes.set(slide.id, { node, fabric: data.fabric, elements: data.elements, signature });
+    });
+    all("#slideList .slide-thumbnail-object.is-image img").filter(element => !element.dataset.previewBound).forEach((image) => {
+      const markUnavailable = () => {
+        if (image.dataset.originalSrc && image.getAttribute("src") !== image.dataset.originalSrc) {
+          image.src = image.dataset.originalSrc;
+          image.addEventListener("error", markUnavailable, { once: true });
+        } else image.closest(".is-image")?.classList.add("is-unavailable");
+      };
       image.addEventListener("error", markUnavailable, { once: true });
       if (image.complete && image.naturalWidth === 0) markUnavailable();
     });
-    all("#slideList .slide-item").forEach((item) => {
+    all("#slideList .slide-item").filter(element => !element.dataset.previewBound).forEach((item) => {
       const open = () => { capture(); currentSlideIndex = Number(item.dataset.index); render(); };
       item.addEventListener("click", (event) => {
         if (suppressSlideClick) { event.preventDefault(); event.stopPropagation(); return; }
@@ -323,10 +347,10 @@
       item.addEventListener("pointerup", (event) => { if (slidePointerDrag?.pointerId === event.pointerId) finishSlidePointerDrag(); });
       item.addEventListener("pointercancel", (event) => { if (slidePointerDrag?.pointerId === event.pointerId) finishSlidePointerDrag(true); });
     });
-    all("[data-slide-duplicate]").forEach((button) => button.addEventListener("click", (event) => {
+    all("[data-slide-duplicate]").filter(element => !element.dataset.previewBound).forEach((button) => button.addEventListener("click", (event) => {
       event.stopPropagation(); capture(); currentSlideIndex = Number(button.dataset.slideDuplicate); duplicateSlide();
     }));
-    all("[data-slide-notes]").forEach((button) => button.addEventListener("click", (event) => {
+    all("[data-slide-notes]").filter(element => !element.dataset.previewBound).forEach((button) => button.addEventListener("click", (event) => {
       event.stopPropagation();
       capture();
       currentSlideIndex = Number(button.dataset.slideNotes);
@@ -334,9 +358,10 @@
       notesTray.hidden = false;
       notesEditor.focus();
     }));
-    all("[data-slide-delete]").forEach((button) => button.addEventListener("click", (event) => {
+    all("[data-slide-delete]").filter(element => !element.dataset.previewBound).forEach((button) => button.addEventListener("click", (event) => {
       event.stopPropagation(); currentSlideIndex = Number(button.dataset.slideDelete); deleteSlide();
     }));
+    all("#slideList .slide-item, #slideList img, #slideList button").forEach(element => { element.dataset.previewBound = "1"; });
   };
 
   function updateVideoOverlays() {
@@ -620,10 +645,10 @@
       const result = await originalSave();
       renderList();
       queueVideoOverlayUpdate();
-      setSaveAppearance("Saved");
+      setSaveAppearance(byId("modeLabel").textContent);
       return result;
     } catch (error) {
-      setSaveAppearance("Save failed");
+      setSaveAppearance(byId("modeLabel").textContent || "Save failed");
       throw error;
     }
   };
@@ -1874,12 +1899,8 @@
   function insertClipboardImage(blob) {
     if (!blob) return false;
     if (blob.size > MAX_MEDIA_UPLOAD_BYTES) { toast(`Clipboard image exceeds ${MAX_MEDIA_UPLOAD_LABEL}.`); return false; }
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      image({ id: `image_${Date.now()}`, type: "image", src: reader.result, x: 0, y: 0, width: 100, height: 100, full_bleed: false, fitToSlide: true, fit: "contain" });
-      toast("Image pasted onto the slide.");
-    });
-    reader.readAsDataURL(blob);
+    const extension = (blob.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+    uploadFile(new File([blob], `Pasted image.${extension}`, { type: blob.type || "image/png" }));
     return true;
   }
 

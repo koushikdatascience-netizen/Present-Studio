@@ -2,10 +2,12 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 from urllib.parse import urlsplit, urlunsplit
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 import jwt
 from sqlalchemy import func, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
+from ..services.presentation_images import lightweight_cover
 from ..config import get_settings
 from ..database import get_db
 from ..live_state import apply_controller_state, live_session_payload
@@ -312,8 +314,34 @@ def create_livekit_join_token(room_name: str, identity: str, name: str, permissi
 def list_presentations(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
-) -> dict[str, list[PresentationOut]]:
-    presentations = db.query(Presentation).filter(Presentation.owner_id == user.id, Presentation.status.notin_(["meeting", "breakout"])).order_by(Presentation.updated_at.desc()).all()
+    summary: bool = False,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    query = db.query(Presentation).filter(Presentation.owner_id == user.id, Presentation.status.notin_(["meeting", "breakout"]))
+    if summary:
+        total = query.count()
+        counts = dict(db.query(Slide.presentation_id, func.count(Slide.id)).join(Presentation)
+                      .filter(Presentation.owner_id == user.id, Presentation.status.notin_(["meeting", "breakout"]))
+                      .group_by(Slide.presentation_id).all())
+        decks = query.order_by(Presentation.updated_at.desc(), Presentation.id).limit(limit).offset(offset).all()
+        # Select only the cover slide: do not hydrate every slide relationship.
+        ranked = db.query(Slide.id.label("id"), Slide.presentation_id.label("presentation_id"),
+                          func.row_number().over(partition_by=Slide.presentation_id, order_by=(Slide.order, Slide.id)).label("position"))\
+                   .filter(Slide.presentation_id.in_([deck.id for deck in decks])).subquery()
+        covers = {slide.presentation_id: slide for slide in db.query(Slide).join(ranked, Slide.id == ranked.c.id)
+                  .filter(ranked.c.position == 1).all()}
+        presentations = []
+        for deck in decks:
+            cover = covers.get(deck.id)
+            presentations.append({"id": deck.id, "title": deck.title, "ownerId": deck.owner_id, "status": deck.status,
+                                  "updatedAt": deck.updated_at.isoformat() if deck.updated_at else None,
+                                  "slideCount": counts.get(deck.id, 0),
+                                  "slides": [{"id": cover.id, "order": cover.order, "title": cover.title,
+                                              "canvas": lightweight_cover(cover.canvas or {})}] if cover else []})
+        return {"presentations": presentations, "total": total, "slideTotal": sum(counts.values()),
+                "hasMore": offset + len(decks) < total}
+    presentations = query.options(selectinload(Presentation.slides)).order_by(Presentation.updated_at.desc()).all()
     return {"presentations": [serialize_presentation(item) for item in presentations]}
 
 
@@ -435,77 +463,11 @@ async def save_presentation(
     presentation_id: str,
     payload: PresentationSave,
     user: User = Depends(current_user),
-    db: Session = Depends(get_db),
 ) -> PresentationPayload:
-    # Serialize concurrent edits per presentation at the DB boundary.
-    presentation = db.query(Presentation).filter(Presentation.id == presentation_id).with_for_update().first()
-    if not presentation or not can_edit_presentation(db, presentation, user):
-        raise HTTPException(status_code=404, detail="Presentation not found")
-    current_revision = presentation.updated_at.isoformat() if presentation.updated_at else None
-    if payload.baseUpdatedAt != current_revision:
-        raise HTTPException(status_code=409, detail="This presentation changed in another tab or device. Your unsaved changes were not overwritten. Reopen the presentation to review them.")
-
-    # Preserve the previous saved document before ANY destructive slide rewrite.
-    prior_slides = sorted(presentation.slides, key=lambda item: item.order)
-    snapshot = PresentationSnapshot(
-        id=new_id("snapshot"),
-        presentation_id=presentation.id,
-        owner_id=user.id,
-        document={"title": presentation.title, "updatedAt": current_revision,
-                  "slides": [{"id": slide.id, "order": slide.order, "title": slide.title,
-                              "canvas": slide.canvas} for slide in prior_slides]},
-    )
-    db.add(snapshot)
-    # Keep a bounded history without silently losing the most recent recoverable versions.
-    historical_ids = [
-        row.id for row in db.query(PresentationSnapshot.id)
-        .filter(PresentationSnapshot.presentation_id == presentation.id)
-        .order_by(PresentationSnapshot.created_at.desc(), PresentationSnapshot.id.desc()).all()
-    ]
-    if len(historical_ids) > 29:
-        db.query(PresentationSnapshot).filter(PresentationSnapshot.id.in_(historical_ids[29:])).delete(synchronize_session=False)
-    presentation.title = payload.title.strip() or "Untitled presentation"
-    presentation.updated_at = datetime.now(timezone.utc)
-    # Update existing slide rows in place; deleting/recreating every slide on every
-    # autosave increases DB work and amplifies errors in an already fragile path.
-    existing_slides = {slide.id: slide for slide in presentation.slides}
-    used_slide_ids: set[str] = set()
-    saved_slide_ids: list[str] = []
-    for slide in payload.slides:
-        slide_id = unique_slide_id(slide.id, used_slide_ids)
-        saved_slide_ids.append(slide_id)
-        record = existing_slides.pop(slide_id, None)
-        if record is None:
-            record = Slide(id=slide_id, presentation_id=presentation.id)
-            db.add(record)
-        record.order = slide.order
-        record.title = slide.title.strip()[:255] or "Untitled Slide"
-        record.canvas = slide.canvas
-    for deleted_slide in existing_slides.values():
-        db.delete(deleted_slide)
-    live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation.id).first()
-    if live and live.active_slide_id not in saved_slide_ids:
-        if saved_slide_ids:
-            apply_controller_state(live, slide_id=saved_slide_ids[0])
-        else:
-            live.active_slide_id = None
-            live.active_media_id = None
-            live.active_media_kind = "slide"
-            live.media_position = 0
-            live.media_playing = False
-    db.commit()
-    db.refresh(presentation)
-    serialized = serialize_presentation(presentation)
-    await sio.emit(
-        "presentation_updated",
-        {
-            "presentationId": presentation.id,
-            "presentation": serialized.model_dump(),
-            "activeSlideId": live.active_slide_id if live else (saved_slide_ids[0] if saved_slide_ids else None),
-            "liveState": live_session_payload(live, presentation.id),
-        },
-        room=presentation.id,
-    )
+    from ..services.presentation_persistence import persist_presentation
+    serialized, event = await run_in_threadpool(persist_presentation, presentation_id, payload, user.id)
+    # Keep the existing event contract for already-connected meeting clients.
+    await sio.emit("presentation_updated", event, room=presentation_id)
     return PresentationPayload(presentation=serialized, permission="presenter")
 
 

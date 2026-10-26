@@ -1,0 +1,10 @@
+# Add only this host block to the existing shared Caddyfile; preserve other routes.
+# Final live configuration uses Caddy-managed certificates, not a manual key path.
+connect.snapkeystudio.com {
+    tls {
+        issuer acme {
+            disable_tlsalpn_challenge
+        }
+    }
+    reverse_proxy 127.0.0.1:18474
+}

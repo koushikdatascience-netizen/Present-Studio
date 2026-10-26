@@ -1,0 +1,49 @@
+name: Presentation checks
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:///./ci-presentstudio.db
+      PUBLIC_BASE_URL: https://testserver
+      PYTHONPATH: backend
+      JWT_SECRET: isolated-ci-secret-not-production
+      STORAGE_PROVIDER: cloudinary
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: pip install -r backend/requirements.txt
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: python -m pytest backend/tests -q
+      - run: node --test tests/*.test.cjs
+      - run: npm run check
+      - run: pip install playwright==1.62.0
+      - run: python -m playwright install --with-deps chromium
+      - name: Browser performance regressions
+        env:
+          PERF_FABRIC_PATH: ${{ runner.temp }}/fabric.min.js
+          PERF_SCREENSHOT: ${{ runner.temp }}/builder.png
+        run: |
+          curl --fail --silent --show-error --retry 2 https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js -o "$PERF_FABRIC_PATH"
+          python tests/presentation-performance-browser.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: builder-browser-check
+          path: ${{ runner.temp }}/builder.png
+          if-no-files-found: ignore

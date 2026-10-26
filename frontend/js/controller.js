@@ -1908,9 +1908,9 @@
     socket?.on("disconnect", () => setConnectionStatus("Sync backup"));
     socket?.on("presenter_rejected", event => toast(event.message || "Presenter permission required."));
     socket?.on("presentation_state", applyCanonicalControllerState);
-    socket?.on("presentation_updated", event => {
+    socket?.on("presentation_updated", api.presentationUpdates(() => presentation, () => Promise.all([api.getPresentation(presentationId, shareToken, cohostRequestOptions), api.getLiveSession(presentationId, cohostRequestOptions)]).then(([result, liveState]) => ({ ...result, liveState })), event => {
       if (event.presentationId !== presentationId || !event.presentation) return;
-      const previousState = controllerStatePayload();
+      const previousState = event.liveState || controllerStatePayload();
       presentation = event.presentation;
       renderControllerTargets();
       const currentTarget = targets.find(target => target.id === activeTargetId) || targetForLiveState(previousState) || targets.find(target => target.kind === "slide");
@@ -1921,7 +1921,7 @@
         else if (previousState) applyRestoredMediaState({ ...previousState, serverTime: Date.now() });
         emitControllerState();
       }
-    });
+    }, console.error, socket));
     socket?.on("presentation_deleted", event => {
       if (event.presentationId !== presentationId) return;
       stopLoop(false);

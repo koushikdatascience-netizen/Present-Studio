@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import secrets
 import time
@@ -26,6 +27,7 @@ bindings = {}
 sessions = {}
 lock = asyncio.Lock()
 pair_attempts = {}
+logger = logging.getLogger(__name__)
 
 def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
@@ -65,6 +67,7 @@ class Control:
     count: int = 0
     last_frame: float = 0
     input_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    stop_detail: str = ''
 
 
 def audit(c, event):
@@ -85,35 +88,49 @@ def present(b):
     return item.get('sid') == b.sid and b.sharing
 
 
-def valid(c):
+def invalid_reason(c):
     if c.state not in {'requested', 'pairing', 'paired', 'active'}:
-        return False
-    if time.monotonic() >= c.expires or not present(c.owner) or not present(c.guest):
-        return False
+        return 'session_not_active'
+    if time.monotonic() >= c.expires:
+        return 'session_expired'
+    if not present(c.owner):
+        return 'owner_heartbeat_expired' if time.monotonic()-c.owner.seen > LEASE else 'owner_left_meeting'
+    if not present(c.guest):
+        if time.monotonic()-c.guest.seen > LEASE:
+            return 'audience_heartbeat_expired'
+        return 'audience_stopped_sharing' if not c.guest.sharing else 'audience_left_meeting'
     with SessionLocal() as db:
         live = db.query(LiveSession).filter_by(presentation_id=c.owner.presentation).first()
         p = db.get(Presentation, c.owner.presentation)
         owner = db.get(User, c.owner.subject)
-        return bool(live and live.is_live and live.meeting_instance_id == c.owner.instance
-                    and p and p.owner_id == c.owner.subject and owner and owner.is_active)
+        if not live or not live.is_live or live.meeting_instance_id != c.owner.instance:
+            return 'meeting_ended_or_changed'
+        if not p or p.owner_id != c.owner.subject or not owner or not owner.is_active:
+            return 'owner_permission_changed'
+    return ''
+
+def valid(c):
+    return not invalid_reason(c)
 
 
 def view(c):
     return dict(id=c.id, state=c.state, ownerName=c.owner.name,
-                guestName=c.guest.name, expiresIn=max(0, int(c.expires-time.monotonic())))
+                guestName=c.guest.name, expiresIn=max(0, int(c.expires-time.monotonic())), stopDetail=c.stop_detail)
 
 async def publish(c):
     for sid in {c.owner.sid, c.guest.sid}:
         await sm.sio.emit('remote_control_status', view(c), room=sid)
 
-async def end(c, reason='ended'):
+async def end(c, reason='ended', detail=''):
     if c.state in {'ended', 'denied', 'expired'}:
         return
+    c.stop_detail = detail or invalid_reason(c) or 'control_released'
+    logger.warning('Remote assistance stopped: session=%s reason=%s', c.id, c.stop_detail)
     c.state = reason
     c.pair_hash = c.helper_hash = ''
     if c.helper:
         try:
-            await c.helper.send_json({'type': 'stop'})
+            await c.helper.send_json({'type': 'stop', 'reason': c.stop_detail})
             await c.helper.close()
         except Exception:
             pass
@@ -269,7 +286,8 @@ async def revoke(payload: SessionAction, request: Request):
     c = lookup(payload.sessionId)
     if b is not c.owner and b is not c.guest:
         fail()
-    await end(c, 'denied' if request.url.path.endswith('/deny') and c.state != 'active' else 'ended')
+    denied = request.url.path.endswith('/deny') and c.state != 'active'
+    await end(c, 'denied' if denied else 'ended', detail='audience_denied' if denied else ('owner_released_control' if b is c.owner else 'audience_released_control'))
     return view(c)
 
 @router.get('/status')
@@ -316,25 +334,26 @@ async def _relay_locked(c, data):
     if c.state != 'active' or not c.helper:
         return {'error': 'Authorization ended'}
     if time.monotonic() - c.helper_seen > LEASE:
-        await end(c)
+        await end(c, detail='helper_heartbeat_expired')
         return {'error': 'Helper disconnected'}
     packet = data.get('input', {})
     seq = data.get('seq')
     if type(seq) is not int or seq != c.seq+1 or not isinstance(packet, dict) or not input_packet(packet):
-        await end(c)
+        await end(c, detail='invalid_input_sequence_or_packet')
         return {'error': 'Invalid input sequence'}
     now = time.monotonic()
     if now-c.window >= 1:
         c.window, c.count = now, 0
     c.count += 1
     if c.count > 120:
-        await end(c)
+        await end(c, detail='input_rate_exceeded')
         return {'error': 'Input rate exceeded'}
     c.seq = seq
     try:
         await asyncio.wait_for(c.helper.send_json({'type': 'input', 'seq': seq, 'input': packet}), .25)
     except Exception:
-        await end(c)
+        await end(c, detail='helper_input_delivery_failed')
+        return {'error': 'Helper input delivery failed'}
     return {'ok': True}
 
 @router.websocket('/helper')
@@ -344,6 +363,7 @@ async def helper(ws: WebSocket):
         return
     await ws.accept()
     c = None
+    stop_detail = 'helper_connection_closed'
     try:
         auth = await asyncio.wait_for(ws.receive_json(), 5)
         c = lookup(str(auth.get('sessionId', '')))
@@ -356,37 +376,48 @@ async def helper(ws: WebSocket):
             # A stalled socket cannot retain an authorization lease.
             message = await asyncio.wait_for(ws.receive(), LEASE)
             if message['type'] == 'websocket.disconnect':
+                stop_detail = 'helper_disconnected'
                 break
             if message.get('bytes') is not None:
                 image = message['bytes']
                 if c.state != 'active' or len(image) > 512_000 or not image.startswith(b'\xff\xd8'):
+                    stop_detail = 'invalid_preview_frame'
                     break
                 now = time.monotonic()
                 if now-c.last_frame < .15:
+                    stop_detail = 'preview_rate_exceeded'
                     break
                 c.last_frame = now
                 await sm.sio.emit('remote_control_frame', {'sessionId': c.id, 'jpeg': image}, room=c.owner.sid)
                 continue
             raw = message.get('text', '')
             if len(raw) > 2048:
+                stop_detail = 'helper_message_too_large'
                 break
             data = json.loads(raw)
+            if not isinstance(data, dict):
+                stop_detail = 'invalid_helper_message'
+                break
             if data.get('type') == 'approve' and c.state == 'paired':
                 c.state = 'active'
                 c.expires = time.monotonic()+TTL
                 audit(c, 'approved')
                 await publish(c)
             elif data.get('type') == 'stop':
+                stop_detail = 'helper_requested_stop'
                 break
             elif data.get('type') != 'heartbeat':
+                stop_detail = 'unexpected_helper_message'
                 break
             c.helper_seen = time.monotonic()
             await ws.send_json({'type': 'lease', 'active': c.state == 'active', 'seq': c.seq, 'leaseMs': 1000})
-    except (WebSocketDisconnect, asyncio.TimeoutError, ValueError, HTTPException, RuntimeError):
-        pass
+    except asyncio.TimeoutError:
+        stop_detail = 'helper_heartbeat_expired'
+    except (WebSocketDisconnect, ValueError, HTTPException, RuntimeError) as error:
+        stop_detail = 'helper_' + type(error).__name__
     finally:
         if c and c.helper is ws:
-            await end(c)
+            await end(c, detail=invalid_reason(c) or stop_detail)
         try:
             await ws.close()
         except Exception:
@@ -401,7 +432,7 @@ async def disconnected(sid):
     finally:
         for c in list(sessions.values()):
             if sid in {c.owner.sid, c.guest.sid}:
-                await end(c)
+                await end(c, detail='owner_disconnected' if sid == c.owner.sid else 'audience_disconnected')
         for key, b in list(bindings.items()):
             if b.sid == sid:
                 bindings.pop(key, None)

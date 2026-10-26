@@ -25,16 +25,16 @@ test('ignore non-image canvas elements', () => {
   assert.deepEqual(validate([{type:'textbox', id:'a'}], []), []);
 });
 test('editor serializes immutable save snapshots instead of replacing working state', () => {
-  assert.match(source, /saveQueue\.catch\(\(\)=>\{\}\)\.then/);
+  assert.match(source, /if\(savePromise\)return savePromise\.then/);
   assert.match(source, /JSON\.parse\(JSON\.stringify\(presentation\)\)/);
-  assert.doesNotMatch(source, /presentation=r\.presentation;presentation\.slides/);
+  assert.match(source, /if\(editRevision===revision\)/);
 });
 test('save refuses an incomplete image restore', () => {
   assert.match(source, /if\(imageRestoreProblem\)return Promise\.reject/);
 });
 
 test('cross-tab save conflict blocks further overwrites', () => {
-  assert.match(source, /snapshot\.baseUpdatedAt=lastSavedUpdatedAt/);
+  assert.match(source, /presentation\.updatedAt=r\.presentation\.updatedAt/);
   assert.match(source, /saveConflict=true/);
   assert.match(source, /if\(loading\|\|pendingInsertions\|\|imageRestoreProblem\|\|saveConflict\)return/);
 });
@@ -46,6 +46,6 @@ test('image insertions must finish before saves begin', () => {
   assert.match(source, /pendingInsertions\+\+/);
   assert.match(source, /if\(loading\|\|pendingInsertions\)return Promise\.reject/);
 });
-test('Fabric reloads are serialized', () => {
-  assert.match(source, /loadQueue=loadQueue\.catch/);
+test('Fabric reloads are isolated from the visible canvas', () => {
+  assert.match(source, /const staging=new fabric.StaticCanvas/);
 });

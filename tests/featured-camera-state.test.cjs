@@ -41,6 +41,15 @@ test("controller publishes its featured camera selection", () => {
   assert.equal(harness.emitted.length, 1);
   assert.equal(harness.emitted[0][0], "meeting_control");
   assert.equal(harness.emitted[0][1].featuredCameraIdentity, "camera-owner");
+  assert.equal(Object.hasOwn(harness.emitted[0][1], "featuredShareIdentity"), false);
+});
+
+test("controller only publishes featured share when intentionally changed", () => {
+  const harness = stateHarness({ controller: true });
+  harness.context.publishControllerState({ featuredShareIdentity: "screen-owner" });
+
+  assert.equal(harness.emitted.length, 1);
+  assert.equal(harness.emitted[0][1].featuredShareIdentity, "screen-owner");
 });
 
 test("audience applies the controller featured camera selection", () => {

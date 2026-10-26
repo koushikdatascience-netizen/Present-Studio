@@ -22,7 +22,10 @@ from app.schemas import PresentationSave, SlideIn
 def data(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
-    db = sessionmaker(bind=engine, autoflush=False)()
+    factory = sessionmaker(bind=engine, autoflush=False)
+    db = factory()
+    from app.services import presentation_persistence
+    monkeypatch.setattr(presentation_persistence, "SessionLocal", factory)
     user = User(id="u1", name="Owner", email="owner@example.test", password_hash="test", role="owner")
     pres = Presentation(id="p1", title="Live deck", owner_id="u1", status="draft")
     slide = Slide(id="s1", presentation_id="p1", title="Slide", order=1,
@@ -68,7 +71,7 @@ def test_stale_editor_save_rejected_without_deleting_images(data):
         slides=[SlideIn(id=slide.id, order=1, title="Stale", canvas={"fabric": {"objects": []}})],
     )
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(routes.save_presentation(pres.id, payload, user=user, db=db))
+        asyncio.run(routes.save_presentation(pres.id, payload, user=user))
     assert exc.value.status_code == 409
     db.expire_all()
     assert len(db.get(Slide, slide.id).canvas["fabric"]["objects"]) == 1
@@ -89,7 +92,7 @@ def test_saving_updated_slide_preserves_row_and_creates_pre_save_snapshot(data):
                 {"id": "existing", "type": "image", "src": "/api/media/original/content"},
                 {"id": "other", "type": "textbox", "text": "New paragraph"}]}})],
     )
-    result = asyncio.run(routes.save_presentation(pres.id, payload, user=user, db=db))
+    result = asyncio.run(routes.save_presentation(pres.id, payload, user=user))
     assert result.presentation.updatedAt != old_updated_at
     db.expire_all()
     rows = db.query(Slide).filter(Slide.presentation_id == pres.id).all()
@@ -109,5 +112,5 @@ def test_save_requires_explicit_revision(data):
         slides=[SlideIn(id=slide.id, order=1, title="Slide", canvas={"fabric":{"objects":[]}})],
     )
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(routes.save_presentation(pres.id, payload, user=user, db=db))
-    assert exc.value.status_code == 409
+        asyncio.run(routes.save_presentation(pres.id, payload, user=user))
+    assert exc.value.status_code == 428

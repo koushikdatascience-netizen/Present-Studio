@@ -310,7 +310,7 @@
     socket?.on("connect", joinRoom);
     if (socket?.connected) joinRoom();
     socket?.on("presentation_state", applyPresentationState);
-    socket?.on("presentation_updated", handlePresentationUpdate);
+    socket?.on("presentation_updated", api.presentationUpdates(() => presentation, () => Promise.all([api.getScreenPresentation(presentationId, shareToken, whiteboardScreenCode), api.getLiveSession(presentationId)]).then(([result, liveState]) => ({ ...result, liveState })), handlePresentationUpdate, console.error, socket));
     socket?.on("presentation_deleted", event => { if (event.presentationId === presentationId) control("stop"); });
     socket?.on("presentation_annotation", handleAnnotation);
     socket?.on('whiteboard_document', event => {

@@ -55,7 +55,7 @@ test("demotion uses a meeting-scoped resume credential and rejoins automatically
   assert.match(presentSource, /const participantResumeToken = params\.get\("resume"\)/);
   assert.match(presentSource, /result\.resumeGuestId/);
   assert.match(presentSource, /localStorage\.setItem\("presentStudio\.meetingGuestId"/);
-  assert.match(presentSource, /admissionBypass: presenter \|\| Boolean\(participantResumeToken\)/);
+  assert.match(presentSource, /admissionBypass: presenter \|\| publicStandaloneMeeting \|\| Boolean\(participantResumeToken\)/);
   assert.match(presentSource, /cohostReturnState\.autoRejoin \|\| participantResumeToken/);
   assert.match(apiSource, /resume=\$\{encodeURIComponent\(resumeToken\)\}/);
 });

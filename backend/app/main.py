@@ -167,7 +167,7 @@ def admin_dashboard(_: User = Depends(admin_user)) -> FileResponse:
     return FileResponse(settings.frontend_dir / "admin.html")
 
 
-@fastapi_app.get("/join/{token}", include_in_schema=False)
+@fastapi_app.api_route("/join/{token}", methods=["GET", "HEAD"], include_in_schema=False)
 def audience_join(token: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     """Include link-card metadata before the audience app executes."""
     base = presentations.public_share_base_url(request)
@@ -219,16 +219,18 @@ def audience_join(token: str, request: Request, db: Session = Depends(get_db)) -
     revision = request.query_params.get("preview", "")
     if re.fullmatch(r"[a-f0-9]{12}", revision):
         canonical += f"?preview={revision}"
-    tags = {"og:type": "website", "og:site_name": "SnapKey Studio", "og:title": title, "og:description": description, "og:url": canonical, "og:image": image, "og:image:alt": title}
+    tags = {"og:type": "website", "og:site_name": "SnapKey Studio", "og:title": title, "og:description": description, "og:url": canonical, "og:image": image, "og:image:secure_url": image, "og:image:alt": title}
     metadata = "\n".join(f'<meta property="{key}" content="{escape(value, quote=True)}">' for key, value in tags.items())
     metadata += f'\n<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="{escape(image, quote=True)}">'
     metadata += f'\n<meta name="description" content="{escape(description, quote=True)}">'
     page = (settings.frontend_dir / "present.html").read_text(encoding="utf-8")
     page = page.replace("<title>Present Studio - Present</title>", f"<title>{escape(title)}</title>")
-    return HTMLResponse(page.replace("</head>", metadata + "\n</head>"), headers={"Cache-Control": "no-cache"})
+    page = page.replace("</head>", metadata + "\n</head>")
+    headers = {"Cache-Control": "no-cache", "Content-Length": str(len(page.encode("utf-8")))}
+    return HTMLResponse("" if request.method == "HEAD" else page, headers=headers)
 
 
-@fastapi_app.get("/presentation/{token}", include_in_schema=False)
+@fastapi_app.api_route("/presentation/{token}", methods=["GET", "HEAD"], include_in_schema=False)
 def shared_presentation(token: str, request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     share = db.query(ShareLink).filter(ShareLink.token == token, ShareLink.is_active.is_(True)).first()
     expiry = share.expires_at if share else None
@@ -273,12 +275,14 @@ def shared_presentation(token: str, request: Request, db: Session = Depends(get_
                     image = absolute
 
     canonical = f"{base}/presentation/{token}"
-    tags = {"og:type": "website", "og:site_name": "SnapKey Studio", "og:title": title, "og:description": description, "og:url": canonical, "og:image": image, "og:image:alt": title}
+    tags = {"og:type": "website", "og:site_name": "SnapKey Studio", "og:title": title, "og:description": description, "og:url": canonical, "og:image": image, "og:image:secure_url": image, "og:image:alt": title}
     metadata = "\n".join(f'<meta property="{key}" content="{escape(value, quote=True)}">' for key, value in tags.items())
     metadata += f'\n<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="{escape(image, quote=True)}">'
     page = (settings.frontend_dir / "viewer.html").read_text(encoding="utf-8")
     page = page.replace("<title>Shared presentation | SnapKey Studio</title>", f"<title>{escape(title)}</title>")
-    return HTMLResponse(page.replace("</head>", metadata + "\n</head>"), headers={"Cache-Control": "no-cache"})
+    page = page.replace("</head>", metadata + "\n</head>")
+    headers = {"Cache-Control": "no-cache", "Content-Length": str(len(page.encode("utf-8")))}
+    return HTMLResponse("" if request.method == "HEAD" else page, headers=headers)
 
 fastapi_app.mount("/", StaticFiles(directory=settings.frontend_dir, html=True), name="frontend")
 

@@ -1,6 +1,6 @@
 /* Optional consent-only assistance; no changes to LiveKit media transports. */
 (function () {
-  const labels = { requested: 'Waiting for Audience', pairing: 'Downloading / Opening Helper', paired: 'Waiting for Approval', active: 'Controlling', denied: 'Control Denied', ended: 'Control Ended' };
+  const labels = { requested: 'Waiting for Audience', pairing: 'Waiting for Windows helper to connect', paired: 'Waiting for approval inside Windows helper', active: 'Controlling', denied: 'Control Denied', ended: 'Control Ended' };
   function coordinates(rect, width, height, x, y) {
     const scale = Math.min(rect.width / width, rect.height / height);
     const w = width * scale, h = height * scale;
@@ -40,6 +40,9 @@
     }
     function button(parent, text, action) {
       const el = document.createElement('button'); el.type = 'button'; el.textContent = text;
+      Object.assign(el.style, { background: '#075985', color: '#ffffff', border: '2px solid #7dd3fc', borderRadius: '6px', padding: '10px 14px', margin: '6px', font: '600 15px system-ui, sans-serif', cursor: 'pointer', minHeight: '44px' });
+      el.onfocus = () => { el.style.outline = '3px solid #fbbf24'; el.style.outlineOffset = '2px'; };
+      el.onblur = () => { el.style.outline = ''; };
       el.onclick = () => Promise.resolve().then(action).catch(error => { if (status?.isConnected) status.textContent = error.message; else window.alert(error.message); });
       parent.append(el); return el;
     }
@@ -47,7 +50,10 @@
     function input(packet) {
       if (current?.state !== 'active' || !socket.connected || !options.connected()) return;
       socket.emit('remote_control_input', { sessionId: current.id, seq: ++seq, input: packet }, result => {
-        if (result?.error) { close(); current = null; }
+        if (result?.error) {
+          render({ ...current, state: 'ended' });
+          status.textContent = 'Control stopped: ' + result.error + '. Request control again after checking the Windows helper.';
+        }
       });
     }
     function render(data, force = false) {
@@ -60,9 +66,17 @@
       Object.assign(panel.style, { position: 'fixed', inset: '8% 5%', zIndex: 10050, background: '#142033', color: 'white', padding: '20px', overflow: 'auto', border: '3px solid #63b7ff' });
       const title = document.createElement('h2'); title.textContent = 'Remote assistance';
       status = document.createElement('p'); status.setAttribute('aria-live', 'polite'); status.textContent = labels[data.state] || 'Connecting';
+      if (data.stopDetail) status.textContent += ' — ' + data.stopDetail.replaceAll('_', ' ');
       panel.append(title, status); document.body.append(panel);
       if (['ended', 'denied', 'expired'].includes(data.state)) { button(panel, 'Close', close); return; }
       button(panel, 'Release / Stop Control', revoke);
+      if (role === 'owner' && ['requested', 'pairing', 'paired'].includes(data.state)) {
+        const instructions = document.createElement('p');
+        instructions.textContent = data.state === 'paired'
+          ? 'The Windows helper is connected. The audience must approve the primary display and click Allow Control inside its native window. You cannot control the screen before that approval.'
+          : 'The audience must prepare pairing, open the Windows helper EXE, paste the pairing text and click Connect. They must then approve inside the helper. Browser permission and screen sharing alone do not grant PC control.';
+        panel.append(instructions);
+      }
       if (role === 'guest' && data.state === 'requested') {
         const explanation = document.createElement('p');
         explanation.textContent = data.ownerName + ' requests control of your Windows primary display. Viewing your screen does not grant control. Open the helper manually and approve there. You can stop at any time. Keep this meeting open.';
@@ -77,8 +91,13 @@
       }
       if (role === 'guest' && data.state === 'pairing') {
         const p = document.createElement('p'); p.textContent = 'Open SnapKey Remote Assist manually, paste this short-lived pairing text, then click Connect and Allow Control in its native window. Keep it private.';
-        const text = document.createElement('input'); text.readOnly = true; text.value = pairingText; text.style.width = '95%'; text.onclick = () => text.select();
+        const text = document.createElement('input'); text.readOnly = true; text.value = pairingText; text.setAttribute('aria-label', 'Private pairing text for Windows helper');
+        Object.assign(text.style, { width: '95%', background: '#ffffff', color: '#111827', border: '2px solid #7dd3fc', padding: '10px', font: '16px system-ui, sans-serif' }); text.onclick = () => text.select();
         panel.append(p, text);
+        button(panel, 'Copy pairing text', async () => {
+          try { await navigator.clipboard.writeText(pairingText); status.textContent = 'Pairing text copied. Paste it into the Windows helper, then click Connect.'; }
+          catch { text.select(); status.textContent = 'Select and copy the pairing text, then paste it into the Windows helper.'; }
+        });
         button(panel, 'Open Helper (if previously enabled)', () => {
           if (!pairingText) return;
           const pairing = new URL(pairingText);
@@ -95,6 +114,11 @@
           if (!response.ok) throw new Error((await response.json()).detail);
           const url = URL.createObjectURL(await response.blob()); const a = document.createElement('a'); a.href = url; a.download = 'SnapKeyRemoteAssist.exe'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
         });
+      }
+      if (role === 'guest' && data.state === 'paired') {
+        const instructions = document.createElement('p');
+        instructions.textContent = 'Connected to your Windows helper. In that native window, check the primary-display consent box and click Allow Control. Press F12 in Windows or Stop Control to revoke.';
+        panel.append(instructions);
       }
       if (role === 'owner' && data.state === 'active') {
         seq = 0;

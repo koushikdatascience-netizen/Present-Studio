@@ -1,9 +1,9 @@
 const api=window.PresentStudioApi, $=s=>document.querySelector(s);
 const presentationId=new URLSearchParams(location.search).get("id")||"pres_demo";
 const authToken=localStorage.getItem("presentStudio.accessToken")||"", socket=window.io?window.io():null;
-let saveQueue=Promise.resolve(), loadQueue=Promise.resolve(), loadEpoch=0, imageRestoreProblem="", saveSequence=0, lastSavedUpdatedAt=null, saveConflict=false, pendingInsertions=0;
 let presentation,currentSlideIndex=0,canvas,saveTimer,shareUrl="",screenShareUrl="",audienceShareUrl="",loading=false,mediaAssets=[],selectedPresenter="Self",uploadRequestId=0,retryUploadFile=null;
 const W=1280,H=720;
+let editRevision=0,savePromise=null,saveConflict=false,imageRestoreProblem="",pendingInsertions=0;
 function secureAppUrl(path){const url=new URL(path,location.origin);if(!["localhost","127.0.0.1","::1"].includes(url.hostname))url.protocol="https:";return url.href}
 function toast(m){const n=$("#toast");n.textContent=m;n.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.remove("show"),2600)}
 function setShareLink(url,permission,screenUrl="",audienceUrl=""){shareUrl=url||"";screenShareUrl=screenUrl||"";audienceShareUrl=audienceUrl||"";const isPresenter=permission==="presenter",button=$("#openShareLink"),copyScreenButton=$("#copyScreenLink"),screenStatus=$("#screenShareStatus"),copyAudienceButton=$("#copyAudienceLink"),audienceStatus=$("#audienceShareStatus");$("#shareStatus").textContent=shareUrl?(isPresenter?`Remote Control: ${shareUrl}`:`Presentation Screen: ${shareUrl}`):"";button.disabled=!shareUrl;button.querySelector("span").textContent=shareUrl?(isPresenter?"Open Remote Control":"Open Presentation Screen"):"Open Link";button.setAttribute("aria-label",shareUrl?`Open ${isPresenter?"Remote Control":"Presentation Screen"} link in a new tab`:"Open generated link in a new tab");if(screenStatus)screenStatus.textContent=screenShareUrl?`Locked Screen: ${screenShareUrl}`:"";if(copyScreenButton)copyScreenButton.disabled=!screenShareUrl;if(audienceStatus)audienceStatus.textContent=audienceShareUrl?`Interactive Audience: ${audienceShareUrl}`:"";if(copyAudienceButton)copyAudienceButton.disabled=!audienceShareUrl}
@@ -13,8 +13,8 @@ function ensure(s){s.canvas||={background:"#f8f4ea",elements:[]};s.canvas.elemen
 function playback(){const s=ensure(presentation.slides[0]);return s.canvas.presentation_playback||=( {mode:"manual",interval_ms:5000,slide_ids:[],media_mode:"all",media_cycle:"all",media_interval_ms:5000,loop_videos:true})}
 function text(item){return new fabric.Textbox(item.text||"",{id:item.id,left:(item.x||0)*12.8,top:(item.y||0)*7.2,width:(item.width||40)*12.8,fontSize:item.fontSize||42,fontWeight:item.fontWeight||"500",fontStyle:item.fontStyle||"normal",fontFamily:item.fontFamily||"Arial",fill:item.color||"#171717",textAlign:item.textAlign||"left"})}
 function video(item){const fitToSlide=item.fitToSlide===true;return new fabric.Rect({id:item.id,left:item.full_bleed||fitToSlide?0:(item.x||0)*12.8,top:item.full_bleed||fitToSlide?0:(item.y||0)*7.2,width:item.full_bleed||fitToSlide?W:(item.width||40)*12.8,height:item.full_bleed||fitToSlide?H:(item.height||30)*7.2,fill:"#1c1a16",stroke:item.full_bleed||fitToSlide?null:"#d1a948",strokeWidth:item.full_bleed||fitToSlide?0:4,rx:item.full_bleed||fitToSlide?0:8,ry:item.full_bleed||fitToSlide?0:8,mediaType:"video",src:item.src,full_bleed:item.full_bleed===true,loop:item.loop,muted:item.muted===true,fit:item.fit||(item.full_bleed?"fill":"contain")})}
-function image(item){
-  const targetCanvas=canvas, targetSlideId=activeSlide()?.id;
+function image(item, targetSlideId=activeSlide()?.id){
+  const targetCanvas=canvas, wasLoading=loading;
   pendingInsertions++;
   fabric.Image.fromURL(item.src,o=>{
     pendingInsertions=Math.max(0,pendingInsertions-1);
@@ -22,16 +22,44 @@ function image(item){
       toast("This image could not load. Check the media link or upload it again.");
       return;
     }
-    if(targetCanvas!==canvas||targetSlideId!==activeSlide()?.id){toast("The image was uploaded, but not placed because you changed slides. Add it from your Media Library.");return;}
-    o.set({id:item.id,mediaType:"image",src:item.src,audioSrc:item.audioSrc||"",audioName:item.audioName||"",full_bleed:item.full_bleed===true,loop:item.loop,muted:item.muted===true,fit:item.fit||(item.full_bleed?"fill":"contain"),left:(item.x||0)*12.8,top:(item.y||0)*7.2});
+    if(targetCanvas!==canvas||!presentation.slides.some(slide=>slide.id===targetSlideId))return;
+    o.set({id:item.id,mediaType:"image",src:item.src,thumbnailSrc:item.thumbnailSrc||"",audioSrc:item.audioSrc||"",audioName:item.audioName||"",full_bleed:item.full_bleed===true,loop:item.loop,muted:item.muted===true,fit:item.fit||(item.full_bleed?"fill":"contain"),left:(item.x||0)*12.8,top:(item.y||0)*7.2});
     if(item.fitToSlide){const scale=Math.min(W/o.width,H/o.height);o.set({scaleX:scale,scaleY:scale,left:(W-o.width*scale)/2,top:(H-o.height*scale)/2})}
     else if(item.full_bleed)o.set({scaleX:W/o.width,scaleY:H/o.height,left:0,top:0});
     else{o.scaleToWidth((item.width||40)*12.8);if(o.getScaledHeight()>(item.height||30)*7.2)o.scaleToHeight((item.height||30)*7.2)}
+    if(targetSlideId!==activeSlide()?.id){
+      const target=ensure(presentation.slides.find(slide=>slide.id===targetSlideId));
+      if(target.canvas.fabric){
+        const objects=target.canvas.fabric.objects||=[];
+        const saved=o.toObject(["id","mediaType","src","thumbnailSrc","audioSrc","audioName","full_bleed","loop","muted","fit"]);
+        if(item.full_bleed||item.fitToSlide)objects.unshift(saved);else objects.push(saved);
+      }else target.canvas.elements.push({...item,x:o.left/12.8,y:o.top/7.2,width:o.getScaledWidth()/12.8,height:o.getScaledHeight()/7.2});
+      editRevision++;clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600);
+      renderList();return;
+    }
     canvas.add(o);if(item.full_bleed||item.fitToSlide)canvas.sendToBack(o);o.setCoords();canvas.requestRenderAll();
-    if(!loading){canvas.setActiveObject(o);panel();schedule()}
+    if(!wasLoading&&!loading){canvas.setActiveObject(o);panel();schedule()}
   },{crossOrigin:"anonymous"})
 }
-function capture(){if(!presentation||loading||imageRestoreProblem)return;const s=ensure(activeSlide());s.canvas.background=canvas.backgroundColor||"#f8f4ea";s.canvas.fabric=canvas.toJSON(["id","mediaType","src","youtubeId","thumbnailUrl","audioSrc","audioName","full_bleed","loop","muted","fit","hyperlink","animation","animationDuration","animationDelay","wordArt","wordArtPreset","shapeRequestedFontSize","shapeText","paragraphAlignments","shapeKind","frameKind","flowchartKind","diagramKind","chartKind","componentType","componentRole","componentIndex","componentName","visualParentId","visualTheme","diagramTheme","chartData","chartStyle","editableComponent"]);const title=canvas.getObjects().find(o=>o.id==="title");if(title&&title.text.trim())s.title=title.text.trim()}
+function capture(){if(!presentation||loading||pendingInsertions||imageRestoreProblem)return;const s=ensure(activeSlide());s.canvas.background=canvas.backgroundColor||"#f8f4ea";s.canvas.fabric=canvas.toJSON(["id","mediaType","src","youtubeId","thumbnailUrl","audioSrc","audioName","full_bleed","loop","muted","fit","hyperlink","animation","animationDuration","animationDelay","wordArt","wordArtPreset","shapeRequestedFontSize","shapeText","paragraphAlignments","shapeKind","frameKind","flowchartKind","diagramKind","chartKind","componentType","componentRole","componentIndex","componentName","visualParentId","visualTheme","diagramTheme","chartData","chartStyle","editableComponent"]);const title=canvas.getObjects().find(o=>o.id==="title");if(title&&title.text.trim())s.title=title.text.trim()}
+let slideLoadVersion=0;
+const prefetchedSlideImages=new Map();
+function prefetchAdjacentImages(){
+  for(const index of [currentSlideIndex-1,currentSlideIndex+1]){
+    const slide=presentation.slides[index];
+    if(!slide)continue;
+    const walk=value=>{
+      if(Array.isArray(value)){value.forEach(walk);return}
+      if(!value||typeof value!=="object")return;
+      if((value.mediaType||value.type)==="image"&&value.src&&!prefetchedSlideImages.has(value.src)){
+        const image=new Image();image.crossOrigin="anonymous";image.src=value.src;
+        prefetchedSlideImages.set(value.src,image);
+        if(prefetchedSlideImages.size>16)prefetchedSlideImages.delete(prefetchedSlideImages.keys().next().value);
+      }
+      Object.values(value).filter(child=>child&&typeof child==="object").forEach(walk);
+    };walk(slide.canvas.fabric||slide.canvas.elements);
+  }
+}
 function imageIdentity(object){return object?.id||object?.src||""}
 function validateRestoredImages(savedObjects,loadedObjects){
   const actual=new Map();
@@ -47,47 +75,35 @@ function validateRestoredImages(savedObjects,loadedObjects){
 }
 function load(){
   loading=true;imageRestoreProblem="";
-  const epoch=++loadEpoch,slideId=activeSlide()?.id,d=ensure(activeSlide()).canvas;
-  if(d.fabric){
-    const source=d.fabric;
-    loadQueue=loadQueue.catch(()=>{}).then(()=>new Promise(resolve=>{
-      if(epoch!==loadEpoch)return resolve();
-      canvas.loadFromJSON(source,()=>{
-      if(epoch!==loadEpoch||slideId!==activeSlide()?.id)return resolve();
-      const missing=validateRestoredImages(source.objects||[],canvas.toJSON(["id","src"]).objects||[]);
-      canvas.backgroundColor=d.background||"#f8f4ea";canvas.renderAll();loading=false;
-      if(missing.length){
-        imageRestoreProblem=`Could not restore ${missing.length} image(s) on this slide. The original saved data is protected. Check your connection and reopen the slide to retry.`;
-        $("#modeLabel").textContent="Image restore failed — saving paused";
-        toast(imageRestoreProblem);
-      }
-      panel();resolve();
-      });
-    }));
-  }else{
+  const version=++slideLoadVersion,targetSlideId=activeSlide().id,d=ensure(activeSlide()).canvas;
+  const finish=(objects,expected)=>{
+    if(version!==slideLoadVersion||targetSlideId!==activeSlide()?.id)return;
+    const missing=validateRestoredImages(expected,objects);
+    if(missing.length){imageRestoreProblem=`Could not restore ${missing.length} saved image(s); saving paused to protect original data.`;$("#modeLabel").textContent="Image restore failed — saving paused";toast(imageRestoreProblem)}
     canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";
-    const legacyImages=(d.elements||[]).filter(x=>x.type==="image");
-    (d.elements||[]).forEach(x=>{if(x.type==="text")canvas.add(text(x));else if(x.type==="video")canvas.add(video(x))});
-    if(!legacyImages.length){loading=false;panel();}
-    else{
-      // Legacy images are asynchronous too. Never autosave a partly restored slide.
-      let pending=legacyImages.length,failed=0;
-      for(const item of legacyImages){
-        fabric.Image.fromURL(item.src,o=>{
-          if(epoch!==loadEpoch||slideId!==activeSlide()?.id)return;
-          if(!o||!o.width||!o.height)failed++;
-          else{
-            o.set({id:item.id,mediaType:"image",src:item.src,left:(item.x||0)*12.8,top:(item.y||0)*7.2});
-            o.scaleToWidth((item.width||40)*12.8);canvas.add(o);
-          }
-          if(!--pending){
-            loading=false;
-            if(failed){imageRestoreProblem=`Could not restore ${failed} legacy image(s); saving paused to protect original data.`;$("#modeLabel").textContent="Image restore failed — saving paused";toast(imageRestoreProblem);}
-            canvas.requestRenderAll();panel();
-          }
-        },{crossOrigin:"anonymous"});
-      }
-    }
+    canvas.add(...objects);canvas.renderAll();loading=false;panel();prefetchAdjacentImages();
+  };
+  if(d.fabric){
+    // Decode offscreen: overlapping loads cannot mutate the visible/newer slide.
+    const staging=new fabric.StaticCanvas(null,{width:W,height:H,renderOnAddRemove:false});
+    staging.loadFromJSON(d.fabric,()=>{
+      const objects=staging.getObjects().slice();objects.forEach(object=>staging.remove(object));
+      staging.dispose();finish(objects,d.fabric.objects||[]);
+    });
+  }else{
+    const pending=d.elements.map(item=>{
+      if(item.type==="text")return Promise.resolve(text(item));
+      if(item.type==="video")return Promise.resolve(video(item));
+      if(item.type!=="image")return Promise.resolve(null);
+      return new Promise(resolve=>fabric.Image.fromURL(item.src,object=>{
+        if(!object||!object.width||!object.height){resolve(null);return}
+        object.set({...item,mediaType:"image",left:(item.x||0)*12.8,top:(item.y||0)*7.2});
+        if(item.full_bleed)object.set({scaleX:W/object.width,scaleY:H/object.height,left:0,top:0});
+        else{object.scaleToWidth((item.width||40)*12.8);if(object.getScaledHeight()>(item.height||30)*7.2)object.scaleToHeight((item.height||30)*7.2)}
+        resolve(object);
+      },{crossOrigin:"anonymous"}));
+    });
+    Promise.all(pending).then(objects=>finish(objects.filter(Boolean),d.elements));
   }
 }
 function esc(v){return String(v||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
@@ -99,35 +115,71 @@ function mediaLibrary(){const countEl=$("#mediaCount"),gridEl=$("#mediaLibraryGr
 function syncPlayback(){const c=playback();$("#playbackMode").value=c.mode;$("#playbackInterval").value=c.interval_ms;$("#mediaMode").value=c.media_mode;$("#mediaCycle").value=c.media_cycle||"all";$("#mediaInterval").value=c.media_interval_ms||5000;$("#loopVideos").checked=c.loop_videos!==false;$("#playbackSlides").innerHTML=presentation.slides.map((s,i)=>'<label><input type="checkbox" data-play-slide="'+s.id+'" '+(c.slide_ids.includes(s.id)?"checked":"")+"> "+(i+1)+". "+esc(s.title)+"</label>").join("");$("#playbackSlides").querySelectorAll("[data-play-slide]").forEach(b=>b.onchange=()=>{c.slide_ids=[...$("#playbackSlides").querySelectorAll("[data-play-slide]:checked")].map(x=>x.dataset.playSlide);schedule()})}
 function render(){const s=ensure(activeSlide()),count=String(currentSlideIndex+1).padStart(2,"0")+" / "+String(presentation.slides.length).padStart(2,"0");$("#presentationTitle").textContent=presentation.title;$("#slideCount").textContent=count;$("#canvasIndex").textContent=count;$("#pageLabel").textContent="Slide "+(currentSlideIndex+1)+" of "+presentation.slides.length;$("#transitionType").value=s.canvas.transition.type;const transitionDuration=s.canvas.transition.duration_ms||500;$("#transitionDuration").value=String(transitionDuration);const customDuration=$("#transitionDurationCustom");if(customDuration)customDuration.value=transitionDuration;renderList();mediaLibrary();syncPlayback();const bgInput=$("#slideBackground");if(bgInput)bgInput.value=s.canvas.background||"#f8f4ea";load()}
 function normalize(){presentation.slides.forEach((s,i)=>s.order=i+1)}
-function save(){
-  clearTimeout(saveTimer);
-  if(loading||pendingInsertions)return Promise.reject(new Error("Please wait for images to finish loading before saving."));
-  if(imageRestoreProblem)return Promise.reject(new Error(imageRestoreProblem));
-  if(saveConflict)return Promise.reject(new Error("This presentation was updated elsewhere. Reload and review changes before saving."));
-  capture();normalize();
-  // Snapshot immediately and serialize writes. A slow older response must never replace
-  // the current browser's newer edits or arrive at the server after a later save.
-  const snapshot=JSON.parse(JSON.stringify(presentation)),sequence=++saveSequence;
-  $("#modeLabel").textContent="Saving…";
-  const task=saveQueue.catch(()=>{}).then(async()=>{
-    try{
-      if(saveConflict)throw new Error("Save conflict: reload before continuing.");
-      snapshot.baseUpdatedAt=lastSavedUpdatedAt;
-      const response=await api.savePresentation(snapshot);
-      lastSavedUpdatedAt=response.presentation.updatedAt;
-      if(sequence===saveSequence)$("#modeLabel").textContent="Saved";
-    }catch(error){
-      if(/another tab or device|changed elsewhere|Save conflict/i.test(error.message||""))saveConflict=true;
-      if(sequence===saveSequence)$("#modeLabel").textContent=saveConflict?"Save conflict — reload to resolve":"Save failed";
-      toast(error.message);throw error;
-    }
-  });
-  saveQueue=task;return task;
+function applySavedImageReferences(before,after){
+  const refs=new Map();
+  const pair=(a,b)=>{
+    if(!a||!b||typeof a!=="object"||typeof b!=="object")return;
+    if(typeof a.src==="string"&&a.src.startsWith("data:image/")&&b.src&&!b.src.startsWith("data:"))refs.set(a.src,{src:b.src,thumbnailSrc:b.thumbnailSrc||""});
+    Object.keys(a).forEach(key=>pair(a[key],b[key]));
+  };pair(before,after);
+  if(!refs.size)return;
+  const update=(value,isFabric=false)=>{
+    if(!value||typeof value!=="object")return;
+    const match=refs.get(value.src)||refs.get(value.getSrc?.());
+    if(match){if(value.set)value.set(match);else Object.assign(value,match)}
+    const children=isFabric?(value.getObjects?.()||[]):Object.values(value).filter(child=>child&&typeof child==="object");
+    children.forEach(child=>update(child,isFabric));
+  };
+  presentation.slides.forEach(slide=>update(slide.canvas));
+  canvas.getObjects().forEach(object=>update(object,true));
 }
-function schedule(){if(loading||pendingInsertions||imageRestoreProblem||saveConflict)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
+async function save(){
+  clearTimeout(saveTimer);
+  if(loading||pendingInsertions)return Promise.reject(new Error("Images are still loading. Wait before saving."));
+  if(imageRestoreProblem)return Promise.reject(new Error(imageRestoreProblem));
+  if(saveConflict)throw new Error("Download your unsaved copy, then reload the saved version.");
+  if(savePromise)return savePromise.then(()=>save());
+  capture();normalize();
+  const revision=editRevision;
+  const snapshot=JSON.parse(JSON.stringify(presentation));
+  $("#modeLabel").textContent="Saving…";
+  savePromise=(async()=>{
+    try{
+      const r=await api.savePresentation(snapshot);
+      // A slow response must never overwrite edits made while saving.
+      if(editRevision===revision){presentation=r.presentation;presentation.slides.forEach(ensure);playback()}
+      // Keep the server version even when local edits arrived during this save.
+      presentation.updatedAt=r.presentation.updatedAt;
+      applySavedImageReferences(snapshot,r.presentation);
+      $("#modeLabel").textContent=editRevision===revision?"Saved":"Unsaved changes";
+    }catch(e){
+      if(e.status===409||e.status===428){saveConflict=true;clearTimeout(saveTimer);showSaveConflict()}
+      $("#modeLabel").textContent=saveConflict?"Save conflict — local work kept":"Save failed";toast(e.message);throw e
+    }
+    finally{savePromise=null}
+  })();
+  return savePromise;
+}
+function showSaveConflict(){
+  if(document.getElementById("saveConflict"))return;
+  const panel=document.createElement("div");panel.id="saveConflict";panel.setAttribute("role","alert");
+  panel.style.cssText="position:fixed;bottom:20px;left:20px;right:20px;z-index:10000;background:#fff;color:#171717;padding:20px;border:2px solid #b45309";
+  const message=document.createElement("p");message.textContent="Another editor saved this presentation. Your local work is kept here. Download a copy before reloading; reloading discards unsaved edits.";
+  const download=document.createElement("button");download.textContent="Download unsaved copy";download.onclick=()=>{
+    capture();normalize();const url=URL.createObjectURL(new Blob([JSON.stringify(presentation,null,2)],{type:"application/json"}));
+    const link=document.createElement("a");link.href=url;link.download="presentation-unsaved.json";link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+  const reload=document.createElement("button");reload.textContent="Reload saved version";reload.onclick=()=>{if(window.confirm("Reload and discard unsaved local edits? Download your copy first."))location.reload()};
+  panel.append(message,download,reload);document.body.append(panel);
+}
+function schedule(){if(loading||pendingInsertions||imageRestoreProblem||saveConflict)return;editRevision++;$("#modeLabel").textContent=saveConflict?"Save conflict — local work kept":"Unsaved changes";clearTimeout(saveTimer);if(!saveConflict)saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
 function move(n){capture();currentSlideIndex=(currentSlideIndex+n+presentation.slides.length)%presentation.slides.length;render()} function addSlide(){capture();presentation.slides.splice(currentSlideIndex+1,0,ensure({id:"slide_"+Date.now(),order:0,title:"Slide "+(presentation.slides.length+1),canvas:{background:"#f8f4ea",elements:[]}}));currentSlideIndex++;normalize();render();schedule()} function duplicateSlide(){capture();const s=JSON.parse(JSON.stringify(activeSlide()));s.id="slide_"+Date.now();s.title+=" copy";presentation.slides.splice(currentSlideIndex+1,0,s);currentSlideIndex++;normalize();render();schedule()} function deleteSlide(){if(presentation.slides.length===1)return toast("A presentation needs at least one slide.");capture();const r=presentation.slides.splice(currentSlideIndex,1)[0];playback().slide_ids=playback().slide_ids.filter(id=>id!==r.id);currentSlideIndex=Math.min(currentSlideIndex,presentation.slides.length-1);render();schedule()}
-function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
-async function uploadFile(f){const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);addAsset(r.asset,false);mediaLibrary();if(requestId===uploadRequestId)renderUploadStatus("success",f.name+" uploaded successfully.")}catch(err){if(requestId!==uploadRequestId)return;retryUploadFile=f;const message=err.message.includes("Cloudinary")?"Media storage is not configured on this server.":err.message;renderUploadStatus("error",message)}}
+function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,thumbnailSrc:a.thumbnailUrl||"",x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
+async function uploadFile(f){const targetSlideId=activeSlide()?.id;const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);
+if(r.asset.mimeType.startsWith("image/"))image({id:"media_"+Date.now(),type:"image",src:r.asset.url,thumbnailSrc:r.asset.thumbnailUrl||"",x:0,y:0,width:100,height:100,fitToSlide:true,fit:"contain"},targetSlideId);
+else if(targetSlideId===activeSlide()?.id)addAsset(r.asset,false);
+else toast("Media uploaded. Select it from the library to add it to a slide.");
+mediaLibrary();if(requestId===uploadRequestId)renderUploadStatus("success",f.name+" uploaded successfully.")}catch(err){if(requestId!==uploadRequestId)return;retryUploadFile=f;const message=err.message.includes("Cloudinary")?"Media storage is not configured on this server.":err.message;renderUploadStatus("error",message)}}
 async function upload(e){const f=e.target.files[0];e.target.value="";if(!f)return;if(f.size>100*1024*1024){renderUploadStatus("error",f.name+" is too large. Maximum upload size is 100 MB.");return toast("Maximum upload size is 100 MB.");}if(!/^(image|video|audio)\//.test(f.type)&&!f.name.toLowerCase().endsWith(".mp3"))return toast("Choose an image, video, or audio file.");await uploadFile(f)}
 function action(type){const o=active();if(!o)return toast("Select an element on the slide first.");if(type==="forward")canvas.bringForward(o);if(type==="backward")canvas.sendBackwards(o);if(type==="delete")canvas.remove(o);if(type==="duplicate")o.clone(c=>{c.set({left:(o.left||0)+32,top:(o.top||0)+32,id:(o.id||"element")+"_"+Date.now()});canvas.add(c);canvas.setActiveObject(c)});canvas.requestRenderAll();panel();schedule()}
 function selectedTextStyle(o,key){if(!o)return undefined;if(o.isEditing&&o.selectionStart!==o.selectionEnd){const styles=o.getSelectionStyles(o.selectionStart,o.selectionEnd,true);const value=styles.find(style=>style[key]!==undefined)?.[key];if(value!==undefined)return value}return o[key]}
@@ -165,14 +217,10 @@ async function init(){
 
   bind();
 
-  const [r,library]=await Promise.all([
-    api.getPresentation(presentationId),
-    api.listMedia().catch(()=>({assets:[]}))
-  ]);
+  const libraryPromise=api.listMedia().catch(()=>({assets:[]}));
+  const r=await api.getPresentation(presentationId);
 
   presentation=r.presentation;
-  lastSavedUpdatedAt=presentation.updatedAt;
-  mediaAssets=library.assets||[];
 
   if(!presentation.slides.length)addSlide();
 
@@ -182,6 +230,12 @@ async function init(){
 
   $("#modeLabel").textContent="Ready";
   socket?.emit("join_presentation",{presentationId:presentation.id});
+  // The editor is usable while the media library loads independently.
+  libraryPromise.then(library=>{
+    const seen=new Set(mediaAssets.map(asset=>asset.id));
+    mediaAssets.push(...(library.assets||[]).filter(asset=>!seen.has(asset.id)));
+    mediaLibrary();
+  });
 }
 
 const audienceLaunchButton = $("#openAudience");

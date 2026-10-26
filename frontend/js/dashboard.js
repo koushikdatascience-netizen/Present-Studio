@@ -21,17 +21,37 @@ let dashboardMeetings = [];
 let privateMeetingNoticeSeen = false;
 let dashboardThumbnailCanvases = [];
 let activeSharePresentationId = "";
+let dashboardTotals = null;
+let thumbnailObserver = null;
 
 function renderDashboardThumbnails(presentations) {
   if (!window.fabric) return;
-  grid.querySelectorAll('[data-deck-thumbnail]').forEach(element => {
+  const renderThumbnail = element => {
     const deck = presentations.find(item => item.id === element.dataset.deckThumbnail);
     const data = deck?.slides?.[0]?.canvas || {};
-    const thumbnail = new fabric.StaticCanvas(element, { width: 1280, height: 720, renderOnAddRemove: false });
+    const thumbnail = new fabric.StaticCanvas(element, { width: 320, height: 180, renderOnAddRemove: false, enableRetinaScaling: false });
+    thumbnail.setViewportTransform([0.25, 0, 0, 0.25, 0, 0]);
     const objectOrder = new WeakMap();
     dashboardThumbnailCanvases.push(thumbnail);
     const render = () => {
       if (!dashboardThumbnailCanvases.includes(thumbnail)) return;
+      if (data.fabric) {
+        const adjust = objects => objects.forEach(object => {
+          if (object.thumbnailSrc && object.type === 'image' && !object.__previewAdjusted) {
+            const element = object.getElement();
+            const width = element.naturalWidth || element.width;
+            const height = element.naturalHeight || element.height;
+            if (width && height) {
+              const ratioX = width / object.width, ratioY = height / object.height;
+              object.set({ scaleX: object.scaleX / ratioX, scaleY: object.scaleY / ratioY,
+                cropX: (object.cropX || 0) * ratioX, cropY: (object.cropY || 0) * ratioY, width, height });
+              object.__previewAdjusted = true;
+            }
+          }
+          if (object._objects) adjust(object._objects);
+        });
+        adjust(thumbnail.getObjects());
+      }
       if (!data.fabric) thumbnail.getObjects().slice().sort((a, b) => objectOrder.get(a) - objectOrder.get(b)).forEach((object, index) => thumbnail.moveTo(object, index));
       thumbnail.backgroundColor = data.background || '#fff';
       thumbnail.renderAll();
@@ -73,7 +93,17 @@ function renderDashboardThumbnails(presentations) {
       Object.assign(node.style, { left: `${legacy ? Number(object.x || 0) : Number(object.left || 0) / 12.8}%`, top: `${legacy ? Number(object.y || 0) : Number(object.top || 0) / 7.2}%`, width: `${legacy ? Number(object.width || 100) : Number(object.width || 1280) * Number(object.scaleX || 1) / 12.8}%`, height: `${legacy ? Number(object.height || 100) : Number(object.height || 720) * Number(object.scaleY || 1) / 7.2}%`, objectFit: object.fit === 'contain' ? 'contain' : 'cover' });
       element.parentElement.append(node);
     });
-  });
+  };
+  thumbnailObserver?.disconnect();
+  if (window.IntersectionObserver) {
+    thumbnailObserver = new IntersectionObserver(entries => {
+      entries.filter(entry => entry.isIntersecting).forEach(entry => {
+        thumbnailObserver.unobserve(entry.target);
+        renderThumbnail(entry.target);
+      });
+    }, { rootMargin: "150px" });
+    grid.querySelectorAll('[data-deck-thumbnail]').forEach(element => thumbnailObserver.observe(element));
+  } else grid.querySelectorAll('[data-deck-thumbnail]').forEach(renderThumbnail);
 }
 function showToast(message) {
   if (!toast) return;
@@ -96,12 +126,12 @@ function getAccent(deck, index) {
 }
 
 function updateDashboardStats(presentations) {
-  document.querySelector("#presentationCount").textContent = String(presentations.length).padStart(2, "0");
+  document.querySelector("#presentationCount").textContent = String(dashboardTotals?.total ?? presentations.length).padStart(2, "0");
   const recentDeck = presentations.find(deck => deck.updatedAt);
   document.querySelector("#recentCount").textContent = recentDeck?.updatedAt
     ? new Date(recentDeck.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
     : "Draft";
-  document.querySelector("#slideTotal").textContent = String(presentations.reduce((total, deck) => total + (deck.slides?.length || 0), 0)).padStart(2, "0");
+  document.querySelector("#slideTotal").textContent = String(dashboardTotals?.slideTotal ?? presentations.reduce((total, deck) => total + (deck.slideCount ?? deck.slides?.length ?? 0), 0)).padStart(2, "0");
 }
 
 function filteredPresentations() {
@@ -111,6 +141,7 @@ function filteredPresentations() {
 
 function renderDecks(presentations) {
   if (!grid) return;
+  thumbnailObserver?.disconnect();
   dashboardThumbnailCanvases.forEach(canvas => canvas.dispose());
   dashboardThumbnailCanvases = [];
   const createTile = `
@@ -127,7 +158,7 @@ function renderDecks(presentations) {
 
   grid.innerHTML = presentations.map((deck, index) => {
     const title = escapeHtml(deck.title || "Untitled presentation");
-    const slides = Array.isArray(deck.slides) ? deck.slides.length : 0;
+    const slides = deck.slideCount ?? (Array.isArray(deck.slides) ? deck.slides.length : 0);
     const slideLabel = `${slides} slide${slides === 1 ? "" : "s"}`;
     const updated = deck.updatedAt ? new Date(deck.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "Draft";
     const accent = getAccent(deck, index);
@@ -194,6 +225,7 @@ function renderDecks(presentations) {
     button.disabled = true;
     try {
       await api.deletePresentation(deck.id);
+      if (dashboardTotals) { dashboardTotals.total--; dashboardTotals.slideTotal -= deck.slideCount ?? deck.slides?.length ?? 0; }
       dashboardPresentations = dashboardPresentations.filter(item => item.id !== deck.id);
       updateDashboardStats(dashboardPresentations);
       renderDecks(filteredPresentations());
@@ -376,12 +408,28 @@ function renderMeetings(meetings) {
 async function loadDashboard() {
   if (!grid) return;
   grid.innerHTML = `<p class="dashboard-status">Loading your presentations…</p>`;
-  const [{ presentations }, { meetings }] = await Promise.all([api.listPresentations(), api.listMeetings()]);
-  dashboardPresentations = presentations.filter(item => item.status !== "meeting");
-  dashboardMeetings = meetings;
+  // A slow meeting request must not hold up presentation cards.
+  api.listMeetings().then(({ meetings }) => {
+    dashboardMeetings = meetings;
+    renderMeetings(meetings);
+  }).catch(error => {
+    if (meetingGrid) meetingGrid.innerHTML = `<p class="dashboard-status error">${escapeHtml(error.message)}</p>`;
+  });
+  let page = await api.listPresentationSummaries();
+  dashboardTotals = { total: page.total, slideTotal: page.slideTotal };
+  dashboardPresentations = page.presentations;
   updateDashboardStats(dashboardPresentations);
   renderDecks(dashboardPresentations);
-  renderMeetings(meetings);
+  // Additional small pages arrive after the first cards are already usable.
+  while (page.hasMore) {
+    try { page = await api.listPresentationSummaries(dashboardPresentations.length); }
+    catch (error) { showToast(error.message); break; }
+    const seen = new Set(dashboardPresentations.map(deck => deck.id));
+    const next = page.presentations.filter(deck => !seen.has(deck.id));
+    if (!next.length) break;
+    dashboardPresentations.push(...next);
+    renderDecks(filteredPresentations());
+  }
 }
 
 function localDateTimeValue(date) {

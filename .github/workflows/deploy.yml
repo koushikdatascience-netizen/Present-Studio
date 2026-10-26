@@ -1,0 +1,97 @@
+name: Deploy SnapKey Studio
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      allow_active_meetings:
+        description: 'Restart slide/control synchronization even if meetings have participants'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapkey-production
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/checks.yml
+
+  image:
+    needs: validate
+    uses: ./.github/workflows/prepare-vps-image.yml
+
+  deploy:
+    needs: [validate, image]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VPS_HOST: 200.97.169.48
+      VPS_PORT: '22'
+      VPS_USER: root
+      ALLOW_ACTIVE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_active_meetings && '1' || '0' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: snapkey-vps-image-${{ github.sha }}
+          path: release
+      - name: Verify release archive and avoid stale deployments
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPOSITORY/commits/main" --jq .sha)" = "$GITHUB_SHA"
+          cd release
+          sha256sum -c SHA256SUMS
+          grep -Fx "SOURCE_COMMIT=$GITHUB_SHA" source.txt
+      - name: Configure restricted deployment identity
+        env:
+          DEPLOY_KEY: ${{ secrets.VPS_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$VPS_HOST" && test -n "$VPS_PORT" && test -n "$VPS_USER"
+          test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/snapkey_ci
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/snapkey_ci ~/.ssh/known_hosts
+      - name: Obtain signed GitHub main-branch identity
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request
+          request=urllib.request.Request(os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']+'&audience=snapkey-studio-vps',headers={'Authorization':'Bearer '+os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
+          with urllib.request.urlopen(request,timeout=20) as response: token=json.load(response)['value']
+          path=os.path.join(os.environ['RUNNER_TEMP'],'snapkey-oidc')
+          with open(path,'w') as output: output.write(token+'\n')
+          os.chmod(path,0o600)
+          PY
+      - name: Back up and deploy only the VPS presentation backend
+        run: |
+          set -euo pipefail
+          digest=$(sha256sum release/snapkey-studio-image.tar.gz | cut -d ' ' -f 1)
+          cat "$RUNNER_TEMP/snapkey-oidc" release/snapkey-studio-image.tar.gz | \
+          ssh -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
+            -i ~/.ssh/snapkey_ci -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "deploy $GITHUB_SHA $digest $ALLOW_ACTIVE"
+      - name: Verify public health and updated application
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 https://connect.snapkeystudio.com/api/health
+          curl --fail --silent --show-error https://connect.snapkeystudio.com/builder.html -o /tmp/snapkey-builder.html
+          grep -q '/js/editor.js' /tmp/snapkey-builder.html
+          ssh -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -i ~/.ssh/snapkey_ci -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" status
+      - name: Remove temporary key
+        if: always()
+        run: rm -f ~/.ssh/snapkey_ci "$RUNNER_TEMP/snapkey-oidc"
