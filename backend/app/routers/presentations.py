@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
 from ..live_state import apply_controller_state, live_session_payload
-from ..models import LiveSession, Meeting, MeetingParticipantGrant, Presentation, PresentationMember, ShareLink, Slide, User
+from ..models import LiveSession, Meeting, MeetingParticipantGrant, Presentation, PresentationMember, PresentationSnapshot, ShareLink, Slide, User
 from ..schemas import LiveMediaTokenOut, LiveMediaTokenRequest, LiveSessionOut, LiveSlideUpdate, PresentationCreate, PresentationOut, PresentationPayload, PresentationSave, ScreenAccessRequest, ShareLinkCreate, ShareLinkOut, ShareLinkResolveOut, SlideOut, ViewerShareCreate
 from ..security import can_edit_presentation, can_view_presentation, current_user, hash_password, new_id, new_share_token, optional_current_user, resolve_participant_resume_token, resolve_share_permission, verify_password
 from ..socket_manager import meeting_admission_required, meeting_client_is_admitted, sio
@@ -437,11 +437,35 @@ async def save_presentation(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> PresentationPayload:
-    presentation = db.get(Presentation, presentation_id)
+    # Serialize concurrent edits per presentation at the DB boundary.
+    presentation = db.query(Presentation).filter(Presentation.id == presentation_id).with_for_update().first()
     if not presentation or not can_edit_presentation(db, presentation, user):
         raise HTTPException(status_code=404, detail="Presentation not found")
+    current_revision = presentation.updated_at.isoformat() if presentation.updated_at else None
+    if payload.baseUpdatedAt and payload.baseUpdatedAt != current_revision:
+        raise HTTPException(status_code=409, detail="This presentation changed in another tab or device. Your unsaved changes were not overwritten. Reopen the presentation to review them.")
 
+    # Preserve the previous saved document before ANY destructive slide rewrite.
+    prior_slides = sorted(presentation.slides, key=lambda item: item.order)
+    snapshot = PresentationSnapshot(
+        id=new_id("snapshot"),
+        presentation_id=presentation.id,
+        owner_id=user.id,
+        document={"title": presentation.title, "updatedAt": current_revision,
+                  "slides": [{"id": slide.id, "order": slide.order, "title": slide.title,
+                              "canvas": slide.canvas} for slide in prior_slides]},
+    )
+    db.add(snapshot)
+    # Keep a bounded history without silently losing the most recent recoverable versions.
+    historical_ids = [
+        row.id for row in db.query(PresentationSnapshot.id)
+        .filter(PresentationSnapshot.presentation_id == presentation.id)
+        .order_by(PresentationSnapshot.created_at.desc(), PresentationSnapshot.id.desc()).all()
+    ]
+    if len(historical_ids) > 29:
+        db.query(PresentationSnapshot).filter(PresentationSnapshot.id.in_(historical_ids[29:])).delete(synchronize_session=False)
     presentation.title = payload.title.strip() or "Untitled presentation"
+    presentation.updated_at = datetime.now(timezone.utc)
     db.query(Slide).filter(Slide.presentation_id == presentation.id).delete()
     used_slide_ids: set[str] = set()
     saved_slide_ids: list[str] = []
@@ -481,6 +505,45 @@ async def save_presentation(
         room=presentation.id,
     )
     return PresentationPayload(presentation=serialized, permission="presenter")
+
+
+ 
+@router.get("/{presentation_id}/snapshots")
+def list_presentation_snapshots(
+    presentation_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    presentation = db.get(Presentation, presentation_id)
+    if not presentation or not can_edit_presentation(db, presentation, user):
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    records = db.query(PresentationSnapshot).filter(
+        PresentationSnapshot.presentation_id == presentation_id
+    ).order_by(PresentationSnapshot.created_at.desc(), PresentationSnapshot.id.desc()).limit(30).all()
+    return {"snapshots": [
+        {"id": record.id, "createdAt": record.created_at.isoformat() if record.created_at else None,
+         "slides": [{"id": slide.get("id"), "title": slide.get("title"),
+                     "images": sum(1 for obj in (slide.get("canvas", {}).get("fabric", {}).get("objects", []) or [])
+                                   if obj.get("type") == "image")}
+                    for slide in record.document.get("slides", [])]}
+        for record in records
+    ]}
+
+
+@router.get("/{presentation_id}/snapshots/{snapshot_id}")
+def inspect_presentation_snapshot(
+    presentation_id: str, snapshot_id: str, user: User = Depends(current_user),
+    db: Session = Depends(get_db)
+):
+    presentation = db.get(Presentation, presentation_id)
+    if not presentation or not can_edit_presentation(db, presentation, user):
+        raise HTTPException(status_code=404, detail="Presentation not found")
+    record = db.query(PresentationSnapshot).filter(
+        PresentationSnapshot.presentation_id == presentation_id,
+        PresentationSnapshot.id == snapshot_id
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    # Read-only; restoration must be a deliberate reviewed action.
+    return {"id": record.id, "document": record.document}
 
 
 @router.get("/{presentation_id}/share/current")
