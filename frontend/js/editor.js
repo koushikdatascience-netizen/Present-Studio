@@ -61,13 +61,14 @@ function prefetchAdjacentImages(){
   }
 }
 function imageIdentity(object){return object?.id||object?.src||""}
+function isSavedImage(object){return object?.type==="image"||object?.mediaType==="image"}
 function validateRestoredImages(savedObjects,loadedObjects){
   const actual=new Map();
-  for(const object of loadedObjects)if(object?.type==="image"){
+  for(const object of loadedObjects)if(isSavedImage(object)){
     const key=imageIdentity(object);actual.set(key,(actual.get(key)||0)+1);
   }
   const missing=[];
-  for(const object of savedObjects)if(object?.type==="image"){
+  for(const object of savedObjects)if(isSavedImage(object)){
     const key=imageIdentity(object),count=actual.get(key)||0;
     if(count>0)actual.set(key,count-1);else missing.push(key||"(unnamed image)");
   }
@@ -79,17 +80,36 @@ function load(){
   const finish=(objects,expected)=>{
     if(version!==slideLoadVersion||targetSlideId!==activeSlide()?.id)return;
     const missing=validateRestoredImages(expected,objects);
-    if(missing.length){imageRestoreProblem=`Could not restore ${missing.length} saved image(s); saving paused to protect original data.`;$("#modeLabel").textContent="Image restore failed — saving paused";toast(imageRestoreProblem)}
+    if(missing.length){
+      imageRestoreProblem=`Could not restore ${missing.length} saved image(s); saving paused to protect original data.`;
+      $("#modeLabel").textContent="Image restore failed — click here to retry";
+      $("#modeLabel").title="Retry loading this slide without overwriting its saved images";
+      $("#modeLabel").onclick=()=>{if(!loading&&imageRestoreProblem)load()};
+      toast(imageRestoreProblem);
+    }else{
+      $("#modeLabel").onclick=null;
+      $("#modeLabel").title="";
+      $("#modeLabel").textContent="Images restored";
+    }
     canvas.clear();canvas.backgroundColor=d.background||"#f8f4ea";
     canvas.add(...objects);canvas.renderAll();loading=false;panel();prefetchAdjacentImages();
   };
   if(d.fabric){
-    // Decode offscreen: overlapping loads cannot mutate the visible/newer slide.
-    const staging=new fabric.StaticCanvas(null,{width:W,height:H,renderOnAddRemove:false});
-    staging.loadFromJSON(d.fabric,()=>{
-      const objects=staging.getObjects().slice();objects.forEach(object=>staging.remove(object));
-      staging.dispose();finish(objects,d.fabric.objects||[]);
-    });
+    // Decode offscreen. Retry transient decode/network failures without changing saved JSON.
+    const restore=(attempt=0)=>{
+      if(version!==slideLoadVersion||targetSlideId!==activeSlide()?.id)return;
+      const staging=new fabric.StaticCanvas(null,{width:W,height:H,renderOnAddRemove:false});
+      staging.loadFromJSON(d.fabric,()=>{
+        const objects=staging.getObjects().slice();objects.forEach(object=>staging.remove(object));
+        staging.dispose();
+        if(validateRestoredImages(d.fabric.objects||[],objects).length&&attempt<2){
+          setTimeout(()=>restore(attempt+1),350*(attempt+1));
+          return;
+        }
+        finish(objects,d.fabric.objects||[]);
+      });
+    };
+    restore();
   }else{
     const pending=d.elements.map(item=>{
       if(item.type==="text")return Promise.resolve(text(item));
