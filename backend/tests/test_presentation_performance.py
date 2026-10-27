@@ -156,9 +156,15 @@ def test_uploaded_images_expose_small_previews_and_bounded_private_cache():
             asset = uploaded.json()["asset"]
             assert asset["thumbnailUrl"] == f"/api/media/{asset['id']}/image-preview"
             assert any(call.kwargs["key"].endswith(".preview.webp") for call in storage.upload_bytes.call_args_list)
+            body = MagicMock()
+            body.iter_chunks.return_value = iter([content])
+            storage.client.get_object.return_value = {"Body": body, "ContentLength": len(content), "ContentType": "image/png"}
             for url in (asset["url"], asset["thumbnailUrl"]):
                 response = client.get(url, follow_redirects=False)
-                assert response.status_code == 307
+                assert response.status_code == (200 if url == asset["url"] else 307)
+                if url == asset["url"]:
+                    assert response.content == content
+                    assert "location" not in response.headers
                 assert response.headers["cache-control"] == "private, max-age=60"
 
 
