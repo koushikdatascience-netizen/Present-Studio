@@ -31,9 +31,24 @@ def test_s3_upload_stable_url_and_meeting_preview(mime, kind, access_type):
             assert asset["url"] == f"/api/media/{asset['id']}/content"
             cloud_upload.assert_not_called()
             assert storage.upload_bytes.call_count == 2
-            content = client.get(asset["url"], follow_redirects=False)
-            assert content.status_code == 307
-            assert "signature=test" in content.headers["location"]
+            image_body = MagicMock()
+            image_body.iter_chunks.return_value = iter([b"sample-media"])
+            storage.client.get_object.return_value = {"Body": image_body, "ContentLength": 12, "ContentType": mime}
+            # A plain thumbnail load followed by a CORS-enabled canvas load must
+            # both stay same-origin, independent of cached S3 response headers.
+            for request_headers in ({}, {"Origin": "https://testserver"}):
+                image_body.iter_chunks.return_value = iter([b"sample-media"])
+                content = client.get(asset["url"], headers=request_headers, follow_redirects=False)
+                if kind == "image":
+                    assert content.status_code == 200
+                    assert content.content == b"sample-media"
+                    assert content.headers["content-type"] == mime
+                    assert "location" not in content.headers
+                else:
+                    assert content.status_code == 307
+                    assert "signature=test" in content.headers["location"]
+            if kind == "image":
+                assert image_body.close.call_count == 2
             body = MagicMock()
             body.iter_chunks.return_value = iter([b"preview-image"])
             storage.client.get_object.return_value = {"Body": body, "ContentLength": 13, "ContentType": "image/jpeg"}

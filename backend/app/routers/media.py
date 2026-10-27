@@ -88,6 +88,27 @@ def serve_media_asset(asset_id: str, db: Session = Depends(get_db)):
     if not asset or asset.url != f"/api/media/{asset_id}/content":
         raise HTTPException(status_code=404, detail="Media not found")
     storage = s3_storage()
+    if asset.mime_type.startswith("image/"):
+        # Keep canvas images same-origin. Plain thumbnail requests can otherwise
+        # cache an S3 response without the CORS headers Fabric requires later.
+        try:
+            result = storage.client.get_object(Bucket=storage.bucket, Key=storage.media_key(asset.owner_id, asset.id))
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"NoSuchKey", "NotFound", "404"}:
+                raise HTTPException(status_code=404, detail="Image not found") from exc
+            raise HTTPException(status_code=502, detail="Image storage unavailable") from exc
+        body = result["Body"]
+
+        def chunks():
+            try:
+                yield from body.iter_chunks(chunk_size=65536)
+            finally:
+                body.close()
+
+        return StreamingResponse(chunks(), media_type=asset.mime_type,
+                                 headers={"Content-Length": str(result["ContentLength"]),
+                                          "Cache-Control": "private, max-age=300"})
     max_age = max(0, min(300, int(getattr(storage, "presigned_expiry", 900)) // 2))
     return RedirectResponse(storage.presigned_get(storage.media_key(asset.owner_id, asset.id)), status_code=307,
                             headers={"Cache-Control": f"private, max-age={max_age}"})
