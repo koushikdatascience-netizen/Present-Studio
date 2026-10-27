@@ -4,6 +4,7 @@ const authToken=localStorage.getItem("presentStudio.accessToken")||"", socket=wi
 let presentation,currentSlideIndex=0,canvas,saveTimer,shareUrl="",screenShareUrl="",audienceShareUrl="",loading=false,mediaAssets=[],selectedPresenter="Self",uploadRequestId=0,retryUploadFile=null;
 const W=1280,H=720;
 let editRevision=0,savePromise=null,saveConflict=false,imageRestoreProblem="",pendingInsertions=0;
+let unavailableSavedImages=[];
 function secureAppUrl(path){const url=new URL(path,location.origin);if(!["localhost","127.0.0.1","::1"].includes(url.hostname))url.protocol="https:";return url.href}
 function toast(m){const n=$("#toast");n.textContent=m;n.classList.add("show");clearTimeout(toast.t);toast.t=setTimeout(()=>n.classList.remove("show"),2600)}
 function setShareLink(url,permission,screenUrl="",audienceUrl=""){shareUrl=url||"";screenShareUrl=screenUrl||"";audienceShareUrl=audienceUrl||"";const isPresenter=permission==="presenter",button=$("#openShareLink"),copyScreenButton=$("#copyScreenLink"),screenStatus=$("#screenShareStatus"),copyAudienceButton=$("#copyAudienceLink"),audienceStatus=$("#audienceShareStatus");$("#shareStatus").textContent=shareUrl?(isPresenter?`Remote Control: ${shareUrl}`:`Presentation Screen: ${shareUrl}`):"";button.disabled=!shareUrl;button.querySelector("span").textContent=shareUrl?(isPresenter?"Open Remote Control":"Open Presentation Screen"):"Open Link";button.setAttribute("aria-label",shareUrl?`Open ${isPresenter?"Remote Control":"Presentation Screen"} link in a new tab`:"Open generated link in a new tab");if(screenStatus)screenStatus.textContent=screenShareUrl?`Locked Screen: ${screenShareUrl}`:"";if(copyScreenButton)copyScreenButton.disabled=!screenShareUrl;if(audienceStatus)audienceStatus.textContent=audienceShareUrl?`Interactive Audience: ${audienceShareUrl}`:"";if(copyAudienceButton)copyAudienceButton.disabled=!audienceShareUrl}
@@ -38,10 +39,10 @@ function image(item, targetSlideId=activeSlide()?.id){
       renderList();return;
     }
     canvas.add(o);if(item.full_bleed||item.fitToSlide)canvas.sendToBack(o);o.setCoords();canvas.requestRenderAll();
-    if(!wasLoading&&!loading){canvas.setActiveObject(o);panel();schedule()}
+    if(!loading){canvas.setActiveObject(o);panel();schedule()}
   },{crossOrigin:"anonymous"})
 }
-function capture(){if(!presentation||loading||pendingInsertions||imageRestoreProblem)return;const s=ensure(activeSlide());s.canvas.background=canvas.backgroundColor||"#f8f4ea";s.canvas.fabric=canvas.toJSON(["id","mediaType","src","youtubeId","thumbnailUrl","audioSrc","audioName","full_bleed","loop","muted","fit","hyperlink","animation","animationDuration","animationDelay","wordArt","wordArtPreset","shapeRequestedFontSize","shapeText","paragraphAlignments","shapeKind","frameKind","flowchartKind","diagramKind","chartKind","componentType","componentRole","componentIndex","componentName","visualParentId","visualTheme","diagramTheme","chartData","chartStyle","editableComponent"]);const title=canvas.getObjects().find(o=>o.id==="title");if(title&&title.text.trim())s.title=title.text.trim()}
+function capture(){if(!presentation||loading||pendingInsertions)return;const s=ensure(activeSlide());s.canvas.background=canvas.backgroundColor||"#f8f4ea";s.canvas.fabric=canvas.toJSON(["id","mediaType","src","youtubeId","thumbnailUrl","audioSrc","audioName","full_bleed","loop","muted","fit","hyperlink","animation","animationDuration","animationDelay","wordArt","wordArtPreset","shapeRequestedFontSize","shapeText","paragraphAlignments","shapeKind","frameKind","flowchartKind","diagramKind","chartKind","componentType","componentRole","componentIndex","componentName","visualParentId","visualTheme","diagramTheme","chartData","chartStyle","editableComponent"]);if(unavailableSavedImages.length){const objects=s.canvas.fabric.objects||[];for(const entry of unavailableSavedImages){const index=Math.min(entry.index,objects.length);objects.splice(index,0,JSON.parse(JSON.stringify(entry.object)));}}const title=canvas.getObjects().find(o=>o.id==="title");if(title&&title.text.trim())s.title=title.text.trim()}
 let slideLoadVersion=0;
 const prefetchedSlideImages=new Map();
 function prefetchAdjacentImages(){
@@ -75,18 +76,21 @@ function validateRestoredImages(savedObjects,loadedObjects){
   return missing;
 }
 function load(){
-  loading=true;imageRestoreProblem="";
+  loading=true;imageRestoreProblem="";unavailableSavedImages=[];
   const version=++slideLoadVersion,targetSlideId=activeSlide().id,d=ensure(activeSlide()).canvas;
   const finish=(objects,expected)=>{
     if(version!==slideLoadVersion||targetSlideId!==activeSlide()?.id)return;
     const missing=validateRestoredImages(expected,objects);
     if(missing.length){
-      imageRestoreProblem=`Could not restore ${missing.length} saved image(s); saving paused to protect original data.`;
-      $("#modeLabel").textContent="Image restore failed — click here to retry";
+      const available=new Map();for(const object of objects)if(isSavedImage(object)){const key=imageIdentity(object);available.set(key,(available.get(key)||0)+1)}
+      unavailableSavedImages=expected.flatMap((object,index)=>{if(!isSavedImage(object))return [];const key=imageIdentity(object),count=available.get(key)||0;if(count){available.set(key,count-1);return []}return [{index,object:JSON.parse(JSON.stringify(object))}]});
+      imageRestoreProblem=`${missing.length} older image(s) could not load. Their saved references will be preserved while you edit.`;
+      $("#modeLabel").textContent="Older images unavailable — edits can be saved";
       $("#modeLabel").title="Retry loading this slide without overwriting its saved images";
-      $("#modeLabel").onclick=()=>{if(!loading&&imageRestoreProblem)load()};
+      $("#modeLabel").onclick=()=>{if(!loading&&imageRestoreProblem){capture();load()}};
       toast(imageRestoreProblem);
     }else{
+      unavailableSavedImages=[];
       $("#modeLabel").onclick=null;
       $("#modeLabel").title="";
       $("#modeLabel").textContent="Images restored";
@@ -156,7 +160,7 @@ function applySavedImageReferences(before,after){
 async function save(){
   clearTimeout(saveTimer);
   if(loading||pendingInsertions)return Promise.reject(new Error("Images are still loading. Wait before saving."));
-  if(imageRestoreProblem)return Promise.reject(new Error(imageRestoreProblem));
+  
   if(saveConflict)throw new Error("Download your unsaved copy, then reload the saved version.");
   if(savePromise)return savePromise.then(()=>save());
   capture();normalize();
@@ -192,7 +196,7 @@ function showSaveConflict(){
   const reload=document.createElement("button");reload.textContent="Reload saved version";reload.onclick=()=>{if(window.confirm("Reload and discard unsaved local edits? Download your copy first."))location.reload()};
   panel.append(message,download,reload);document.body.append(panel);
 }
-function schedule(){if(loading||pendingInsertions||imageRestoreProblem||saveConflict)return;editRevision++;$("#modeLabel").textContent=saveConflict?"Save conflict — local work kept":"Unsaved changes";clearTimeout(saveTimer);if(!saveConflict)saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
+function schedule(){if(loading||pendingInsertions||saveConflict)return;editRevision++;$("#modeLabel").textContent=saveConflict?"Save conflict — local work kept":"Unsaved changes";clearTimeout(saveTimer);if(!saveConflict)saveTimer=setTimeout(()=>save().catch(()=>{}),600)}
 function move(n){capture();currentSlideIndex=(currentSlideIndex+n+presentation.slides.length)%presentation.slides.length;render()} function addSlide(){capture();presentation.slides.splice(currentSlideIndex+1,0,ensure({id:"slide_"+Date.now(),order:0,title:"Slide "+(presentation.slides.length+1),canvas:{background:"#f8f4ea",elements:[]}}));currentSlideIndex++;normalize();render();schedule()} function duplicateSlide(){capture();const s=JSON.parse(JSON.stringify(activeSlide()));s.id="slide_"+Date.now();s.title+=" copy";presentation.slides.splice(currentSlideIndex+1,0,s);currentSlideIndex++;normalize();render();schedule()} function deleteSlide(){if(presentation.slides.length===1)return toast("A presentation needs at least one slide.");capture();const r=presentation.slides.splice(currentSlideIndex,1)[0];playback().slide_ids=playback().slide_ids.filter(id=>id!==r.id);currentSlideIndex=Math.min(currentSlideIndex,presentation.slides.length-1);render();schedule()}
 function addAsset(a,announce=true){if(!a)return;if(a.mimeType.startsWith("audio/")){if(announce)renderUploadStatus("info",a.name+" is ready to link to an image.");panel();return}const x={id:"media_"+Date.now(),type:a.mimeType.startsWith("image/")?"image":"video",src:a.url,thumbnailSrc:a.thumbnailUrl||"",x:0,y:0,width:100,height:100,full_bleed:false,fitToSlide:true,loop:$("#loopVideos").checked,muted:false,fit:"contain"};if(x.type==="image")image(x);else{const o=video(x);canvas.add(o);canvas.sendToBack(o);canvas.setActiveObject(o)}canvas.requestRenderAll();if(announce)renderUploadStatus("info",a.name+" fitted to the slide without cropping.");schedule()}
 async function uploadFile(f){const targetSlideId=activeSlide()?.id;const requestId=++uploadRequestId;retryUploadFile=null;renderUploadStatus("uploading","Uploading… "+f.name);try{const r=await api.uploadMedia(f);mediaAssets.unshift(r.asset);

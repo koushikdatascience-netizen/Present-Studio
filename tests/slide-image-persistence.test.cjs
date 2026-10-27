@@ -29,14 +29,16 @@ test('editor serializes immutable save snapshots instead of replacing working st
   assert.match(source, /JSON\.parse\(JSON\.stringify\(presentation\)\)/);
   assert.match(source, /if\(editRevision===revision\)/);
 });
-test('save refuses an incomplete image restore', () => {
-  assert.match(source, /if\(imageRestoreProblem\)return Promise\.reject/);
+test('unavailable old images are preserved in serialized saves', () => {
+  assert.match(source, /unavailableSavedImages=expected\.flatMap/);
+  assert.match(source, /objects\.splice\(index,0,JSON\.parse\(JSON\.stringify\(entry\.object\)\)\)/);
+  assert.doesNotMatch(source, /if\(imageRestoreProblem\)return Promise\.reject/);
 });
 
 test('cross-tab save conflict blocks further overwrites', () => {
   assert.match(source, /presentation\.updatedAt=r\.presentation\.updatedAt/);
   assert.match(source, /saveConflict=true/);
-  assert.match(source, /if\(loading\|\|pendingInsertions\|\|imageRestoreProblem\|\|saveConflict\)return/);
+  assert.match(source, /if\(loading\|\|pendingInsertions\|\|saveConflict\)return/);
 });
 test('avoid media library repaint on every slide navigation', () => {
   assert.match(source, /gridEl\.dataset\.assetSignature===signature/);
