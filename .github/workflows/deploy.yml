@@ -41,6 +41,7 @@ jobs:
       VPS_USER: root
       ALLOW_ACTIVE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_active_meetings && '1' || '0' }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: snapkey-vps-image-${{ github.sha }}
@@ -77,14 +78,10 @@ jobs:
           os.chmod(path,0o600)
           PY
       - name: Back up and deploy only the VPS presentation backend
-        run: |
-          set -euo pipefail
-          digest=$(sha256sum release/snapkey-studio-image.tar.gz | cut -d ' ' -f 1)
-          cat "$RUNNER_TEMP/snapkey-oidc" release/snapkey-studio-image.tar.gz | \
-          ssh -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \
-            -i ~/.ssh/snapkey_ci -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
-            "deploy $GITHUB_SHA $digest $ALLOW_ACTIVE"
+        id: rollout
+        run: bash deploy/run_vps_release.sh
       - name: Verify public health and updated application
+        if: steps.rollout.outputs.deployed == 'true'
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --retry 5 --retry-delay 3 https://connect.snapkeystudio.com/api/health

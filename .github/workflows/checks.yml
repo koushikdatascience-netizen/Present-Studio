@@ -41,9 +41,16 @@ jobs:
         run: |
           curl --fail --silent --show-error --retry 2 https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js -o "$PERF_FABRIC_PATH"
           python tests/presentation-performance-browser.py
+      - name: S3 thumbnail and canvas browser regression
+        env:
+          PERF_FABRIC_PATH: ${{ runner.temp }}/fabric.min.js
+          IMAGE_SCREENSHOT: ${{ runner.temp }}/image-canvas.png
+        run: python tests/slide-image-canvas-browser.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: builder-browser-check
-          path: ${{ runner.temp }}/builder.png
+          path: |
+            ${{ runner.temp }}/builder.png
+            ${{ runner.temp }}/image-canvas.png
           if-no-files-found: ignore

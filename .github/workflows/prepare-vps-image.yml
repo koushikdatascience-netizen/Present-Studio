@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build outside the production servers
-        run: docker build --label org.opencontainers.image.revision=${GITHUB_SHA} -t snapkey-studio:release-${GITHUB_SHA} -f backend/Dockerfile .
+        run: docker build --provenance=false --label org.opencontainers.image.revision=${GITHUB_SHA} -t snapkey-studio:release-${GITHUB_SHA} -f backend/Dockerfile .
       - name: Smoke-test isolated image
         run: |
           set -e
