@@ -58,6 +58,10 @@ def local_fabric():
 
 @fastapi_app.middleware("http")
 async def local_builder_dependencies(request, call_next):
+    if request.url.path == "/__canvas_regression":
+        return regression_page()
+    if request.url.path == "/__fabric.js":
+        return local_fabric()
     if request.url.path == "/builder.html":
         page = (get_settings().frontend_dir / "builder.html").read_text()
         page = page.replace("https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js", "/__fabric.js")
