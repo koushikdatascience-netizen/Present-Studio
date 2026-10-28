@@ -57,7 +57,7 @@ async def run():
                 buffer = BytesIO()
                 Image.new("RGB", (800, 600), "red").save(buffer, format="PNG")
                 png = buffer.getvalue()
-                browser = await playwright.chromium.launch(headless=True)
+                browser = await playwright.chromium.launch(headless=True, channel=os.environ.get('PERF_BROWSER_CHANNEL') or None)
                 context = await browser.new_context(viewport={"width": 1440, "height": 1000})
                 await context.add_init_script("localStorage.setItem('presentStudio.session', " + json.dumps(json.dumps(auth["user"])) + ");localStorage.setItem('presentStudio.accessToken', " + json.dumps(auth["accessToken"]) + ");")
                 fabric_path = Path(os.environ["PERF_FABRIC_PATH"])
@@ -168,9 +168,89 @@ async def run():
                 current = (await (await api.get(f"/api/presentations/{deck['id']}", headers=headers)).json())["presentation"]
                 assert current["title"] == "Winning editor"
                 await other.close()
+                # Exercise the ribbon fixes with the real Fabric library and API
+                # in this isolated database, including persistence after reload.
+                ribbon_deck = (await (await api.post('/api/presentations', headers=headers, data={'title': 'Ribbon regression'})).json())['presentation']
+                await page.goto(base + f"/builder.html?id={ribbon_deck['id']}", wait_until='domcontentloaded')
+                await page.wait_for_function("typeof presentation !== 'undefined' && !loading")
+                await page.locator('[data-builder-tab="insert"]').click()
+                await page.locator('[data-builder-action="new-slide"]').click()
+                await page.wait_for_function("presentation.slides.length===2 && !loading && !savePromise && document.querySelector('#modeLabel').textContent==='Saved'")
+                async def late_builder_ui(route):
+                    response = await route.fetch()
+                    await asyncio.sleep(0.5)
+                    await route.fulfill(response=response)
+                await page.route('**/js/builder-ui.js*', late_builder_ui)
+                await page.reload(wait_until='domcontentloaded')
+                await page.wait_for_function("typeof presentation !== 'undefined' && !loading && presentation.slides.length===2")
+                await page.get_by_role('button', name='Duplicate slide 1', exact=True).click()
+                await page.unroute('**/js/builder-ui.js*')
+                await page.wait_for_function("presentation.slides.length===3 && !loading && !savePromise && document.querySelector('#modeLabel').textContent==='Saved'")
+                await page.get_by_role('button', name='Delete slide 2', exact=True).click()
+                await page.wait_for_function("presentation.slides.length===2 && !loading && !savePromise && document.querySelector('#modeLabel').textContent==='Saved'")
+                await page.reload(wait_until='domcontentloaded')
+                await page.wait_for_function("typeof presentation !== 'undefined' && !loading && presentation.slides.length===2")
+                await page.locator('[data-builder-tab="insert"]').click()
+                await page.locator('#insertText').click()
+                authored = await page.evaluate("({left:active().left,top:active().top,opacity:active().opacity,scaleX:active().scaleX,scaleY:active().scaleY,id:active().id})")
+                await page.locator('[data-builder-tab="animations"]').click()
+                await page.locator('#animationDuration').fill('2000')
+                await page.locator('#animationDelay').fill('3000')
+                await page.locator('[data-animation="fly"]').click()
+                await page.locator('[data-builder-action="preview-animation"]').click()
+                await page.wait_for_function("document.querySelectorAll('.canvas-container > canvas').length >= 4")
+                await page.wait_for_function("!savePromise && document.querySelector('#modeLabel').textContent==='Saved'")
+                stored = (await (await api.get(f"/api/presentations/{ribbon_deck['id']}", headers=headers)).json())['presentation']
+                stored_object = next(obj for obj in stored['slides'][0]['canvas']['fabric']['objects'] if obj.get('id') == authored['id'])
+                for key in ['left', 'top', 'opacity', 'scaleX', 'scaleY']:
+                    assert stored_object[key] == authored[key], ('Preview corrupted saved geometry', key)
+                assert stored_object['animationDuration'] == 2000
+                assert stored_object['animationDelay'] == 3000
+                # Timing edits must save on their own, without another preset click.
+                await page.locator('#animationDuration').fill('1500')
+                await page.locator('#animationDelay').fill('0')
+                await page.wait_for_function("!savePromise && document.querySelector('#modeLabel').textContent==='Saved'")
+                await page.reload(wait_until='domcontentloaded')
+                await page.wait_for_function("typeof presentation !== 'undefined' && !loading")
+                restored = await page.evaluate("canvas.getObjects().find(o=>o.animation==='fly').toObject(['animationDuration','animationDelay'])")
+                assert restored['animationDuration'] == 1500 and restored['animationDelay'] == 0
+                for key in ['left', 'top', 'opacity', 'scaleX', 'scaleY']:
+                    assert restored[key] == authored[key]
+                await page.set_viewport_size({'width': 1440, 'height': 900})
+                layout = await page.evaluate("({stage:document.querySelector('#canvasStage').getBoundingClientRect().width,workspace:document.querySelector('#workspace').clientWidth,padding:parseFloat(getComputedStyle(document.querySelector('#workspace')).paddingLeft)})")
+                assert layout['padding'] <= 8 and layout['stage'] >= layout['workspace'] - 18, layout
+                await page.locator('[data-builder-tab="insert"]').click()
+                assert await page.locator('#insertSlideBackground').is_enabled()
+                assert not await page.locator('.shape-format-group').is_visible()
+                assert not await page.locator('.wordart-format-group').is_visible()
+                await page.locator('#insertSlideBackground').evaluate("input=>{input.value='#234567';input.dispatchEvent(new Event('input',{bubbles:true}))}")
+                await page.wait_for_function("!savePromise && document.querySelector('#modeLabel').textContent==='Saved'")
+                await page.reload(wait_until='domcontentloaded')
+                await page.wait_for_function("typeof presentation !== 'undefined' && !loading")
+                assert await page.evaluate("canvas.backgroundColor") == '#234567'
+                assert await page.locator('#slideBackground').input_value() == '#234567'
+                await page.locator('[data-builder-tab="insert"]').click()
+                assert await page.locator('#insertSlideBackground').input_value() == '#234567'
+                await page.locator('[data-shape="rectangle"]').click()
+                assert await page.locator('#shapeFill').is_enabled()
+                await page.locator('#shapeFill').evaluate("input=>{input.value='#22aa66';input.dispatchEvent(new Event('input',{bubbles:true}))}")
+                assert await page.evaluate("active().getObjects().some(o=>o.fill==='#22aa66')")
+                await page.locator('[data-builder-tab="home"]').click()
+                await page.evaluate("const shape=active();canvas.discardActiveObject();canvas.setActiveObject(shape)")
+                assert 'is-active' in await page.locator('[data-builder-tab="insert"]').get_attribute('class')
+                await page.evaluate("encoded=>image({id:'selection-photo',src:'data:image/png;base64,'+encoded,fitToSlide:true})", base64.b64encode(png).decode())
+                await page.wait_for_function("pendingInsertions===0 && active()?.mediaType==='image'")
+                await page.locator('[data-builder-tab="home"]').click()
+                await page.evaluate("const photo=canvas.getObjects().find(o=>o.id==='selection-photo');canvas.discardActiveObject();canvas.setActiveObject(photo)")
+                assert 'is-active' in await page.locator('[data-builder-tab="insert"]').get_attribute('class')
+                assert await page.locator('.fit-media-tool').is_visible()
+                assert not await page.locator('.wordart-format-group').is_visible()
+                assert not await page.locator('.shape-format-group').is_visible()
+                await page.locator('.fit-media-tool').click()
+                await page.wait_for_function("!savePromise && document.querySelector('#modeLabel').textContent==='Saved'")
                 await page.screenshot(path=os.environ.get("PERF_SCREENSHOT", str(Path(directory) / "builder.png")))
                 assert not errors, errors
-                print("Browser checks passed: independent dashboard/editor loading, sidebar reuse, rapid slide switching, slow-save edit preservation, concurrent-editor conflict and unsaved-copy download")
+                print("Browser checks passed: independent loading, rapid slide switching, concurrent saves, conflict recovery, ribbon slide autosave, isolated animation preview, timing persistence, wider workspace, background persistence, shape fill and contextual Insert tools")
                 await context.close()
                 await browser.close()
                 await api.dispose()

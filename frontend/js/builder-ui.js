@@ -21,6 +21,7 @@
   let builderUploadRequestId = 0;
   let shapeTextEditSession = null;
   let componentEditSession = null;
+  let animationPreview = null;
 
   function safeColor(value, fallback = "#171717") {
     return /^(transparent|#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i.test(String(value || "")) ? value : fallback;
@@ -599,7 +600,9 @@
 
   const originalRender = render;
   render = function renderBuilder() {
+    stopObjectAnimationPreview();
     originalRender();
+    syncSlideBackgroundControls();
     if (presentation) {
       titleInput.value = presentation.title || "Untitled presentation";
       const slide = activeSlide();
@@ -653,15 +656,16 @@
     }
   };
 
-  all("[data-builder-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
-      all("[data-builder-tab]").forEach((item) => item.classList.toggle("is-active", item === button));
-      all("[data-ribbon-panel]").forEach((panel) => {
-        const active = panel.dataset.ribbonPanel === button.dataset.builderTab;
-        panel.hidden = !active;
-        panel.classList.toggle("is-active", active);
-      });
+  function activateBuilderTab(name) {
+    all("[data-builder-tab]").forEach((item) => item.classList.toggle("is-active", item.dataset.builderTab === name));
+    all("[data-ribbon-panel]").forEach((panel) => {
+      const active = panel.dataset.ribbonPanel === name;
+      panel.hidden = !active;
+      panel.classList.toggle("is-active", active);
     });
+  }
+  all("[data-builder-tab]").forEach((button) => {
+    button.addEventListener("click", () => activateBuilderTab(button.dataset.builderTab));
   });
 
   function editPresentationTitle() {
@@ -1488,7 +1492,7 @@
     const shapeGroup = document.querySelector(".shape-format-group");
     const showVisual = Boolean(visual && ["frame", "flowchart", "diagram", "chart"].includes(visual.type));
     if (visualGroup) visualGroup.hidden = !showVisual;
-    if (shapeGroup) shapeGroup.hidden = Boolean(visual && ["frame", "diagram", "chart"].includes(visual.type));
+    if (shapeGroup) shapeGroup.hidden = !selectedShape() || Boolean(visual && ["frame", "diagram", "chart"].includes(visual.type));
     const controls = all(".visual-format-group input, .visual-format-group select, .visual-format-group button");
     controls.forEach((control) => { control.disabled = !showVisual; });
     if (!showVisual) return;
@@ -1953,11 +1957,19 @@
     });
   });
 
-  byId("slideBackground")?.addEventListener("input", (event) => {
+  function syncSlideBackgroundControls() {
+    const color = colorInputValue(presentation && activeSlide()?.canvas?.background, "#f8f4ea");
+    ["slideBackground", "insertSlideBackground"].forEach((id) => { if (byId(id)) byId(id).value = color; });
+  }
+  function applySlideBackground(event) {
+    if (!presentation || loading) { toast("Wait for the slide to finish loading."); return; }
     canvas.backgroundColor = event.target.value;
+    ensure(activeSlide()).canvas.background = event.target.value;
+    syncSlideBackgroundControls();
     canvas.requestRenderAll();
     schedule();
-  });
+  }
+  ["slideBackground", "insertSlideBackground"].forEach((id) => byId(id)?.addEventListener("input", applySlideBackground));
 
   all("[data-media-input]").forEach((input) => input.addEventListener("change", upload));
 
@@ -2462,6 +2474,7 @@
   }
 
   function setObjectAnimation(type) {
+    stopObjectAnimationPreview();
     const object = active();
     if (!object || object.type === "activeSelection") return toast("Select one element to animate.");
     object.set({
@@ -2475,32 +2488,75 @@
     else toast("Animation removed.");
   }
 
+  function stopObjectAnimationPreview() {
+    const preview = animationPreview;
+    if (!preview) return;
+    animationPreview = null;
+    window.clearTimeout(preview.timer);
+    fabric.runningAnimations?.cancelByCanvas(preview.scene);
+    if (!preview.decoding) preview.scene.dispose();
+    preview.element.remove();
+  }
+
   function previewObjectAnimation(target = active()) {
+    stopObjectAnimationPreview();
     const object = target;
     if (!object || object.type === "activeSelection") return toast("Select one element to preview.");
     const type = object.animation || "fade";
     if (type === "none") return toast("No animation selected.");
     const duration = Math.max(100, Math.min(5000, Number(object.animationDuration || byId("animationDuration")?.value) || 600));
-    const delay = Math.max(0, Math.min(5000, Number(object.animationDelay || byId("animationDelay")?.value) || 0));
-    const finalState = {
-      opacity: object.opacity ?? 1,
-      left: object.left || 0,
-      top: object.top || 0,
-      scaleX: object.scaleX || 1,
-      scaleY: object.scaleY || 1
-    };
-    object.set(animationStartState(object, type));
-    object.setCoords();
-    canvas.requestRenderAll();
-    window.setTimeout(() => {
-      Object.entries(finalState).forEach(([key, value]) => object.animate(key, value, {
-        duration,
-        easing: fabric.util.ease.easeOutCubic,
-        onChange: canvas.renderAll.bind(canvas),
-        onComplete: () => { object.set(finalState); object.setCoords(); canvas.requestRenderAll(); }
-      }));
-    }, delay);
+    const delay = Math.max(0, Math.min(5000, Number(object.animationDelay ?? byId("animationDelay")?.value) || 0));
+    const index = canvas.getObjects().indexOf(object);
+    if (index < 0) return;
+    // Preview a separate scene so autosave, history and slide navigation always
+    // see the authored geometry, even during a long animation delay.
+    const element = document.createElement("canvas");
+    element.setAttribute("aria-hidden", "true");
+    const scene = new fabric.StaticCanvas(element, { width: W, height: H, renderOnAddRemove: false });
+    element.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6;";
+    const preview = { scene, element, timer: 0, decoding: true };
+    animationPreview = preview;
+    // Keep decoding offscreen. A stale callback must never cover a newer slide.
+    scene.loadFromJSON(canvas.toJSON(), () => {
+      preview.decoding = false;
+      if (animationPreview !== preview) { scene.dispose(); return; }
+      const clone = scene.getObjects()[index];
+      if (!clone) { stopObjectAnimationPreview(); return; }
+      const finalState = {
+        opacity: clone.opacity ?? 1, left: clone.left || 0, top: clone.top || 0,
+        scaleX: clone.scaleX ?? 1, scaleY: clone.scaleY ?? 1
+      };
+      clone.set(animationStartState(clone, type));
+      scene.backgroundColor = canvas.backgroundColor;
+      canvas.wrapperEl.append(element);
+      scene.renderAll();
+      preview.timer = window.setTimeout(() => {
+        if (animationPreview !== preview) return;
+        let remaining = Object.keys(finalState).length;
+        Object.entries(finalState).forEach(([key, value]) => clone.animate(key, value, {
+          duration,
+          easing: fabric.util.ease.easeOutCubic,
+          abort: () => animationPreview !== preview,
+          onChange: () => { if (animationPreview === preview) scene.renderAll(); },
+          onComplete: () => { if (animationPreview === preview && --remaining === 0) stopObjectAnimationPreview(); }
+        }));
+      }, delay);
+    });
   }
+
+  function setAnimationTiming() {
+    stopObjectAnimationPreview();
+    const object = active();
+    if (!object || object.type === "activeSelection") return;
+    object.set({
+      animationDuration: Math.max(100, Math.min(5000, Number(byId("animationDuration").value) || 600)),
+      animationDelay: Math.max(0, Math.min(5000, Number(byId("animationDelay").value) || 0))
+    });
+    schedule();
+  }
+  byId("animationDuration").addEventListener("input", setAnimationTiming);
+  byId("animationDelay").addEventListener("input", setAnimationTiming);
+  ["mouse:down", "selection:created", "selection:updated", "selection:cleared", "object:modified", "text:changed"].forEach((name) => canvas.on(name, stopObjectAnimationPreview));
 
   document.querySelector(".ribbon").addEventListener("pointerdown", (event) => {
     const button = event.target.closest("[data-builder-action]");
@@ -2730,6 +2786,8 @@
   function syncWordArtControls(preset = null) {
     const object = active();
     const enabled = isTextObject(object);
+    const group = document.querySelector(".wordart-format-group");
+    if (group) group.hidden = !enabled;
     const controls = ["wordArtStyle", "wordArtFill", "wordArtOutline", "wordArtOutlineWidth", "wordArtShadow"]
       .map(byId).filter(Boolean);
     controls.forEach((control) => { control.disabled = !enabled; });
@@ -2968,4 +3026,20 @@
   });
 
   window.addEventListener("blur", () => { internalCopyPending = false; });
+  function revealSelectionTools() {
+    const object = active();
+    if (!object) return;
+    const media = ["image", "video", "youtube", "screen-share"].includes(object.mediaType);
+    const visual = inspectSelection(object);
+    const shape = selectedShape(object);
+    const insert = media || visual || shape || object.wordArt;
+    activateBuilderTab(insert ? "insert" : "home");
+    const control = media ? document.querySelector(".fit-media-tool") : visual && ["diagram", "chart", "frame"].includes(visual.type) ? byId("visualTheme") : shape ? byId("shapeFill") : object.wordArt ? byId("wordArtStyle") : byId("editorPanel");
+    control?.closest(".ribbon-group")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+  canvas.on("selection:created", revealSelectionTools);
+  canvas.on("selection:updated", revealSelectionTools);
+  // A warm API response can finish the editor's first render before this script
+  // arrives. Hydrate the enhanced sidebar and controls in that load order too.
+  if (presentation) render();
 })();

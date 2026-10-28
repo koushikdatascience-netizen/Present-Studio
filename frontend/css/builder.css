@@ -1234,18 +1234,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 /* Use more of the newly available area for the actual slide */
 .builder-page .workspace {
-  padding: 14px 24px;
+  padding: 14px 8px;
+  align-items: safe center;
 }
 
 .builder-page .canvas-stage {
-  width: min(
-    100%,
-    calc(
-      (100dvh - var(--header-h) - var(--tabs-h) - var(--ribbon-h) - var(--status-h) - 28px)
-      * var(--slide-ratio)
-    )
-  );
-  max-width: 1320px;
+  width: 100%;
+  max-width: none;
 }
 
 /* Slightly more compact header, while keeping it easy to use */
@@ -1296,7 +1291,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   }
 
   .builder-page .workspace {
-    padding: 10px 16px;
+    padding: 10px 8px;
   }
 
   .builder-page .preset-card {

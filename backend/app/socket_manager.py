@@ -99,6 +99,8 @@ async def join_presentation(sid, data):
     presentation_id = data.get("presentationId")
     if not presentation_id:
         return
+    breakout_guest_id = None
+    breakout_rejected = False
     with SessionLocal() as db:
         presentation = db.get(Presentation, presentation_id)
         if presentation and presentation.status == "breakout":
@@ -108,26 +110,33 @@ async def join_presentation(sid, data):
                 _, _, _, _, guest = authorize(db, data)
                 if guest:
                     enforce_assignment(db, presentation_id, guest.guest_id)
-                    session = await sio.get_session(sid)
-                    session["breakout_guest_id"] = guest.guest_id
-                    session["breakout_presentation_id"] = presentation_id
-                    await sio.save_session(sid, session)
+                    breakout_guest_id = guest.guest_id
             except HTTPException:
-                await sio.leave_room(sid, presentation_id)
-                return
+                breakout_rejected = True
+    if breakout_rejected:
+        await sio.leave_room(sid, presentation_id)
+        return
+    if breakout_guest_id:
+        session = await sio.get_session(sid)
+        session["breakout_guest_id"] = breakout_guest_id
+        session["breakout_presentation_id"] = presentation_id
+        await sio.save_session(sid, session)
     await sio.enter_room(sid, presentation_id)
+    state = None
+    slide_state = None
     with SessionLocal() as db:
         live = db.query(LiveSession).filter(LiveSession.presentation_id == presentation_id).first()
         if live:
             live.audience_count += 1
             db.commit()
-            await sio.emit("presentation_state", live_session_payload(live, presentation_id), room=sid)
-            await sio.emit(
-                "active_slide_changed",
-                {"presentationId": presentation_id, "slideId": live.active_slide_id},
-                room=sid,
-            )
+            state = live_session_payload(live, presentation_id)
+            slide_state = {"presentationId": presentation_id, "slideId": live.active_slide_id}
         control_state = meeting_control_payload(live, presentation_id)
+    # A room join can wait on transport I/O. Release the database connection
+    # before emitting so concurrent joins cannot occupy the whole SQL pool.
+    if state is not None:
+        await sio.emit("presentation_state", state, room=sid)
+        await sio.emit("active_slide_changed", slide_state, room=sid)
     await sio.emit("meeting_control_state", control_state, room=sid)
     await sio.emit("presence", {"message": "joined", "presentationId": presentation_id}, room=sid)
 

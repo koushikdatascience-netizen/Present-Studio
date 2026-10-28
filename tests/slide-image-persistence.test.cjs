@@ -38,7 +38,7 @@ test('unavailable old images are preserved in serialized saves', () => {
 test('cross-tab save conflict blocks further overwrites', () => {
   assert.match(source, /presentation\.updatedAt=r\.presentation\.updatedAt/);
   assert.match(source, /saveConflict=true/);
-  assert.match(source, /if\(loading\|\|pendingInsertions\|\|saveConflict\)return/);
+  assert.match(source, /if\(!autosaveRequested\|\|loading\|\|pendingInsertions\|\|saveConflict\)return/);
 });
 test('avoid media library repaint on every slide navigation', () => {
   assert.match(source, /gridEl\.dataset\.assetSignature===signature/);
