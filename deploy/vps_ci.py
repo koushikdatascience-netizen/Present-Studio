@@ -173,15 +173,37 @@ def archive_identity(path, image, commit):
         identities = {'sha256:' + config_digest}
         if 'index.json' in archive.getnames():
             index = json.load(archive.extractfile('index.json'))
-            for item in index['manifests']:
+            visited = {}
+
+            def verify_manifest(item, depth=0):
+                if depth > 8 or len(visited) > 128:
+                    raise ValueError('Image manifest nesting exceeds limit')
                 digest = item['digest']
                 if not re.fullmatch('sha256:[a-f0-9]{64}', digest):
                     raise ValueError('Invalid image manifest digest')
+                if digest in visited:
+                    if visited[digest] is None:
+                        raise ValueError('Cyclic image manifest')
+                    return visited[digest]
+                visited[digest] = None
                 data = archive.extractfile('blobs/sha256/' + digest[7:]).read()
                 if 'sha256:' + hashlib.sha256(data).hexdigest() != digest:
                     raise ValueError('Image manifest checksum mismatch')
-                if json.loads(data).get('config', {}).get('digest') == 'sha256:' + config_digest:
+                manifest_data = json.loads(data)
+                matches = manifest_data.get('config', {}).get('digest') == 'sha256:' + config_digest
+                if 'manifests' in manifest_data:
+                    # Docker may identify an image by its nested OCI index.
+                    # Accept it only after hashing every referenced manifest and
+                    # finding the exact revision-checked image configuration.
+                    children = [verify_manifest(child, depth + 1) for child in manifest_data['manifests']]
+                    matches = any(children)
+                visited[digest] = matches
+                if matches:
                     identities.add(digest)
+                return matches
+
+            for item in index['manifests']:
+                verify_manifest(item)
         return identities
 
 

@@ -77,7 +77,7 @@ def test_forged_signature_and_automatic_meeting_override_are_rejected(identity):
     ci.verify_identity(io.BytesIO(jwt.encode({**claims, "event_name": "workflow_dispatch"}, key, algorithm="RS256").encode()+b"\n"), SHA, True)
 
 
-def archive(path, *, revision=SHA, tags=None):
+def archive(path, *, revision=SHA, tags=None, nested=False, corrupt_child=False):
     config = json.dumps({"config": {"Labels": {"org.opencontainers.image.revision": revision}}}).encode()
     config_id = "sha256:" + hashlib.sha256(config).hexdigest()
     manifest_blob = json.dumps({"config": {"digest": config_id}}).encode()
@@ -85,11 +85,29 @@ def archive(path, *, revision=SHA, tags=None):
     files = {"manifest.json": json.dumps([{"RepoTags": tags or [IMAGE], "Config": "blobs/sha256/"+config_id[7:]}]).encode(),
              "index.json": json.dumps({"manifests": [{"digest": manifest_id}]}).encode(),
              "blobs/sha256/"+config_id[7:]: config, "blobs/sha256/"+manifest_id[7:]: manifest_blob}
+    ids = {config_id, manifest_id}
+    if nested:
+        index_blob = json.dumps({'manifests': [{'digest': manifest_id}]}).encode()
+        index_id = 'sha256:' + hashlib.sha256(index_blob).hexdigest()
+        files['blobs/sha256/' + index_id[7:]] = index_blob
+        files['index.json'] = json.dumps({'manifests': [{'digest': index_id}]}).encode()
+        ids.add(index_id)
+    if corrupt_child:
+        files['blobs/sha256/' + manifest_id[7:]] = b'corrupt manifest'
     with tarfile.open(path, "w:gz") as output:
         for name, data in files.items():
             member = tarfile.TarInfo(name); member.size = len(data)
             output.addfile(member, io.BytesIO(data))
-    return {config_id, manifest_id}
+    return ids
+
+
+def test_nested_oci_index_is_accepted_only_with_verified_descendants(tmp_path):
+    path = tmp_path / 'nested-image.tar.gz'
+    ids = archive(path, nested=True)
+    assert ci.archive_identity(path, IMAGE, SHA) == ids
+    archive(path, nested=True, corrupt_child=True)
+    with pytest.raises(ValueError, match='checksum mismatch'):
+        ci.archive_identity(path, IMAGE, SHA)
 
 
 def test_archive_verifies_both_docker_image_identity_formats(tmp_path):
