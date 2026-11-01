@@ -9,6 +9,7 @@
     const nameInput = root.querySelector("[data-live-name]");
     const screenCodeInput = root.querySelector("[data-screen-code]");
     const joinButton = root.querySelector("[data-live-join]");
+    const mediaCheckButton = root.querySelector("[data-live-media-check]");
     const microphoneButton = root.querySelector("[data-live-microphone]");
     const cameraButton = root.querySelector("[data-live-camera]");
     const screenShareButton = root.querySelector("[data-live-screen-share]");
@@ -2057,6 +2058,7 @@
       }
       if (panelMaximizeButton) panelMaximizeButton.disabled = !connected;
       joinButton.hidden = connected;
+      if (mediaCheckButton) mediaCheckButton.hidden = connected;
       joinButton.disabled = joining || (!isController && admissionState === "waiting");
       joinButton.textContent = !isController && admissionState === "waiting" ? "Waiting for presenter…" : (isController ? "Join audio/video" : "Ask to join meeting");
       nameInput.disabled = connected || joining || (!isController && admissionState === "waiting");
@@ -2342,6 +2344,34 @@
       }
     }
 
+    async function checkMediaAccess() {
+      const getUserMedia = navigator.mediaDevices?.getUserMedia;
+      if (!getUserMedia) {
+        setStatus("This browser cannot access the camera or microphone. Open this meeting in Safari or Chrome on your iPhone.", "error");
+        return;
+      }
+      mediaCheckButton.disabled = true;
+      setStatus("Checking camera and microphone access…");
+      let stream;
+      try {
+        stream = await getUserMedia.call(navigator.mediaDevices, { audio: true, video: true });
+        setStatus("Camera and microphone are ready. Join the meeting, then turn on the devices you want to use.", "success");
+      } catch (error) {
+        const blocked = error?.name === "NotAllowedError" || error?.name === "SecurityError";
+        const message = blocked
+          ? "Camera or microphone access is blocked. On iPhone, allow this browser in Settings → Privacy & Security → Camera and Microphone. In Safari, also open this site’s Website Settings and set Camera and Microphone to Allow, then retry."
+          : error?.name === "NotFoundError"
+            ? "No camera or microphone was found. Check your iPhone’s devices and retry."
+            : error?.name === "NotReadableError"
+              ? "The camera or microphone is busy in another app. Close that app and retry."
+              : error?.message || "Camera and microphone could not be checked. Check this site’s browser permissions and retry.";
+        setStatus(message, "error");
+      } finally {
+        stream?.getTracks().forEach(track => track.stop());
+        mediaCheckButton.disabled = false;
+      }
+    }
+
     async function toggleMicrophone() {
       if (!room) return;
       microphoneButton.classList.remove("is-unmute-requested");
@@ -2539,6 +2569,7 @@
       unlockReactionAudio();
       join(event);
     });
+    mediaCheckButton?.addEventListener("click", checkMediaAccess);
     function submitJoinOnEnter(event) {
       if (event.key !== "Enter" || event.isComposing) return;
       event.preventDefault();

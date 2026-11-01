@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Present Studio - Present</title>
-    <link rel="stylesheet" href="/css/styles.css?v=20261007-meeting-countdown">
+    <link rel="stylesheet" href="/css/styles.css?v=20261101-media-permission-check">
   </head>
   <body class="present-page" data-audience-theme="light">
     <div class="present-loading" id="presentLoading">
@@ -40,7 +40,7 @@
           <div class="audience-welcome-notes" aria-label="Joining information"><span><b aria-hidden="true">✓</b> Presenter approval</span><span><b aria-hidden="true">✓</b> Mic and camera off</span></div>
           <p class="audience-preview-audio" data-presentation-audio-status aria-live="polite">Live video and sound start automatically. If your browser limits sound, entering your name will enable it.</p>
         </div>
-        <div class="live-media-join audience-prejoin-form"><label><span>Your display name</span><input data-live-name type="text" maxlength="80" autocomplete="name" enterkeyhint="go" placeholder="Enter your name" aria-describedby="audienceJoinHelp"></label><label data-screen-code-field hidden><span>Meeting access code</span><input data-screen-code type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="4-digit code" aria-describedby="audienceJoinHelp"></label><button data-live-join type="button">Request to join</button></div>
+        <div class="live-media-join audience-prejoin-form"><label><span>Your display name</span><input data-live-name type="text" maxlength="80" autocomplete="name" enterkeyhint="go" placeholder="Enter your name" aria-describedby="audienceJoinHelp"></label><label data-screen-code-field hidden><span>Meeting access code</span><input data-screen-code type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="4-digit code" aria-describedby="audienceJoinHelp"></label><button data-live-join type="button">Request to join</button><button class="audience-media-check" data-live-media-check type="button">Check camera &amp; microphone</button></div>
         <p class="live-media-status audience-prejoin-status" id="audienceJoinHelp" data-live-status aria-live="polite">You’ll wait briefly in the lobby until the presenter admits you.</p>
         <div class="audience-meeting-stage">
           <button class="stage-fullscreen-exit" data-live-fullscreen-exit type="button" aria-label="Exit meeting fullscreen" title="Exit fullscreen" hidden>×</button>
@@ -130,7 +130,7 @@
     <link rel="stylesheet" href="/css/breakout-rooms.css?v=20261006">
     <script src="/js/breakout-rooms.js?v=20261006"></script>
     <script src="/js/remote-control.js?v=3"></script>
-    <script src="/js/live-media.js?v=20261015-remote-assist-1"></script>
+    <script src="/js/live-media.js?v=20261101-media-permission-check"></script>
     <script src="/js/audience-recording.js?v=20261010-tab-recording"></script>
     <script src="/js/whiteboard-3d.js?v=20261004-live-3d"></script>
     <script src="/js/whiteboard-view.js?v=20261004-science-board"></script>

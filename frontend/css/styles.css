@@ -1812,6 +1812,8 @@ button.present-back {
   font-size: .68rem;
 }
 .audience-live-view .present-live-media:not(.is-connected) > .audience-prejoin-form button:hover:not(:disabled) { border-color: #ffd54a; background: #ffe171; }
+.audience-live-view .present-live-media:not(.is-connected) > .audience-prejoin-form button.audience-media-check { border-color: #5b5a54; background: #242420; color: #f1efe9; }
+.audience-live-view .present-live-media:not(.is-connected) > .audience-prejoin-form button.audience-media-check:hover:not(:disabled) { border-color: #ffd54a; background: #302e27; }
 .audience-live-view .present-live-media:not(.is-connected) > .audience-prejoin-status { min-height: 20px; margin-top: 12px; margin-bottom: 0; color: #929088; font-size: .72rem; line-height: 1.5; }
 .audience-live-view .present-live-media:not(.is-connected) > .audience-prejoin-status[data-kind="error"] { color: #ffaaa3; }
 .audience-live-view .present-live-media:not(.is-connected) > .audience-prejoin-status[data-kind="success"] { color: #7fd59f; }
