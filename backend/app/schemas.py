@@ -168,6 +168,17 @@ class MeetingCreate(BaseModel):
     scheduledEnd: datetime | None = None
 
 
+class MeetingMessageTemplateCreate(BaseModel):
+    channel: Literal["email", "whatsapp"]
+    name: str = Field(min_length=1, max_length=80)
+    subject: str = Field(default="", max_length=180)
+    body: str = Field(min_length=1, max_length=5000)
+
+
+class MeetingMessageTemplateUpdate(MeetingMessageTemplateCreate):
+    pass
+
+
 class MeetingExtendRequest(BaseModel):
     minutes: Literal[5, 10, 15, 30, 60] = 15
 

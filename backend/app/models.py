@@ -67,6 +67,19 @@ class Meeting(Base):
     updated_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class MeetingMessageTemplate(Base):
+    __tablename__ = "meeting_message_templates"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    channel: Mapped[str] = mapped_column(String(16), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    subject: Mapped[str] = mapped_column(String(180), default="")
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Slide(Base):
     __tablename__ = "slides"
 

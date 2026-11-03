@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <link rel="stylesheet" href="/css/builder.css?v=20260928-outfit-font">
-  <link rel="stylesheet" href="/css/dashboard.css?v=20261010-presentation-actions">
+  <link rel="stylesheet" href="/css/dashboard.css?v=20261103-meeting-invites">
 </head>
 <body class="dashboard-page">
   <header class="app-header dashboard-header">
@@ -100,9 +100,29 @@
         <span class="meeting-success-icon"><i class="bi bi-check-lg"></i></span><h3>Your meeting is ready</h3><p id="meetingResultSummary"></p>
         <label><span>Audience link</span><div class="meeting-copy-row"><input id="meetingAudienceLink" readonly><button type="button" data-copy-meeting-link>Copy</button></div></label>
         <div class="meeting-access-code" data-meeting-access-code hidden><span>Private meeting code</span><strong id="meetingAccessCode"></strong><button type="button" data-copy-meeting-code>Copy code</button></div>
+        <section class="meeting-invite-options" aria-labelledby="meetingInviteOptionsTitle"><div><h4 id="meetingInviteOptionsTitle">Invite participants</h4><p>Choose a message template and share the room details.</p></div><div class="meeting-invite-actions"><button type="button" data-open-meeting-invite="email"><i class="bi bi-envelope"></i><span>Email</span></button><button type="button" data-open-meeting-invite="whatsapp"><i class="bi bi-whatsapp"></i><span>WhatsApp</span></button></div></section>
       </div>
       <footer class="meeting-dialog-footer"><button type="button" class="cta-secondary" id="meetingCancel">Cancel</button><button type="submit" class="cta-primary" id="meetingSubmit"><i class="bi bi-camera-video"></i><span>Create meeting</span></button><a class="cta-primary" id="meetingOwnerJoin" href="#" hidden><i class="bi bi-box-arrow-up-right"></i><span>Open owner controls</span></a></footer>
     </form>
+  </dialog>
+  <dialog class="meeting-invite-dialog" id="meetingInviteDialog" aria-labelledby="meetingInviteTitle">
+    <div class="meeting-invite-shell">
+      <header class="meeting-invite-header"><div><p class="dashboard-eyebrow">MEETING INVITATION</p><h2 id="meetingInviteTitle">Share by email</h2></div><button type="button" data-close-meeting-invite aria-label="Close invitation">×</button></header>
+      <p class="meeting-invite-explainer" data-invite-explainer></p>
+      <label class="meeting-invite-field"><span data-invite-recipients-label>Email addresses</span><textarea id="meetingInviteRecipients" rows="2" placeholder="name@example.com, team@example.com" autocomplete="off"></textarea><small data-invite-recipient-help>Separate recipients with commas.</small></label>
+      <div class="meeting-template-picker"><label for="meetingTemplateSelect">Message template</label><div><select id="meetingTemplateSelect"></select><button type="button" data-new-meeting-template><i class="bi bi-plus-lg"></i> New</button></div></div>
+      <section class="meeting-template-editor" data-meeting-template-editor hidden>
+        <div class="meeting-template-editor-heading"><strong data-template-editor-title>Create a template</strong><button type="button" data-delete-meeting-template hidden>Delete</button></div>
+        <label><span>Template name</span><input id="meetingTemplateName" maxlength="80" placeholder="For example, Product review invite"></label>
+        <label data-template-subject-field><span>Email subject</span><input id="meetingTemplateSubject" maxlength="180" placeholder="Invitation: {{meeting_title}}"></label>
+        <label><span>Message</span><textarea id="meetingTemplateBody" rows="6" maxlength="5000" placeholder="Write a clear, professional invitation…"></textarea></label>
+        <p class="meeting-template-variables">Personalize with: <code>{{meeting_title}}</code> <code>{{owner_name}}</code> <code>{{meeting_date}}</code> <code>{{meeting_time}}</code> <code>{{audience_link}}</code> <code>{{access_code}}</code></p>
+        <button class="cta-secondary" type="button" data-save-meeting-template>Save template</button>
+      </section>
+      <section class="meeting-template-preview"><div><strong>Message preview</strong><button type="button" data-edit-meeting-template>Edit template</button></div><p data-meeting-template-subject hidden></p><pre data-meeting-template-preview></pre></section>
+      <p class="meeting-invite-status" data-meeting-invite-status role="status" aria-live="polite"></p>
+      <footer class="meeting-invite-footer"><button class="cta-secondary" type="button" data-close-meeting-invite>Cancel</button><button class="cta-primary" type="button" data-send-meeting-invite><i class="bi bi-envelope"></i><span>Open email draft</span></button></footer>
+    </div>
   </dialog>
   <dialog class="private-meeting-dialog" id="privateMeetingDialog" aria-labelledby="privateMeetingTitle">
     <div>
@@ -113,10 +133,10 @@
     </div>
   </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/js/api.js?v=20261026-save-sync"></script>
+  <script src="/js/api.js?v=20261103-meeting-message-templates"></script>
   <script src="/js/youtube-embed.js?v=20261003-meeting-youtube"></script>
   <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
   <script src="/js/fabric-patch.js?v=20260908-paragraph-align"></script>
-  <script src="/js/dashboard.js?v=20261026-combined-images"></script>
+  <script src="/js/dashboard.js?v=20261103-meeting-invites"></script>
 </body>
 </html>

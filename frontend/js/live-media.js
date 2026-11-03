@@ -188,6 +188,7 @@
     const presentationSource = options.presentationSource || {};
     const isController = options.controller === true;
     const isCohostController = isController && Boolean(options.cohostGuestId);
+    const isOwnerController = isController && !isCohostController;
     const admissionBypass = isController || options.admissionBypass === true;
     let room = null;
     let microphoneEnabled = false;
@@ -225,8 +226,15 @@
     let admissionAlarmPulseInFlight = false;
     let joinSoundEnabled = localStorage.getItem("presentStudio.joinSoundEnabled") !== "false";
     let joinSoundButton = null;
-    let tabSpeakerMuted = localStorage.getItem("presentStudio.tabSpeakerMuted") === "true";
+    const speakerPreferenceKey = `presentStudio.tabSpeaker.${options.controller ? "controller" : "audience"}.${options.presentationId}`;
+    let tabSpeakerMuted = localStorage.getItem(`${speakerPreferenceKey}.muted`) === "true";
+    const storedSpeakerVolume = Number.parseFloat(localStorage.getItem(`${speakerPreferenceKey}.volume`) ?? "1");
+    let tabSpeakerVolume = Number.isFinite(storedSpeakerVolume) ? Math.min(1, Math.max(0, storedSpeakerVolume)) : 1;
     let tabSpeakerButton = null;
+    let tabSpeakerVolumeControl = null;
+    let ownerMeetingAlert = null;
+    let ownerPresenceTimer = 0;
+    let ownerMentionSequence = new Set();
     let joinNotificationArmed = false;
     let admissionState = admissionBypass ? "approved" : "idle";
     let screenShareRequestPending = false;
@@ -264,6 +272,12 @@
     const meetingTabChannel = typeof BroadcastChannel === "function"
       ? new BroadcastChannel(`presentStudio.meeting.${options.presentationId}.${meetingLeaseRole}`)
       : null;
+    const ownerMeetingChannel = isOwnerController && typeof BroadcastChannel === "function"
+      ? new BroadcastChannel("presentStudio.ownerMeetingTabs.v1")
+      : null;
+    const ownerMeetingPresenceKey = `presentStudio.ownerMeetingPresence.${meetingTabId}`;
+    const ownerMeetingCommandKey = "presentStudio.ownerMeetingCommand.v1";
+    const ownerMeetingAlertKey = "presentStudio.ownerMeetingAlert.v1";
     const isIOSLike = /iP(hone|ad|od)/.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
@@ -450,6 +464,150 @@
 
     function currentIdentity() { return String(room?.localParticipant?.identity || ""); }
     function currentName() { return String(room?.localParticipant?.name || nameInput.value.trim() || (isController ? "Presenter" : "Guest")).slice(0, 80); }
+    function updateOwnerMeetingPresence() {
+      if (!isOwnerController) return;
+      const record = {
+        tabId: meetingTabId,
+        presentationId: String(options.presentationId || ""),
+        title: String(document.title || "Live meeting").replace(/\s*[—-]\s*(Presenter|Live Controller).*$/i, "").slice(0, 120),
+        updatedAt: Date.now(),
+        hiddenSince: document.visibilityState === "hidden" ? (backgroundedAt || Date.now()) : 0,
+        connected: Boolean(room?.state === "connected"),
+        muted: tabSpeakerMuted
+      };
+      try { localStorage.setItem(ownerMeetingPresenceKey, JSON.stringify(record)); } catch {}
+      try { ownerMeetingChannel?.postMessage({ type: "presence", record }); } catch {}
+    }
+
+    function showOwnerMeetingAlert({ id, title, message, targetTabId = "", kind = "attention" }) {
+      if (!isOwnerController || document.visibilityState !== "visible" || !root.isConnected) return;
+      if (ownerMentionSequence.has(id)) return;
+      ownerMentionSequence.add(id);
+      if (ownerMentionSequence.size > 100) ownerMentionSequence = new Set([...ownerMentionSequence].slice(-50));
+      if (!ownerMeetingAlert) {
+        ownerMeetingAlert = document.createElement("aside");
+        ownerMeetingAlert.className = "owner-meeting-alert";
+        ownerMeetingAlert.setAttribute("role", "alert");
+        ownerMeetingAlert.setAttribute("aria-live", "assertive");
+        const copy = document.createElement("div");
+        copy.className = "owner-meeting-alert-copy";
+        const heading = document.createElement("strong");
+        heading.dataset.alertTitle = "";
+        const detail = document.createElement("span");
+        detail.dataset.alertMessage = "";
+        copy.append(heading, detail);
+        const actions = document.createElement("div");
+        actions.className = "owner-meeting-alert-actions";
+        const muteButton = document.createElement("button");
+        muteButton.type = "button";
+        muteButton.dataset.alertMute = "";
+        const dismissButton = document.createElement("button");
+        dismissButton.type = "button";
+        dismissButton.textContent = "Dismiss";
+        dismissButton.addEventListener("click", () => { ownerMeetingAlert.hidden = true; });
+        actions.append(muteButton, dismissButton);
+        ownerMeetingAlert.append(copy, actions);
+        document.body.append(ownerMeetingAlert);
+      }
+      ownerMeetingAlert.hidden = false;
+      ownerMeetingAlert.dataset.kind = kind;
+      ownerMeetingAlert.querySelector("[data-alert-title]").textContent = title;
+      ownerMeetingAlert.querySelector("[data-alert-message]").textContent = message;
+      const muteButton = ownerMeetingAlert.querySelector("[data-alert-mute]");
+      muteButton.hidden = !targetTabId;
+      muteButton.textContent = "Mute that meeting";
+      muteButton.onclick = () => {
+        const command = { type: "mute", targetTabId, sourceTabId: meetingTabId, at: Date.now() };
+        try { localStorage.setItem(ownerMeetingCommandKey, JSON.stringify(command)); } catch {}
+        try { ownerMeetingChannel?.postMessage(command); } catch {}
+        ownerMeetingAlert.hidden = true;
+        setStatus("Mute requested for the other meeting tab.", "success");
+      };
+    }
+
+    function processOwnerMeetingCommand(command) {
+      if (!isOwnerController || command?.type !== "mute" || command.targetTabId !== meetingTabId || Date.now() - Number(command.at || 0) > 30 * 60 * 1000) return;
+      if (tabSpeakerMuted) return;
+      tabSpeakerMuted = true;
+      try { localStorage.setItem(`${speakerPreferenceKey}.muted`, "true"); } catch {}
+      applyRemoteAudioState();
+      updateOwnerMeetingPresence();
+      setStatus("This meeting was muted from your other presenter tab.", "attention");
+    }
+
+    function inspectOwnerMeetingTabs() {
+      if (!isOwnerController || document.visibilityState !== "visible" || !room || room.state !== "connected") return;
+      const now = Date.now();
+      let records = [];
+      try {
+        for (let index = 0; index < localStorage.length; index += 1) {
+          const key = localStorage.key(index);
+          if (!key?.startsWith("presentStudio.ownerMeetingPresence.")) continue;
+          const record = JSON.parse(localStorage.getItem(key) || "null");
+      if (record?.tabId !== meetingTabId && record?.connected && record.hiddenSince && now - record.hiddenSince >= 5 * 60 * 1000 && now - Number(record.updatedAt || 0) < 10 * 60 * 1000) records.push(record);
+        }
+      } catch {}
+      const target = records.sort((a, b) => Number(a.hiddenSince) - Number(b.hiddenSince))[0];
+      if (!target) return;
+      const cooldownKey = `presentStudio.ownerMeetingAwayPrompt.${target.tabId}`;
+      const lastPrompt = Number(localStorage.getItem(cooldownKey) || 0);
+      if (now - lastPrompt < 10 * 60 * 1000) return;
+      try { localStorage.setItem(cooldownKey, String(now)); } catch {}
+      showOwnerMeetingAlert({
+        id: `away:${target.tabId}:${target.hiddenSince}`,
+        title: "Another meeting is still live",
+        message: `${target.title || "A meeting"} has been in a background tab for more than 5 minutes.`,
+        targetTabId: target.tabId,
+        kind: "away"
+      });
+    }
+
+    function showPendingOwnerMeetingAlert() {
+      if (!isOwnerController || document.visibilityState !== "visible") return;
+      try {
+        const alert = JSON.parse(localStorage.getItem(ownerMeetingAlertKey) || "null");
+        if (alert?.id && Date.now() - Number(alert.at || 0) < 10 * 60 * 1000) {
+          showOwnerMeetingAlert({ ...alert, kind: "mention" });
+        }
+      } catch {}
+    }
+
+    function notifyOwnerMention(message) {
+      if (!isOwnerController || !message?.identity || message.identity === currentIdentity() || !message.text) return;
+      const ownerName = currentName().trim();
+      if (!ownerName || ownerName === "Presenter" || ownerName === "Co-host") return;
+      const escapedName = ownerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const text = String(message.text);
+      const nameMentioned = new RegExp(`(?:^|[^\\p{L}\\p{N}_])@${escapedName}(?=$|[^\\p{L}\\p{N}_])`, "iu").test(text);
+      const roleMentioned = /(?:^|[^\p{L}\p{N}_])@(owner|presenter)(?=$|[^\p{L}\p{N}_])/iu.test(text);
+      if (!nameMentioned && !roleMentioned) return;
+      const id = `mention:${options.presentationId}:${message.sentAt || ""}:${message.identity}:${message.text}`;
+      if (document.visibilityState === "visible") {
+        showOwnerMeetingAlert({ id, title: "Someone mentioned you", message: `${String(message.name || "A participant").slice(0, 80)} mentioned you in ${document.title}.`, kind: "mention" });
+      } else {
+        try { ownerMeetingChannel?.postMessage({ type: "alert", id, title: "Someone mentioned you", message: `${String(message.name || "A participant").slice(0, 80)} mentioned you in ${document.title}.`, at: Date.now() }); } catch {}
+        try { localStorage.setItem(ownerMeetingAlertKey, JSON.stringify({ id, title: "Someone mentioned you", message: `${String(message.name || "A participant").slice(0, 80)} mentioned you in ${document.title}.`, at: Date.now() })); } catch {}
+      }
+    }
+
+    ownerMeetingChannel?.addEventListener("message", event => {
+      const data = event.data;
+      if (data?.type === "mute") processOwnerMeetingCommand(data);
+      if (data?.type === "alert" && Date.now() - Number(data.at || 0) < 10 * 60 * 1000) {
+        showOwnerMeetingAlert({ id: data.id, title: data.title, message: data.message, kind: "mention" });
+      }
+    });
+    window.addEventListener("storage", event => {
+      if (event.key === ownerMeetingCommandKey && event.newValue) {
+        try { processOwnerMeetingCommand(JSON.parse(event.newValue)); } catch {}
+      }
+      if (event.key === ownerMeetingAlertKey && event.newValue && isOwnerController && document.visibilityState === "visible") {
+        try {
+          const alert = JSON.parse(event.newValue);
+          if (Date.now() - Number(alert.at || 0) < 10 * 60 * 1000) showOwnerMeetingAlert({ ...alert, kind: "mention" });
+        } catch {}
+      }
+    });
     function moderationCredentials() {
       return {
         presentationId: options.presentationId,
@@ -829,6 +987,10 @@
         tabSpeakerMuted ? "Speaker off" : "Speaker",
         tabSpeakerMuted ? "This tab's speaker is muted. Select to hear this tab" : "This tab's speaker is on. Select to mute only this tab"
       );
+      if (tabSpeakerVolumeControl) {
+        tabSpeakerVolumeControl.value = String(Math.round(tabSpeakerVolume * 100));
+        tabSpeakerVolumeControl.setAttribute("aria-valuetext", `${Math.round(tabSpeakerVolume * 100)} percent`);
+      }
     }
 
     function ensureTabSpeakerControl() {
@@ -843,16 +1005,36 @@
         '<span class="live-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12"></path></svg></span>' +
         '<span data-live-control-label>Speaker</span>';
 
+      tabSpeakerVolumeControl = document.createElement("input");
+      tabSpeakerVolumeControl.type = "range";
+      tabSpeakerVolumeControl.className = "live-meeting-volume";
+      tabSpeakerVolumeControl.min = "0";
+      tabSpeakerVolumeControl.max = "100";
+      tabSpeakerVolumeControl.step = "1";
+      tabSpeakerVolumeControl.value = String(Math.round(tabSpeakerVolume * 100));
+      tabSpeakerVolumeControl.setAttribute("aria-label", "Meeting speaker volume");
+      tabSpeakerVolumeControl.title = "Meeting speaker volume";
+
       const leaveControl = dock.querySelector("[data-live-leave]");
-      if (joinSoundButton) dock.insertBefore(tabSpeakerButton, joinSoundButton);
-      else if (leaveControl) dock.insertBefore(tabSpeakerButton, leaveControl);
-      else dock.append(tabSpeakerButton);
+      const speakerControls = document.createElement("div");
+      speakerControls.className = "live-meeting-speaker-controls";
+      speakerControls.append(tabSpeakerButton, tabSpeakerVolumeControl);
+      if (joinSoundButton) dock.insertBefore(speakerControls, joinSoundButton);
+      else if (leaveControl) dock.insertBefore(speakerControls, leaveControl);
+      else dock.append(speakerControls);
 
       tabSpeakerButton.addEventListener("click", () => {
         tabSpeakerMuted = !tabSpeakerMuted;
-        localStorage.setItem("presentStudio.tabSpeakerMuted", String(tabSpeakerMuted));
+        localStorage.setItem(`${speakerPreferenceKey}.muted`, String(tabSpeakerMuted));
         applyRemoteAudioState();
+        updateOwnerMeetingPresence();
         setStatus(tabSpeakerMuted ? "Speaker muted for this tab only" : "Speaker enabled for this tab", "success");
+      });
+
+      tabSpeakerVolumeControl.addEventListener("input", () => {
+        tabSpeakerVolume = Math.min(1, Math.max(0, Number(tabSpeakerVolumeControl.value) / 100));
+        localStorage.setItem(`${speakerPreferenceKey}.volume`, String(tabSpeakerVolume));
+        applyRemoteAudioState();
       });
 
       syncTabSpeakerButton();
@@ -1004,12 +1186,20 @@
     }
 
     function applyRemoteAudioState() {
+      room?.remoteParticipants?.forEach?.(participant => {
+        publications(participant).forEach(publication => {
+          if ((isSource(publication, "Microphone") || isSource(publication, "ScreenShareAudio")) && typeof publication.track?.setVolume === "function") {
+            publication.track.setVolume(tabSpeakerVolume);
+          }
+        });
+      });
       presentationSourceMedia()?.querySelectorAll("iframe[data-youtube-id]").forEach(frame => {
         frame._tabSpeakerMuted = tabSpeakerMuted;
         window.SnapKeyYouTube.sync(frame);
       });
       root.querySelectorAll("audio[data-live-audio-participant]").forEach(audio => {
         audio.muted = tabSpeakerMuted || participantAudioMuted(audio.dataset.liveAudioParticipant);
+        audio.volume = tabSpeakerVolume;
       });
       root.querySelectorAll("audio:not([data-live-audio-participant]), video").forEach(media => {
         if (tabSpeakerMuted) {
@@ -1585,6 +1775,8 @@
         }
         audio.dataset.liveAudioParticipant = identity;
         audio.muted = tabSpeakerMuted || participantAudioMuted(identity);
+        audio.volume = tabSpeakerVolume;
+        publication.track.setVolume?.(tabSpeakerVolume);
         audio.play?.().catch(error => {
           if (error?.name !== "NotAllowedError") return;
           audioPlaybackBlocked = true;
@@ -2882,7 +3074,11 @@
       renderMeetingCountdown();
     });
     options.socket?.on("meeting_participant_audio_command", applyParticipantAudioCommand);
-    options.socket?.on("meeting_chat_message", message => { if (message?.presentationId === options.presentationId) appendChatMessage(message); });
+    options.socket?.on("meeting_chat_message", message => {
+      if (message?.presentationId !== options.presentationId) return;
+      appendChatMessage(message);
+      notifyOwnerMention(message);
+    });
     options.socket?.on("meeting_reaction_event", message => { if (message?.presentationId === options.presentationId) showReaction(message); });
     options.socket?.on("meeting_hand_state", message => {
       if (message?.presentationId !== options.presentationId || !message.identity) return;
@@ -3038,8 +3234,12 @@
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
         backgroundedAt = Date.now();
+        updateOwnerMeetingPresence();
         return;
       }
+      updateOwnerMeetingPresence();
+      showPendingOwnerMeetingAlert();
+      inspectOwnerMeetingTabs();
       recoverMeetingAfterBackground().catch(() => {});
     });
 
@@ -3056,11 +3256,26 @@
       stopAdmissionAlarm();
       releaseMeetingTab();
       try { meetingTabChannel?.close(); } catch {}
+      window.clearInterval(ownerPresenceTimer);
+      try {
+        const presence = JSON.parse(localStorage.getItem(ownerMeetingPresenceKey) || "null");
+        if (presence?.tabId === meetingTabId) localStorage.removeItem(ownerMeetingPresenceKey);
+      } catch {}
+      try { ownerMeetingChannel?.close(); } catch {}
     });
 
     if (isController) ensureJoinSoundControl();
+    else if (chatInput) chatInput.placeholder = "Message everyone · @presenter to get attention";
     arrangeMobileControllerActions();
     ensureTabSpeakerControl();
+    if (isOwnerController) {
+      updateOwnerMeetingPresence();
+      ownerPresenceTimer = window.setInterval(() => {
+        updateOwnerMeetingPresence();
+        inspectOwnerMeetingTabs();
+      }, 3000);
+      showPendingOwnerMeetingAlert();
+    }
     ensureParticipantDirectory();
     updatePeopleFilters([]);
     syncButtons(false);

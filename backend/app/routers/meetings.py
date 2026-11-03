@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import LiveSession, Meeting, Presentation, ShareLink, Slide, User, MeetingParticipantGrant, PresentationMember
-from ..schemas import MeetingCreate, MeetingExtendRequest, MeetingOut
+from ..models import LiveSession, Meeting, MeetingMessageTemplate, Presentation, ShareLink, Slide, User, MeetingParticipantGrant, PresentationMember
+from ..schemas import MeetingCreate, MeetingExtendRequest, MeetingMessageTemplateCreate, MeetingMessageTemplateUpdate, MeetingOut
 from ..security import current_user, hash_password, new_id, new_share_token
 from ..socket_manager import sio
 from .presentations import public_share_base_url
@@ -139,6 +139,80 @@ def create_meeting(payload: MeetingCreate, request: Request, user: User = Depend
     db.add_all([meeting, live])
     db.commit()
     return serialize_meeting(meeting, presentation, share, request, access_code)
+
+
+def serialize_message_template(template: MeetingMessageTemplate) -> dict[str, str]:
+    return {
+        "id": template.id,
+        "channel": template.channel,
+        "name": template.name,
+        "subject": template.subject or "",
+        "body": template.body,
+        "createdAt": template.created_at.isoformat() if template.created_at else "",
+        "updatedAt": template.updated_at.isoformat() if template.updated_at else "",
+    }
+
+
+@router.get("/message-templates")
+def list_message_templates(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, list[dict[str, str]]]:
+    templates = (
+        db.query(MeetingMessageTemplate)
+        .filter(MeetingMessageTemplate.owner_id == user.id)
+        .order_by(MeetingMessageTemplate.channel, MeetingMessageTemplate.name)
+        .all()
+    )
+    return {"templates": [serialize_message_template(template) for template in templates]}
+
+
+@router.post("/message-templates")
+def create_message_template(payload: MeetingMessageTemplateCreate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, dict[str, str]]:
+    name, body = payload.name.strip(), payload.body.strip()
+    if not name or not body:
+        raise HTTPException(status_code=422, detail="Template name and message are required")
+    count = db.query(MeetingMessageTemplate).filter(MeetingMessageTemplate.owner_id == user.id).count()
+    if count >= 100:
+        raise HTTPException(status_code=409, detail="You can save up to 100 message templates")
+    template = MeetingMessageTemplate(
+        id=new_id("template"), owner_id=user.id, channel=payload.channel,
+        name=name, subject=payload.subject.strip(), body=body,
+    )
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    return {"template": serialize_message_template(template)}
+
+
+@router.put("/message-templates/{template_id}")
+def update_message_template(template_id: str, payload: MeetingMessageTemplateUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, dict[str, str]]:
+    template = db.query(MeetingMessageTemplate).filter(
+        MeetingMessageTemplate.id == template_id,
+        MeetingMessageTemplate.owner_id == user.id,
+    ).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Message template not found")
+    name, body = payload.name.strip(), payload.body.strip()
+    if not name or not body:
+        raise HTTPException(status_code=422, detail="Template name and message are required")
+    template.channel = payload.channel
+    template.name = name
+    template.subject = payload.subject.strip()
+    template.body = body
+    db.commit()
+    db.refresh(template)
+    return {"template": serialize_message_template(template)}
+
+
+@router.delete("/message-templates/{template_id}")
+def delete_message_template(template_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, bool]:
+    template = db.query(MeetingMessageTemplate).filter(
+        MeetingMessageTemplate.id == template_id,
+        MeetingMessageTemplate.owner_id == user.id,
+    ).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Message template not found")
+    db.delete(template)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/{meeting_id}/extend")
