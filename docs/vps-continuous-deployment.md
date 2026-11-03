@@ -41,6 +41,12 @@ dispatched workflow. Tokens and production environment values are not printed. S
 runs in an isolated, credential-free verifier image pinned by a root-owned file,
 independent of the live app filesystem and its changing dependencies.
 
+The source for that minimal image is in `deploy/ci-identity-verifier/`. The
+image workflow exports a checksum-protected `snapkey-ci-verifier-<commit>`
+artifact so an administrator can restore a missing image without rebuilding it
+on the VPS or weakening signature verification. Keep the root-owned pin equal
+to the loaded image ID recorded in the artifact.
+
 The server helper is installed from `deploy/vps_ci.py`; it accepts only validated
 release IDs and archives, checks archive SHA-256 and image revision, limits
 archive size, serializes deployments with a host lock, and never accepts a user

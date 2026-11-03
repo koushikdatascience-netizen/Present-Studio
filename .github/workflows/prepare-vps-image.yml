@@ -11,6 +11,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build outside the production servers
         run: docker build --label org.opencontainers.image.revision=${GITHUB_SHA} -t snapkey-studio:release-${GITHUB_SHA} -f backend/Dockerfile .
+      - name: Build isolated GitHub identity verifier
+        run: |
+          set -euo pipefail
+          docker build --label org.opencontainers.image.revision=${GITHUB_SHA} -t snapkey-ci-verifier:release-${GITHUB_SHA} -f deploy/ci-identity-verifier/Dockerfile .
+          docker run --rm --read-only --network none --cap-drop ALL --security-opt no-new-privileges --memory 128m --pids-limit 32 -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python snapkey-ci-verifier:release-${GITHUB_SHA} -c 'import cryptography,jwt; assert jwt.__version__ == "2.10.1"; assert cryptography.__version__ == "50.0.2"'
       - name: Smoke-test isolated image
         run: |
           set -e
@@ -27,14 +32,29 @@ jobs:
         run: |
           mkdir release
           docker save snapkey-studio:release-${GITHUB_SHA} | gzip -1 > release/snapkey-studio-image.tar.gz
+          docker save snapkey-ci-verifier:release-${GITHUB_SHA} | gzip -1 > release/ci-identity-verifier.tar.gz
+          docker image inspect snapkey-ci-verifier:release-${GITHUB_SHA} --format '{{.Id}}' > release/ci-identity-image.txt
           echo "APP_IMAGE=snapkey-studio:release-${GITHUB_SHA}" > release/release.env
           echo "SOURCE_COMMIT=${GITHUB_SHA}" > release/source.txt
           docker image inspect snapkey-studio:release-${GITHUB_SHA} --format '{{.Id}}' >> release/source.txt
           cd release
           sha256sum snapkey-studio-image.tar.gz release.env source.txt > SHA256SUMS
+          sha256sum ci-identity-verifier.tar.gz ci-identity-image.txt >> SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: snapkey-vps-image-${{ github.sha }}
           path: release/
+          compression-level: 0
+          retention-days: 7
+      - name: Export the verifier recovery artifact separately
+        run: |
+          mkdir ci-verifier-release
+          cp release/ci-identity-verifier.tar.gz release/ci-identity-image.txt ci-verifier-release/
+          cd ci-verifier-release
+          sha256sum ci-identity-verifier.tar.gz ci-identity-image.txt > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapkey-ci-verifier-${{ github.sha }}
+          path: ci-verifier-release/
           compression-level: 0
           retention-days: 7
