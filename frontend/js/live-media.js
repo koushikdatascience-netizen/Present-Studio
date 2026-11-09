@@ -269,6 +269,10 @@
     const meetingLeaseRole = isController ? "controller" : "audience";
     const meetingLeaseKey = `presentStudio.meetingLease.${options.presentationId}.${meetingLeaseRole}`;
     const meetingLeaseTtlMs = 8000;
+    const activeMicrophoneKey = "presentStudio.activeMeetingMicrophone.v1";
+    const activeMicrophoneChannel = typeof BroadcastChannel === "function"
+      ? new BroadcastChannel("presentStudio.activeMeetingMicrophone.v1")
+      : null;
     const meetingTabChannel = typeof BroadcastChannel === "function"
       ? new BroadcastChannel(`presentStudio.meeting.${options.presentationId}.${meetingLeaseRole}`)
       : null;
@@ -347,6 +351,62 @@
       writeMeetingLease();
       tabLeaseHeartbeat = window.setInterval(writeMeetingLease, 2500);
     }
+
+    function readActiveMicrophoneClaim() {
+      try { return JSON.parse(localStorage.getItem(activeMicrophoneKey) || "null"); } catch { return null; }
+    }
+
+    function claimActiveMicrophone() {
+      if (document.visibilityState !== "visible" || !room) return false;
+      const claim = { tabId: meetingTabId, presentationId: String(options.presentationId || ""), role: meetingLeaseRole, updatedAt: Date.now() };
+      try { localStorage.setItem(activeMicrophoneKey, JSON.stringify(claim)); } catch {}
+      try { activeMicrophoneChannel?.postMessage({ type: "claim", ...claim }); } catch {}
+      return true;
+    }
+
+    function releaseActiveMicrophoneClaim() {
+      const claim = readActiveMicrophoneClaim();
+      if (claim?.tabId === meetingTabId) {
+        try { localStorage.removeItem(activeMicrophoneKey); } catch {}
+        try { activeMicrophoneChannel?.postMessage({ type: "release", tabId: meetingTabId, at: Date.now() }); } catch {}
+      }
+    }
+
+    async function muteForInactiveTab(reason = "This tab is in the background") {
+      if (!room || (!desiredMicrophoneEnabled && !microphoneEnabled)) {
+        releaseActiveMicrophoneClaim();
+        return;
+      }
+      desiredMicrophoneEnabled = false;
+      try {
+        await room.localParticipant.setMicrophoneEnabled(false);
+        syncLocalPublishedState();
+        syncButtons(true);
+        renderParticipants();
+        setStatus(`${reason}. Microphone muted; turn it on again when ready.`, "attention");
+      } catch (error) {
+        syncLocalPublishedState();
+        syncButtons(true);
+        setStatus(error?.message || "Could not mute the microphone in this meeting tab.", "error");
+      } finally {
+        releaseActiveMicrophoneClaim();
+      }
+    }
+
+    async function handleOtherTabMicrophoneClaim(claim) {
+      if (!claim || claim.tabId === meetingTabId || claim.type === "release") return;
+      if (room && (desiredMicrophoneEnabled || microphoneEnabled)) {
+        await muteForInactiveTab("The microphone is active in another meeting tab");
+      }
+    }
+
+    activeMicrophoneChannel?.addEventListener("message", event => {
+      if (event.data?.type === "claim") handleOtherTabMicrophoneClaim(event.data).catch(() => {});
+    });
+    window.addEventListener("storage", event => {
+      if (event.key !== activeMicrophoneKey || !event.newValue) return;
+      try { handleOtherTabMicrophoneClaim(JSON.parse(event.newValue)).catch(() => {}); } catch {}
+    });
 
     function releaseMeetingTab() {
       tabLeaseOwned = false;
@@ -2508,7 +2568,17 @@
           const transfer = JSON.parse(sessionStorage.getItem("presentStudio.breakoutTransfer") || "null");
           if (transfer) {
             sessionStorage.removeItem("presentStudio.breakoutTransfer");
-            if (transfer.microphone) { await room.localParticipant.setMicrophoneEnabled(true); desiredMicrophoneEnabled = true; }
+            if (transfer.microphone && document.visibilityState === "visible" && claimActiveMicrophone()) {
+              await room.localParticipant.setMicrophoneEnabled(true);
+              const microphoneClaim = readActiveMicrophoneClaim();
+              if (document.visibilityState === "visible" && (!microphoneClaim?.tabId || microphoneClaim.tabId === meetingTabId)) {
+                desiredMicrophoneEnabled = true;
+              } else {
+                await room.localParticipant.setMicrophoneEnabled(false);
+                releaseActiveMicrophoneClaim();
+                setStatus("Room changed while the tab was inactive. Microphone remains muted; turn it on when ready.", "attention");
+              }
+            }
             if (transfer.camera) await room.localParticipant.setCameraEnabled(true);
             syncLocalPublishedState();
           }
@@ -2569,12 +2639,29 @@
       microphoneButton.classList.remove("is-unmute-requested");
       microphoneButton.disabled = true;
       const nextMicrophoneState = !microphoneEnabled;
+      if (nextMicrophoneState && document.visibilityState !== "visible") {
+        microphoneButton.disabled = false;
+        setStatus("Switch to this meeting tab before turning on its microphone.", "attention");
+        return;
+      }
       try {
+        if (nextMicrophoneState) claimActiveMicrophone();
         await room.localParticipant.setMicrophoneEnabled(nextMicrophoneState);
+        const microphoneClaim = nextMicrophoneState ? readActiveMicrophoneClaim() : null;
+        if (nextMicrophoneState && (document.visibilityState !== "visible" || (microphoneClaim?.tabId && microphoneClaim.tabId !== meetingTabId))) {
+          await room.localParticipant.setMicrophoneEnabled(false);
+          desiredMicrophoneEnabled = false;
+          releaseActiveMicrophoneClaim();
+          syncLocalPublishedState(); syncButtons(true); renderParticipants();
+          setStatus("This meeting lost microphone focus to another tab. Turn it on again when this meeting is active.", "attention");
+          return;
+        }
         desiredMicrophoneEnabled = nextMicrophoneState;
+        if (!nextMicrophoneState) releaseActiveMicrophoneClaim();
         syncLocalPublishedState(); syncButtons(true); renderParticipants();
       } catch (error) {
         if (nextMicrophoneState) desiredMicrophoneEnabled = false;
+        if (nextMicrophoneState) releaseActiveMicrophoneClaim();
         syncLocalPublishedState(); setStatus(error.message || "Microphone permission was not granted", "error"); syncButtons(true);
       }
     }
@@ -2704,6 +2791,7 @@
       const activeRoom = room;
       if (!activeRoom) {
         desiredMicrophoneEnabled = false;
+        releaseActiveMicrophoneClaim();
         if (shouldReleaseTab) releaseMeetingTab();
         await releaseMeetingWakeLock();
         return;
@@ -2717,6 +2805,7 @@
         activeRoom.localParticipant.setScreenShareEnabled(false)
       ]);
       desiredMicrophoneEnabled = false;
+      releaseActiveMicrophoneClaim();
       wakeLockWanted = false;
       await releaseMeetingWakeLock();
       if (shouldReleaseTab) releaseMeetingTab();
@@ -3234,6 +3323,7 @@
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
         backgroundedAt = Date.now();
+        muteForInactiveTab("This meeting tab is in the background").catch(() => {});
         updateOwnerMeetingPresence();
         return;
       }
@@ -3262,6 +3352,7 @@
         if (presence?.tabId === meetingTabId) localStorage.removeItem(ownerMeetingPresenceKey);
       } catch {}
       try { ownerMeetingChannel?.close(); } catch {}
+      try { activeMicrophoneChannel?.close(); } catch {}
     });
 
     if (isController) ensureJoinSoundControl();

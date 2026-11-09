@@ -2,6 +2,7 @@
 import asyncio
 import time
 import logging
+from hashlib import sha256
 from datetime import datetime, timedelta, timezone
 from weakref import WeakValueDictionary
 from urllib.parse import urlencode
@@ -107,6 +108,69 @@ def snapshot(db, parent_id, live, manager):
                           "connected": g.guest_id in connected} for g in grants] if manager else []}
 
 
+def livekit_identity(presentation_id, grant):
+    permission = "presenter" if grant.role == "cohost" else "viewer"
+    digest = sha256(f"{presentation_id}\0{permission}\0{grant.guest_id}".encode("utf-8")).hexdigest()[:32]
+    return f"{'presenter' if permission == 'presenter' else 'viewer'}-{digest}"
+
+
+async def apply_livekit_presence(db, parent_id, live, result):
+    """Use LiveKit media presence for roster status; Socket.IO may reconnect separately."""
+    settings = get_settings()
+    if not all((settings.livekit_url, settings.livekit_api_key, settings.livekit_api_secret)):
+        return
+    rooms = result.get("rooms", [])
+    for person in result.get("participants", []):
+        person["presenceKnown"] = False
+    presentation_ids = [room["presentationId"] for room in rooms]
+    client = None
+    try:
+        from livekit import api
+        client = api.LiveKitAPI(settings.livekit_url, settings.livekit_api_key, settings.livekit_api_secret)
+        room_list = await asyncio.wait_for(client.room.list_rooms(api.ListRoomsRequest()), timeout=5)
+        active_rooms = {room.name for room in room_list.rooms}
+        semaphore = asyncio.Semaphore(24)
+
+        async def participant_identities(presentation_id):
+            if presentation_id not in active_rooms:
+                return set()
+            async with semaphore:
+                response = await asyncio.wait_for(
+                    client.room.list_participants(api.ListParticipantsRequest(room=presentation_id)), timeout=5
+                )
+            return {participant.identity for participant in response.participants}
+
+        room_identities = await asyncio.wait_for(
+            asyncio.gather(*(participant_identities(pid) for pid in presentation_ids)), timeout=7
+        )
+        identity_map = dict(zip(presentation_ids, room_identities))
+        grants = db.query(MeetingParticipantGrant).filter_by(
+            presentation_id=parent_id, meeting_instance_id=live.meeting_instance_id, status="approved"
+        ).all()
+        assignments = {assignment.guest_id: assignment.room_id for assignment in db.query(BreakoutAssignment).filter_by(
+            parent_id=parent_id, instance_id=live.meeting_instance_id
+        ).all()}
+        children = {room["id"]: room["presentationId"] for room in rooms if room["id"] != "main"}
+        for person in result.get("participants", []):
+            grant = next((item for item in grants if item.guest_id == person["id"]), None)
+            if not grant:
+                person["presenceKnown"] = False
+                continue
+            destination = assignments.get(grant.guest_id, "main")
+            target_presentation = parent_id if destination == "main" else children.get(destination, parent_id)
+            identity = livekit_identity(target_presentation, grant)
+            person["connected"] = identity in identity_map.get(target_presentation, set())
+            person["presenceKnown"] = True
+    except Exception:
+        logger.warning("Could not refresh LiveKit breakout presence for %s", parent_id, exc_info=True)
+    finally:
+        if client:
+            try:
+                await client.aclose()
+            except Exception:
+                logger.debug("Could not close LiveKit presence client", exc_info=True)
+
+
 def transfer_url(db, parent_id, live, guest_id, destination):
     original = mv._grant(db, parent_id, live.meeting_instance_id, guest_id)
     if not original or original.status != "approved":
@@ -157,18 +221,19 @@ async def move(db, parent_id, live, guest_ids, room_id):
         if source == destination:
             continue
         item = sm.active_participants.get(source, {}).get(guest_id)
-        work.append((guest_id, source, dict(item) if item else None))
+        grant = mv._grant(db, parent_id, live.meeting_instance_id, guest_id)
+        identity = (item or {}).get("identity") or livekit_identity(source, grant)
+        work.append((guest_id, source, dict(item) if item else None, identity))
     semaphore = asyncio.Semaphore(10)
 
-    async def remove_old_connection(source, item):
-        if not item:
-            return
+    async def remove_old_connection(source, item, identity):
         async with semaphore:
             room_name = "Main room" if room_id == "main" else target.name
-            await sm.sio.emit("breakout_transfer_pending", {"roomName": room_name}, room=item["sid"])
-            await evict(source, item.get("identity"))
+            if item:
+                await sm.sio.emit("breakout_transfer_pending", {"roomName": room_name}, room=item["sid"])
+            await evict(source, identity)
 
-    outcomes = await asyncio.gather(*[remove_old_connection(source, item) for _, source, item in work], return_exceptions=True)
+    outcomes = await asyncio.gather(*[remove_old_connection(source, item, identity) for _, source, item, identity in work], return_exceptions=True)
     failure = next((result for result in outcomes if isinstance(result, BaseException)), None)
     if failure:
         raise failure
@@ -176,7 +241,7 @@ async def move(db, parent_id, live, guest_ids, room_id):
     _, current, _ = context(db, parent_id)
     if current.meeting_instance_id != expected_instance:
         raise HTTPException(409, "The meeting session changed during the transfer")
-    for guest_id, source, item in work:
+    for guest_id, source, item, _identity in work:
         url = transfer_url(db, parent_id, live, guest_id, destination)
         if source != parent_id:
             old_live = db.query(LiveSession).filter_by(presentation_id=source).first()
@@ -355,6 +420,8 @@ async def _room_operation(sid, data):
             elif action != "list":
                 raise HTTPException(422, "Unknown room action")
             result = snapshot(db, parent_id, live, manager)
+            if manager and action not in {"visit", "return"}:
+                await apply_livekit_presence(db, parent_id, live, result)
             if guest:
                 result["returnUrl"] = transfer_url(db, parent_id, live, guest.guest_id, parent_id)
                 destination = assigned_presentation(db, parent_id, live.meeting_instance_id, guest.guest_id)

@@ -29,6 +29,7 @@ def setup(monkeypatch):
     monkeypatch.setattr(breakout.sm.sio, "enter_room", AsyncMock())
     monkeypatch.setattr(breakout.sm.sio, "leave_room", AsyncMock())
     monkeypatch.setattr(breakout, "evict", AsyncMock())
+    monkeypatch.setattr(breakout, "apply_livekit_presence", AsyncMock())
     with sessions() as db:
         user = User(id="owner", name="Host", email="host@test.local", password_hash="unused", role="owner")
         db.add(user)
@@ -94,6 +95,24 @@ def test_confirmed_move_persists_assignment_and_evicts_old_connection(setup):
     transferred = command(guest)
     assert room["presentationId"] in transferred["url"]
     assert "resume=" in transferred["url"]
+
+
+def test_move_evicts_livekit_identity_when_socket_registry_is_empty(setup):
+    _, owner, _ = setup
+    room = create(owner)
+    result = command(owner, action="move", roomId=room["id"], guestIds=["guest"])
+    assert result["ok"]
+    with breakout.SessionLocal() as db:
+        grant = breakout.mv._grant(db, "parent", "instance", "guest")
+        expected_identity = breakout.livekit_identity("parent", grant)
+    breakout.evict.assert_awaited_once_with("parent", expected_identity)
+
+
+def test_manager_roster_refreshes_livekit_presence(setup):
+    _, owner, _ = setup
+    result = command(owner)
+    assert result["ok"]
+    breakout.apply_livekit_presence.assert_awaited_once()
 
 
 def test_invalid_group_is_rejected_before_any_eviction(setup):

@@ -214,7 +214,10 @@
           check.checked = selected.has(person.id);
           check.setAttribute("aria-label", `Select ${person.name}`);
           check.addEventListener("change", () => { check.checked ? selected.add(person.id) : selected.delete(person.id); render(); });
-          row.append(check, element("span", person.name + (person.connected ? "" : " (offline)")));
+          const presence = person.presenceKnown === false
+            ? " (status unavailable)"
+            : person.connected ? "" : " (offline)";
+          row.append(check, element("span", person.name + presence));
           const select = element("select");
           select.setAttribute("aria-label", `Move ${person.name} to room`);
           for (const destination of state.rooms) {
