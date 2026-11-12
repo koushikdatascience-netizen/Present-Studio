@@ -284,3 +284,13 @@ html { min-height: 100%; height: auto; overflow-x: hidden; overflow-y: auto; bac
   .presentation-share-create select, .presentation-share-create > button { grid-column: 1; width: 100%; }
   .presentation-share-link-row { grid-template-columns: minmax(0,1fr) auto; }
 }
+
+.meeting-invite-dialog [data-meta-invite] { display: grid; gap: 12px; }
+.meeting-invite-dialog [data-meta-invite][hidden] { display: none; }
+.meeting-invite-dialog [data-meta-invite] p { font-size: .78rem; line-height: 1.5; }
+.meeting-invite-history { border-top: 1px solid #dad7ce; padding-top: 12px; }
+.meeting-invite-history summary { cursor: pointer; padding: 8px 0; }
+.meeting-invite-history p { overflow-wrap: anywhere; font-size: .78rem; line-height: 1.5; }
+.meeting-invite-history button { margin-left: 8px; min-height: 32px; cursor: pointer; }
+
+.meeting-invite-dialog [hidden] { display: none !important; }

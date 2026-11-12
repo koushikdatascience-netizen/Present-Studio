@@ -180,7 +180,7 @@ class MeetingMessageTemplateUpdate(MeetingMessageTemplateCreate):
 
 
 class MeetingExtendRequest(BaseModel):
-    minutes: Literal[5, 10, 15, 30, 60] = 15
+    minutes: int = Field(default=15, ge=1, le=1440, strict=True)
 
 
 class MeetingOut(BaseModel):

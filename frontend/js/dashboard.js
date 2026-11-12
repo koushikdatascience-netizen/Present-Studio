@@ -478,7 +478,7 @@ function meetingTemplateContext() {
     meeting_date: start && !Number.isNaN(start.getTime()) ? start.toLocaleDateString([], { dateStyle: "long" }) : "To be confirmed",
     meeting_time: meeting.timingMode === "instant" ? "Starting now" : start && !Number.isNaN(start.getTime()) ? start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "To be confirmed",
     audience_link: meeting.audienceUrl || "",
-    access_code: meeting.accessCode || "No code required"
+    access_code: meeting.accessCode || (meeting.accessType === "private" ? "Ask the host for the access code" : "No code required")
   };
 }
 
@@ -537,30 +537,32 @@ function openMeetingInvite(channel, meeting) {
   const isEmail = channel === "email";
   document.querySelector("#meetingInviteTitle").textContent = isEmail ? "Share by email" : "Share on WhatsApp";
   document.querySelector("[data-invite-explainer]").textContent = isEmail
-    ? "Create a ready-to-send email draft in your default mail app. Review it and press Send there."
-    : "Open each WhatsApp chat with your invitation prefilled. Review the message and press Send in WhatsApp before moving to the next person.";
+    ? "Send email invitations directly from SnapKey Studio."
+    : "Send approved WhatsApp invitations directly from SnapKey Studio.";
   document.querySelector("[data-invite-recipients-label]").textContent = isEmail ? "Email addresses" : "WhatsApp phone numbers";
   const recipients = document.querySelector("#meetingInviteRecipients");
   recipients.value = "";
   recipients.placeholder = isEmail ? "name@example.com, team@example.com" : "+1 555 010 1234, +1 555 010 5678";
   document.querySelector("[data-invite-recipient-help]").textContent = isEmail
-    ? "Separate email addresses with commas. A draft opens in your email app."
-    : "Include country codes and separate numbers with commas. WhatsApp opens one chat at a time; you confirm each message.";
+    ? "Separate email addresses with commas."
+    : "Include country codes and separate numbers with commas.";
   document.querySelector("[data-template-subject-field]").hidden = !isEmail;
-  document.querySelector("[data-send-meeting-invite] span").textContent = isEmail ? "Open email draft" : "Open WhatsApp chat";
+  document.querySelector("[data-send-meeting-invite] span").textContent = "Send invitations";
   document.querySelector("[data-send-meeting-invite] i").className = isEmail ? "bi bi-envelope" : "bi bi-whatsapp";
   const sendButton = document.querySelector("[data-send-meeting-invite]");
   sendButton.disabled = false;
-  sendButton.querySelector("span").textContent = isEmail ? "Open email draft" : "Open WhatsApp chat";
+  sendButton.querySelector("span").textContent = "Send invitations";
   document.querySelector("[data-meeting-template-editor]").hidden = true;
   document.querySelector("[data-delete-meeting-template]").hidden = true;
   document.querySelector("[data-template-editor-title]").textContent = "Create a template";
   setMeetingInviteStatus("");
   renderMeetingTemplateOptions();
   if (!meetingInviteDialog.open) meetingInviteDialog.showModal();
+  configureDirectInvites();
   api.listMeetingMessageTemplates().then(result => {
     meetingMessageTemplates = result.templates || [];
     renderMeetingTemplateOptions(meetingTemplateSelect.value);
+    if (meetingInviteChannel === "whatsapp") updateMetaInvitePreview();
   }).catch(error => setMeetingInviteStatus(error.message || "Could not load your saved templates.", "error"));
 }
 
@@ -583,53 +585,43 @@ function parseInviteRecipients(channel) {
   const raw = document.querySelector("#meetingInviteRecipients").value;
   const values = [...new Set(raw.split(/[\n,;]+/).map(value => value.trim()).filter(Boolean))];
   if (!values.length) throw new Error(channel === "email" ? "Enter at least one email address." : "Enter at least one WhatsApp phone number.");
-  if (values.length > (channel === "email" ? 25 : 50)) throw new Error(channel === "email" ? "Share by email with up to 25 recipients at a time." : "Share on WhatsApp with up to 50 recipients at a time.");
+  if (values.length > 100) throw new Error("Send to at most 100 recipients at a time.");
   if (channel === "email") {
     const invalid = values.find(value => !/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(value));
     if (invalid) throw new Error(`Check this email address: ${invalid}`);
     return values;
   }
   return values.map(value => {
-    const digits = value.replace(/\D/g, "");
-    if (digits.length < 7 || digits.length > 15) throw new Error(`Add a country code and check this phone number: ${value}`);
+    const digits = value.replace(/[\s().-]/g, "").replace(/^\+/, "");
+    if (!/^[1-9]\d{7,14}$/.test(digits)) throw new Error(`Add a country code and check this phone number: ${value}`);
     return digits;
   });
 }
 
 async function sendMeetingInvite() {
   const button = document.querySelector("[data-send-meeting-invite]");
+  if (button.disabled) return;
   try {
-    const recipients = parseInviteRecipients(meetingInviteChannel);
+    const recipients = [...new Set(parseInviteRecipients(meetingInviteChannel))];
+    if (!document.querySelector("#inviteRecipientConsent").checked) throw new Error("Confirm recipients agreed to receive invitations.");
+    if (!document.querySelector("[data-meeting-template-editor]").hidden) throw new Error("Save your template before sending.");
     const template = selectedMeetingTemplate();
-    const body = fillMeetingTemplate(template.body);
-    if (meetingInviteChannel === "email") {
-      const subject = fillMeetingTemplate(template.subject || `Invitation: ${meetingForInvite.title || "Meeting"}`).replace(/[\r\n]+/g, " ");
-      const href = `mailto:${recipients.map(encodeURIComponent).join(",")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-      window.location.href = href;
-      setMeetingInviteStatus(`Email draft opened for ${recipients.length} recipient${recipients.length === 1 ? "" : "s"}. Review and send it in your email app.`, "success");
-      return;
+    const payload = {meetingId: meetingForInvite.id, channel: meetingInviteChannel, recipients, consent: true, subject: fillMeetingTemplate(template.subject || "Meeting invitation"), body: fillMeetingTemplate(template.body)};
+    if (meetingInviteChannel === "whatsapp") {
+      const meta = selectedMetaInviteTemplate();
+      if (!meta) throw new Error("Choose an approved WhatsApp text template.");
+      payload.templateName = meta.name; payload.language = meta.language;
+      payload.parameters = [...document.querySelectorAll("[data-meta-parameter]")].map(input => fillMeetingTemplate(input.value).trim());
+      if (payload.parameters.some(value => !value)) throw new Error("Fill all WhatsApp variables.");
     }
-    if (!whatsappInviteRecipients.length || whatsappInviteIndex >= whatsappInviteRecipients.length) {
-      whatsappInviteRecipients = recipients;
-      whatsappInviteIndex = 0;
-    }
-    const phone = whatsappInviteRecipients[whatsappInviteIndex];
-    const url = `https://wa.me/${phone}?text=${encodeURIComponent(body)}`;
-    const inviteWindow = window.open(url, "_blank");
-    if (!inviteWindow) {
-      setMeetingInviteStatus("Your browser blocked the WhatsApp tab. Allow pop-ups for this site, then try again.", "error");
-      return;
-    }
-    inviteWindow.opener = null;
-    whatsappInviteIndex += 1;
-    const remaining = whatsappInviteRecipients.length - whatsappInviteIndex;
-    setMeetingInviteStatus(`WhatsApp opened for ${phone}. Review and send the message there.${remaining ? ` Then return here and open the next chat (${remaining} remaining).` : " All recipient chats are ready."}`, "success");
-    const label = button.querySelector("span");
-    if (remaining) label.textContent = `Open next chat (${remaining})`;
-    else { label.textContent = "All chats opened"; button.disabled = true; }
-  } catch (error) {
-    setMeetingInviteStatus(error.message || "Could not prepare the invitation.", "error");
-  }
+    if (!window.confirm(`Send ${meetingInviteChannel} invitations to ${recipients.length} recipients?`)) return;
+    const signature = JSON.stringify(payload);
+    if (inviteRequestCache?.signature !== signature) inviteRequestCache = {signature, id: window.crypto.randomUUID()};
+    button.disabled = true;
+    await api.sendInvitations({...payload, requestId: inviteRequestCache.id});
+    setMeetingInviteStatus(`Queued ${recipients.length} invitations. Open Delivery history to track each recipient. Email accepted means accepted by the mail server, not confirmed inbox delivery.`, "success");
+    await refreshInviteHistory();
+  } catch(error) {setMeetingInviteStatus(error.message || "Could not queue invitations.", "error"); button.disabled = false;}
 }
 
 document.querySelectorAll("[data-open-meeting-invite]").forEach(button => button.addEventListener("click", () => {
@@ -976,4 +968,100 @@ if (!api.getCachedSession()) {
     return;
   }
   if (grid) grid.innerHTML = `<p class="dashboard-status error">${escapeHtml(error.message)}</p>`;
+});
+
+let metaInviteTemplates = [];
+let inviteRequestCache = null;
+let inviteConfigGeneration = 0;
+let inviteHistoryTimer = 0;
+function selectedMetaInviteTemplate() {return metaInviteTemplates[Number(document.querySelector('#metaInviteTemplate').value)];}
+function updateMetaInvitePreview() {
+  const template = selectedMetaInviteTemplate();
+  const values = [...document.querySelectorAll('[data-meta-parameter]')].map(input => fillMeetingTemplate(input.value));
+  document.querySelector('[data-meeting-template-subject]').hidden = true;
+  document.querySelector('[data-meeting-template-preview]').textContent = template ? template.body.replace(/\{\{(\d+)\}\}/g, (token, index) => values[Number(index) - 1] || token) : 'Choose an approved WhatsApp template.';
+}
+function renderMetaInviteParameters() {
+  const template = selectedMetaInviteTemplate();
+  const host = document.querySelector('#metaInviteParameters'); host.replaceChildren();
+  if (!template) return;
+  let saved = [];
+  try {saved = JSON.parse(localStorage.getItem(`snapkey.metaMapping.${template.name}.${template.language}`) || '[]');} catch {}
+  for (let index = 0; index < template.parameters; index++) {
+    const label = document.createElement('label'); label.className = 'meeting-invite-field';
+    const title = document.createElement('span'); title.textContent = `Variable {{${index + 1}}}`;
+    const input = document.createElement('input'); input.dataset.metaParameter = String(index); input.maxLength = 1000;
+    input.placeholder = 'Type a value or {{audience_link}}, {{meeting_title}}, {{meeting_time}}'; input.value = saved[index] || '';
+    input.addEventListener('input', updateMetaInvitePreview); label.append(title, input); host.append(label);
+  }
+  updateMetaInvitePreview();
+}
+async function configureDirectInvites() {
+  const generation = ++inviteConfigGeneration;
+  const channel = meetingInviteChannel;
+  const whatsapp = channel === 'whatsapp';
+  const send = document.querySelector('[data-send-meeting-invite]'); send.disabled = true;
+  send.querySelector('span').textContent = 'Send invitations';
+  document.querySelector('[data-invite-explainer]').textContent = 'Send directly from SnapKey Studio. Review the recipients and message before sending.';
+  document.querySelector('[data-invite-recipient-help]').textContent = 'Type individually or paste comma-separated recipients. Include country codes for WhatsApp. Maximum 100 recipients.';
+  document.querySelector('#inviteRecipientConsent').checked = false;
+  document.querySelector('[data-meta-invite]').hidden = !whatsapp;
+  document.querySelector('.meeting-template-picker').hidden = whatsapp;
+  document.querySelector('[data-edit-meeting-template]').hidden = whatsapp;
+  try {
+    const configuration = await api.invitationConfiguration();
+    if (generation !== inviteConfigGeneration) return;
+    if (!configuration[channel]) throw new Error(`${whatsapp ? 'WhatsApp' : 'Email'} sending is not configured. Ask your administrator to add the server environment settings.`);
+    if (whatsapp) {
+      const result = await api.whatsappInvitationTemplates();
+      if (generation !== inviteConfigGeneration) return;
+      metaInviteTemplates = result.templates.filter(template => template.supported);
+      const select = document.querySelector('#metaInviteTemplate'); select.replaceChildren();
+      metaInviteTemplates.forEach((template, index) => {const option = document.createElement('option'); option.value = String(index); option.textContent = `${template.name} · ${template.language}`; select.append(option);});
+      if (!metaInviteTemplates.length) throw new Error('No approved text templates available. Create a body-text template in Meta WhatsApp Manager. Dynamic headers and buttons require a dedicated composer.');
+      renderMetaInviteParameters();
+    }
+    send.disabled = false;
+  } catch(error) {if (generation === inviteConfigGeneration) setMeetingInviteStatus(error.message, 'error');}
+  window.clearInterval(inviteHistoryTimer);
+  if (generation === inviteConfigGeneration) {refreshInviteHistory(); inviteHistoryTimer = window.setInterval(refreshInviteHistory, 5000);}
+}
+async function refreshInviteHistory() {
+  if (!meetingInviteDialog.open) return;
+  const host = document.querySelector('#inviteDeliveryHistory');
+  try {
+    const result = await api.invitationHistory();
+    const openIds = new Set([...host.querySelectorAll('details[open]')].map(node => node.dataset.batchId));
+    host.replaceChildren();
+    const batches = result.batches.filter(batch => batch.meetingId === meetingForInvite?.id);
+    if (!batches.length) host.textContent = 'No invitations sent for this meeting yet.';
+    batches.forEach(batch => {
+      const group = document.createElement('details'); group.dataset.batchId = batch.id; group.open = openIds.has(batch.id);
+      const summary = document.createElement('summary'); summary.textContent = `${batch.channel} · ${batch.deliveries.length} recipients · ${batch.deliveries.filter(d => ['accepted','sent','delivered','read'].includes(d.status)).length} accepted or delivered`; group.append(summary);
+      batch.deliveries.forEach(delivery => {
+        const row = document.createElement('p'); row.textContent = `${delivery.recipient} — ${delivery.status}${delivery.error ? ': ' + delivery.error : ''}`;
+        if (delivery.status === 'failed') {
+          const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry';
+          retry.onclick = async () => {retry.disabled = true; try {await api.retryInvitation(delivery.id); await refreshInviteHistory();} catch(error) {setMeetingInviteStatus(error.message, 'error'); retry.disabled = false;}};
+          row.append(retry);
+        }
+        group.append(row);
+      });
+      host.append(group);
+    });
+  } catch {host.textContent = 'Could not refresh delivery history.';}
+}
+document.querySelector('#metaInviteTemplate')?.addEventListener('change', renderMetaInviteParameters);
+document.querySelector('#saveMetaInviteMapping')?.addEventListener('click', () => {
+  const template = selectedMetaInviteTemplate(); if (!template) return;
+  try {localStorage.setItem(`snapkey.metaMapping.${template.name}.${template.language}`, JSON.stringify([...document.querySelectorAll('[data-meta-parameter]')].map(input => input.value))); setMeetingInviteStatus('Variable mapping saved on this device.', 'success');} catch {setMeetingInviteStatus('Could not save variable mapping.', 'error');}
+});
+meetingInviteDialog?.addEventListener('close', () => {++inviteConfigGeneration; window.clearInterval(inviteHistoryTimer);});
+document.querySelector('#submitMetaInviteTemplate')?.addEventListener('click', async event => {
+  const button = event.currentTarget; button.disabled = true;
+  try {
+    await api.createWhatsAppInvitationTemplate({name: document.querySelector('#metaNewName').value.trim(), language: document.querySelector('#metaNewLanguage').value.trim(), category: document.querySelector('#metaNewCategory').value, body: document.querySelector('#metaNewBody').value.trim(), examples: document.querySelector('#metaNewExamples').value.split('\n').map(value => value.trim()).filter(Boolean)});
+    setMeetingInviteStatus('Template submitted to Meta. Reopen this dialog after approval to use it.', 'success');
+  } catch(error) {setMeetingInviteStatus(error.message || 'Could not submit template.', 'error');}
+  finally {button.disabled = false;}
 });

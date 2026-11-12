@@ -172,12 +172,17 @@ def test_owner_can_extend_timed_meeting_and_share_expiry_tracks_end():
         meeting_id = created.json()["id"]
         presentation_id = created.json()["presentationId"]
         extended = client.post(f"/api/meetings/{meeting_id}/extend", json={"minutes": 15}, headers=headers)
+        custom_extended = client.post(f"/api/meetings/{meeting_id}/extend", json={"minutes": 7}, headers=headers)
+        for invalid_minutes in [0, -1, 1441, 1.5, "7"]:
+            assert client.post(f"/api/meetings/{meeting_id}/extend", json={"minutes": invalid_minutes}, headers=headers).status_code == 422
         resolved = client.get(f"/api/presentations/shared/{created.json()['audienceUrl'].rsplit('/', 1)[-1]}")
     assert created.status_code == 200
     assert extended.status_code == 200
     assert datetime.fromisoformat(extended.json()["scheduledEnd"]) > end + timedelta(minutes=14)
     assert resolved.status_code == 200
-    assert resolved.json()["scheduledEnd"] == extended.json()["scheduledEnd"]
+    assert custom_extended.status_code == 200
+    assert datetime.fromisoformat(custom_extended.json()["scheduledEnd"]) == datetime.fromisoformat(extended.json()["scheduledEnd"]) + timedelta(minutes=7)
+    assert resolved.json()["scheduledEnd"] == custom_extended.json()["scheduledEnd"]
     with SessionLocal() as db:
         meeting = db.query(Meeting).filter_by(id=meeting_id).one()
         share = db.query(ShareLink).filter_by(presentation_id=presentation_id, permission="viewer").one()

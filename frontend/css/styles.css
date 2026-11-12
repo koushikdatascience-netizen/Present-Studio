@@ -4711,3 +4711,77 @@ button.present-back {
   .live-meeting-volume { width: 118px; height: 36px; writing-mode: horizontal-tb; direction: ltr; touch-action: pan-y; }
   .live-meeting-volume-panel button { min-height: 38px; }
 }
+.meeting-time-alert { flex-wrap: wrap; }
+.meeting-time-alert-copy { flex: 1 0 auto; }
+.meeting-time-extension-custom { width: 86px; min-height: 35px; box-sizing: border-box; border: 1px solid #515047; border-radius: 6px; padding: 0 8px; background: #292925; color: #f8f7f2; font-size: .75rem; }
+.meeting-time-extension-custom[hidden] { display: none; }
+.meeting-time-extension-custom:focus-visible { outline: 2px solid #ffd54a; outline-offset: 2px; }
+.live-controller-page[data-controller-theme="light"] .meeting-time-extension-custom { border-color: #d5d8dd; background: #f5f6f8; color: #202630; }
+@media (max-width: 680px) {
+  .meeting-time-alert-copy { flex-basis: 100%; justify-content: space-between; }
+  .meeting-time-extension-select { flex: 1; }
+}
+/* A small edge reminder leaves the meeting stage available. */
+.meeting-time-alert {
+  top: auto;
+  left: auto;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(88px, calc(env(safe-area-inset-bottom) + 80px));
+  width: auto;
+  max-width: calc(100vw - 24px);
+  min-height: 38px;
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+  gap: 12px;
+  transform: none;
+  padding: 5px 8px 5px 12px;
+  border-radius: 10px;
+  box-shadow: 0 3px 12px rgba(0,0,0,.2);
+}
+.meeting-time-alert-copy { flex: 0 1 auto; gap: 7px; }
+.meeting-time-alert-copy strong { font-size: .7rem; }
+.meeting-time-countdown { font-size: .85rem; }
+.meeting-time-extension-menu { position: relative; }
+.meeting-time-extension-menu summary { list-style: none; cursor: pointer; border-radius: 6px; padding: 7px 10px; background: #ffd54a; color: #171713; font: 700 .7rem var(--sans); }
+.meeting-time-extension-menu summary::-webkit-details-marker { display: none; }
+.meeting-time-extension-menu summary:focus-visible { outline: 2px solid #ffd54a; outline-offset: 3px; }
+.meeting-time-extension-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #696657;
+  border-radius: 10px;
+  background: #24241f;
+  box-shadow: 0 8px 24px rgba(0,0,0,.28);
+}
+.live-controller-page[data-controller-theme="light"] .meeting-time-extension-panel { background: #fff; border-color: #d5d8dd; }
+@media (max-width: 680px) {
+  .meeting-time-alert { right: max(8px, env(safe-area-inset-right)); width: auto; min-height: 36px; padding: 4px 6px 4px 10px; gap: 10px; }
+  .meeting-time-alert-copy { flex-basis: auto; }
+  .meeting-time-extension-panel { width: min(270px, calc(100vw - 40px)); box-sizing: border-box; }
+  .meeting-time-extension-menu summary { min-height: 32px; box-sizing: border-box; display: flex; align-items: center; }
+}
+.meeting-microphone-reminder {
+  top: auto;
+  bottom: max(92px, calc(env(safe-area-inset-bottom) + 84px));
+  left: max(12px, env(safe-area-inset-left));
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(280px, 40dvh);
+  overflow-y: auto;
+  transform: none;
+  display: grid;
+  gap: 10px;
+  box-sizing: border-box;
+}
+.meeting-microphone-reminder p { margin: 0 0 8px; font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }
+.meeting-microphone-reminder .owner-meeting-alert-actions { flex-wrap: wrap; justify-content: flex-start; }
+@media (max-width: 680px) {
+  .meeting-microphone-reminder { bottom: max(142px, calc(env(safe-area-inset-bottom) + 134px)); max-height: 32dvh; }
+}

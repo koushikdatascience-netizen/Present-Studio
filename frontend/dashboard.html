@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <link rel="stylesheet" href="/css/builder.css?v=20260928-outfit-font">
-  <link rel="stylesheet" href="/css/dashboard.css?v=20261103-meeting-invites">
+  <link rel="stylesheet" href="/css/dashboard.css?v=20261112-direct-invitations">
 </head>
 <body class="dashboard-page">
   <header class="app-header dashboard-header">
@@ -111,6 +111,21 @@
       <p class="meeting-invite-explainer" data-invite-explainer></p>
       <label class="meeting-invite-field"><span data-invite-recipients-label>Email addresses</span><textarea id="meetingInviteRecipients" rows="2" placeholder="name@example.com, team@example.com" autocomplete="off"></textarea><small data-invite-recipient-help>Separate recipients with commas.</small></label>
       <div class="meeting-template-picker"><label for="meetingTemplateSelect">Message template</label><div><select id="meetingTemplateSelect"></select><button type="button" data-new-meeting-template><i class="bi bi-plus-lg"></i> New</button></div></div>
+      <section data-meta-invite hidden>
+        <label class="meeting-invite-field">Approved WhatsApp template<select id="metaInviteTemplate"><option>Loading…</option></select></label>
+        <p>Choose an approved template. Fill each body variable below; Studio variables such as {{audience_link}} are supported.</p>
+        <details><summary>Create a WhatsApp text template</summary>
+          <label class="meeting-invite-field">Template name<input id="metaNewName" placeholder="meeting_invitation" maxlength="100"></label>
+          <label class="meeting-invite-field">Language code<input id="metaNewLanguage" value="en_US" maxlength="16"></label>
+          <label class="meeting-invite-field">Category<select id="metaNewCategory"><option value="UTILITY">Utility</option><option value="MARKETING">Marketing</option></select></label>
+          <label class="meeting-invite-field">Message<textarea id="metaNewBody" rows="4" maxlength="1024" placeholder="You are invited to {{1}}. Join: {{2}}"></textarea></label>
+          <label class="meeting-invite-field">Example values, one per variable on separate lines<textarea id="metaNewExamples" rows="2" placeholder="Product review&#10;https://example.com/meeting"></textarea></label>
+          <button type="button" class="cta-secondary" id="submitMetaInviteTemplate">Submit for Meta approval</button>
+          <p>Meta reviews templates and may change their category. Submitted templates become selectable after approval; reopen this dialog to refresh the list.</p>
+        </details>
+        <div id="metaInviteParameters"></div>
+        <button type="button" class="cta-secondary" id="saveMetaInviteMapping">Save variable mapping</button>
+      </section>
       <section class="meeting-template-editor" data-meeting-template-editor hidden>
         <div class="meeting-template-editor-heading"><strong data-template-editor-title>Create a template</strong><button type="button" data-delete-meeting-template hidden>Delete</button></div>
         <label><span>Template name</span><input id="meetingTemplateName" maxlength="80" placeholder="For example, Product review invite"></label>
@@ -120,6 +135,8 @@
         <button class="cta-secondary" type="button" data-save-meeting-template>Save template</button>
       </section>
       <section class="meeting-template-preview"><div><strong>Message preview</strong><button type="button" data-edit-meeting-template>Edit template</button></div><p data-meeting-template-subject hidden></p><pre data-meeting-template-preview></pre></section>
+      <label class="meeting-invite-field"><span><input type="checkbox" id="inviteRecipientConsent"> These recipients agreed to receive meeting invitations.</span></label>
+      <details class="meeting-invite-history"><summary>Delivery history</summary><div id="inviteDeliveryHistory" aria-live="polite"></div></details>
       <p class="meeting-invite-status" data-meeting-invite-status role="status" aria-live="polite"></p>
       <footer class="meeting-invite-footer"><button class="cta-secondary" type="button" data-close-meeting-invite>Cancel</button><button class="cta-primary" type="button" data-send-meeting-invite><i class="bi bi-envelope"></i><span>Open email draft</span></button></footer>
     </div>
@@ -133,10 +150,10 @@
     </div>
   </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/js/api.js?v=20261103-meeting-message-templates"></script>
+  <script src="/js/api.js?v=20261112-direct-invitations"></script>
   <script src="/js/youtube-embed.js?v=20261003-meeting-youtube"></script>
   <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
   <script src="/js/fabric-patch.js?v=20260908-paragraph-align"></script>
-  <script src="/js/dashboard.js?v=20261103-meeting-invites"></script>
+  <script src="/js/dashboard.js?v=20261112-direct-invitations"></script>
 </body>
 </html>

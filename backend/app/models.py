@@ -210,3 +210,30 @@ class RemoteControlAudit(Base):
     guest_id: Mapped[str] = mapped_column(String(128))
     event: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+class InvitationBatch(Base):
+    __tablename__ = "invitation_batches"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id", ondelete="CASCADE"), index=True)
+    channel: Mapped[str] = mapped_column(String(16))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InvitationDelivery(Base):
+    __tablename__ = "invitation_deliveries"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("invitation_batches.id", ondelete="CASCADE"), index=True)
+    recipient: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
+    provider_id: Mapped[str] = mapped_column(String(255), default="", index=True)
+    error: Mapped[str] = mapped_column(String(255), default="")
+    updated_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class InvitationStatusEvent(Base):
+    __tablename__ = "invitation_status_events"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    provider_id: Mapped[str] = mapped_column(String(255), index=True)
+    status: Mapped[str] = mapped_column(String(24))
+    created_at: Mapped[str] = mapped_column(DateTime(timezone=True), server_default=func.now())

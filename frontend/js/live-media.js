@@ -56,6 +56,8 @@
     let meetingTimeLabel = null;
     let meetingExtendButton = null;
     let meetingExtendDuration = null;
+    let meetingExtendCustom = null;
+    let meetingExtensionPending = false;
     let renderMeetingCountdown = () => {};
     if (meetingEndAt) {
       meetingTimeAlert = document.createElement("aside");
@@ -65,29 +67,67 @@
       const copy = document.createElement("div");
       copy.className = "meeting-time-alert-copy";
       const heading = document.createElement("strong");
-      heading.textContent = "Meeting ends in";
+      heading.textContent = "Ends in";
       meetingTimeLabel = document.createElement("span");
       meetingTimeLabel.className = "meeting-time-countdown";
+      meetingTimeLabel.setAttribute("aria-live", "off");
       copy.append(heading, meetingTimeLabel);
       meetingTimeAlert.append(copy);
       if (canExtendMeeting) {
         meetingExtendDuration = document.createElement("select");
         meetingExtendDuration.className = "meeting-time-extension-select";
         meetingExtendDuration.setAttribute("aria-label", "Add time to this meeting");
-        for (const minutes of [5, 10, 15, 30, 60]) {
+        for (const minutes of [5, 15, 30]) {
           const option = document.createElement("option");
           option.value = String(minutes);
           option.textContent = `+${minutes} min`;
           if (minutes === 15) option.selected = true;
           meetingExtendDuration.append(option);
         }
+        const customOption = document.createElement("option");
+        customOption.value = "custom";
+        customOption.textContent = "Custom…";
+        meetingExtendDuration.append(customOption);
+        meetingExtendCustom = document.createElement("input");
+        meetingExtendCustom.type = "number";
+        meetingExtendCustom.min = "1";
+        meetingExtendCustom.max = "1440";
+        meetingExtendCustom.step = "1";
+        meetingExtendCustom.placeholder = "Minutes";
+        meetingExtendCustom.className = "meeting-time-extension-custom";
+        meetingExtendCustom.setAttribute("aria-label", "Custom extension in minutes, 1 to 1440");
+        meetingExtendCustom.hidden = true;
+        meetingExtendDuration.addEventListener("change", () => {
+          meetingExtendCustom.hidden = meetingExtendDuration.value !== "custom";
+          if (!meetingExtendCustom.hidden) meetingExtendCustom.focus();
+        });
         meetingExtendButton = document.createElement("button");
         meetingExtendButton.className = "meeting-time-extension-button";
         meetingExtendButton.type = "button";
         meetingExtendButton.textContent = "Add time";
-        meetingTimeAlert.append(meetingExtendDuration, meetingExtendButton);
+        const extensionMenu = document.createElement("details");
+        extensionMenu.className = "meeting-time-extension-menu";
+        const extensionToggle = document.createElement("summary");
+        extensionToggle.textContent = "Extend";
+        extensionToggle.setAttribute("aria-label", "Extend meeting time");
+        const extensionPanel = document.createElement("div");
+        extensionPanel.className = "meeting-time-extension-panel";
+        extensionPanel.append(meetingExtendDuration, meetingExtendCustom, meetingExtendButton);
+        extensionMenu.append(extensionToggle, extensionPanel);
+        meetingTimeAlert.append(extensionMenu);
+        document.addEventListener("pointerdown", event => {
+          if (extensionMenu.open && !extensionMenu.contains(event.target)) extensionMenu.open = false;
+        });
+        extensionMenu.addEventListener("keydown", event => {
+          if (event.key === "Escape") { extensionMenu.open = false; extensionToggle.focus(); }
+        });
       }
-      root.append(meetingTimeAlert);
+      const mountMeetingReminder = () => {
+        const host = document.fullscreenElement || (options.controller ? document.body : root);
+        host.append(meetingTimeAlert);
+      };
+      mountMeetingReminder();
+      document.addEventListener("fullscreenchange", mountMeetingReminder);
       renderMeetingCountdown = () => {
         if (!meetingTimeAlert || !meetingEndAt) return;
         const remaining = meetingEndAt - Date.now();
@@ -98,24 +138,40 @@
         meetingTimeLabel.textContent = remaining <= 0 ? "00:00" : display;
         meetingTimeAlert.hidden = remaining > 5 * 60 * 1000;
         meetingTimeAlert.classList.toggle("is-urgent", remaining <= 60 * 1000);
-        if (meetingExtendButton) meetingExtendButton.disabled = remaining <= 0;
+        if (meetingExtendButton) meetingExtendButton.disabled = meetingExtensionPending || remaining <= 0;
       };
       meetingExtendButton?.addEventListener("click", async () => {
         if (meetingExtendButton.disabled) return;
+        const minutes = Number(meetingExtendDuration.value === "custom" ? meetingExtendCustom.value : meetingExtendDuration.value);
+        if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) {
+          meetingExtendCustom.setCustomValidity("Enter whole minutes from 1 to 1440.");
+          meetingExtendCustom.reportValidity();
+          return;
+        }
+        meetingExtendCustom.setCustomValidity("");
+        meetingExtensionPending = true;
+        meetingExtendDuration.disabled = true;
+        meetingExtendCustom.disabled = true;
         meetingExtendButton.disabled = true;
         meetingExtendButton.textContent = "Updating…";
         try {
-          const result = await api.extendMeeting(options.meetingId, Number(meetingExtendDuration.value));
+          const result = await api.extendMeeting(options.meetingId, minutes);
           meetingEndAt = Date.parse(result.scheduledEnd) || meetingEndAt;
+          options.onMeetingTimeExtended?.(result);
+          meetingTimeAlert.querySelector("details")?.removeAttribute("open");
           renderMeetingCountdown();
           setStatus(`Meeting extended. New end time ${new Date(meetingEndAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`, "success");
         } catch (error) {
           setStatus(error.message || "Could not extend this meeting.", "error");
         } finally {
+          meetingExtensionPending = false;
+          meetingExtendDuration.disabled = false;
+          meetingExtendCustom.disabled = false;
           meetingExtendButton.textContent = "Add time";
           meetingExtendButton.disabled = meetingEndAt <= Date.now();
         }
       });
+      meetingExtendCustom?.addEventListener("input", () => meetingExtendCustom.setCustomValidity(""));
       renderMeetingCountdown();
       meetingCountdownTimer = window.setInterval(renderMeetingCountdown, 1000);
     }
@@ -269,9 +325,9 @@
     const meetingLeaseRole = isController ? "controller" : "audience";
     const meetingLeaseKey = `presentStudio.meetingLease.${options.presentationId}.${meetingLeaseRole}`;
     const meetingLeaseTtlMs = 8000;
-    const activeMicrophoneKey = "presentStudio.meetingMicrophoneReminder.v2";
+    const activeMicrophoneKey = "presentStudio.meetingMicrophoneReminder.v3";
     const activeMicrophoneChannel = typeof BroadcastChannel === "function"
-      ? new BroadcastChannel("presentStudio.meetingMicrophoneReminder.v2")
+      ? new BroadcastChannel("presentStudio.meetingMicrophoneReminder.v3")
       : null;
     const meetingTabChannel = typeof BroadcastChannel === "function"
       ? new BroadcastChannel(`presentStudio.meeting.${options.presentationId}.${meetingLeaseRole}`)
@@ -352,59 +408,101 @@
       tabLeaseHeartbeat = window.setInterval(writeMeetingLease, 2500);
     }
 
-    function readActiveMicrophoneClaim() {
-      try { return JSON.parse(localStorage.getItem(activeMicrophoneKey) || "null"); } catch { return null; }
-    }
-
+    const microphonePresencePrefix = `${activeMicrophoneKey}.presence.`;
     let microphoneNotice = null;
-    function releaseActiveMicrophoneClaim() {
-      if (readActiveMicrophoneClaim()?.tabId === meetingTabId) {
-        try { localStorage.removeItem(activeMicrophoneKey); } catch {}
-      }
+    let microphoneNoticeSignature = "";
+    const microphoneSnoozes = {};
+    function readActiveMicrophoneClaim() {
+      try { return JSON.parse(localStorage.getItem(microphonePresencePrefix + meetingTabId) || "null"); } catch { return null; }
     }
-    function showMicrophoneNotice(notice) {
-      if (document.visibilityState !== "visible" || !notice?.tabId || Date.now() - Number(notice.at || 0) > 600000) return;
+    function releaseActiveMicrophoneClaim() {
+      try { localStorage.removeItem(microphonePresencePrefix + meetingTabId); } catch {}
+      try { activeMicrophoneChannel?.postMessage({type: "refresh"}); } catch {}
+    }
+    function showMicrophoneNotice(notices) {
+      const signature = JSON.stringify(notices.map(item => [item.tabId, item.title, item.screenSharing]));
+      if (signature === microphoneNoticeSignature) return;
+      microphoneNoticeSignature = signature;
       microphoneNotice?.remove();
+      microphoneNotice = null;
+      if (!notices.length) return;
       microphoneNotice = document.createElement("aside");
-      microphoneNotice.className = "owner-meeting-alert";
+      microphoneNotice.className = "owner-meeting-alert meeting-microphone-reminder";
       microphoneNotice.setAttribute("role", "status");
-      const copy = document.createElement("span");
-      copy.textContent = `Your microphone is still on in ${notice.title || "another meeting"}.`;
-      const actions = document.createElement("div");
-      actions.className = "owner-meeting-alert-actions";
-      const mute = document.createElement("button"); mute.type = "button"; mute.textContent = "Mute microphone";
-      const dismiss = document.createElement("button"); dismiss.type = "button"; dismiss.textContent = "Keep on";
-      dismiss.onclick = () => microphoneNotice?.remove();
-      mute.onclick = () => {
-        const command = { type: "mute-request", targetTabId: notice.tabId, at: Date.now() };
-        handleMicrophoneMessage(command).catch(() => {});
-        try { activeMicrophoneChannel?.postMessage(command); } catch {}
-        try { localStorage.setItem(`${activeMicrophoneKey}.command`, JSON.stringify(command)); } catch {}
-        microphoneNotice?.remove();
-      };
-      actions.append(mute, dismiss); microphoneNotice.append(copy, actions); document.body.append(microphoneNotice);
+      const heading = document.createElement("strong");
+      heading.textContent = "A background meeting can still hear you";
+      microphoneNotice.append(heading);
+      notices.forEach(notice => {
+        const row = document.createElement("div");
+        const copy = document.createElement("p");
+        copy.textContent = `${notice.title || "Another meeting"}: microphone is on.${notice.screenSharing ? " Screen sharing is also running." : ""} Do you want to mute it?`;
+        const actions = document.createElement("div"); actions.className = "owner-meeting-alert-actions";
+        const mute = document.createElement("button"); mute.type = "button"; mute.textContent = "Mute microphone";
+        const keep = document.createElement("button"); keep.type = "button"; keep.textContent = "Keep on · remind in 5 min";
+        keep.onclick = () => {
+          const until = Date.now() + 300000;
+          microphoneSnoozes[notice.tabId] = until;
+          try { localStorage.setItem(`${activeMicrophoneKey}.snooze.${notice.tabId}`, String(until)); } catch {}
+          inspectMicrophoneReminders();
+        };
+        mute.onclick = () => {
+          const command = {type: "mute-request", targetTabId: notice.tabId, at: Date.now()};
+          mute.disabled = true; mute.textContent = "Requesting mute…";
+          try { activeMicrophoneChannel?.postMessage(command); } catch {}
+          try { localStorage.setItem(`${activeMicrophoneKey}.command`, JSON.stringify(command)); } catch {}
+          window.setTimeout(() => {
+            if (mute.isConnected) { mute.disabled = false; mute.textContent = "Retry mute"; }
+          }, 10000);
+        };
+        actions.append(mute, keep); row.append(copy, actions); microphoneNotice.append(row);
+      });
+      (document.fullscreenElement || document.body).append(microphoneNotice);
+    }
+    function inspectMicrophoneReminders() {
+      if (document.visibilityState !== "visible" || !room || room.state !== "connected") return;
+      const records = [];
+      try {
+        for (let index = 0; index < localStorage.length; index++) {
+          const key = localStorage.key(index);
+          if (!key?.startsWith(microphonePresencePrefix)) continue;
+          const record = JSON.parse(localStorage.getItem(key) || "null");
+          if (record) {
+            records.push(record);
+            microphoneSnoozes[record.tabId] = Number(localStorage.getItem(`${activeMicrophoneKey}.snooze.${record.tabId}`) || microphoneSnoozes[record.tabId] || 0);
+          }
+        }
+      } catch {}
+      const notices = window.SnapKeyMeetingReminderPolicy?.due(records, meetingTabId, Date.now(), microphoneSnoozes) || [];
+      showMicrophoneNotice(notices);
     }
     function notifyBackgroundMicrophone() {
-      if (!room || (!desiredMicrophoneEnabled && !microphoneEnabled)) return;
-      const notice = { type: "notice", tabId: meetingTabId, title: document.title, at: Date.now() };
-      try { localStorage.setItem(activeMicrophoneKey, JSON.stringify(notice)); } catch {}
-      try { activeMicrophoneChannel?.postMessage(notice); } catch {}
-      setStatus("Your microphone is still on in this meeting. Mute it when ready.", "attention");
+      if (!room || !microphoneEnabled) { releaseActiveMicrophoneClaim(); return; }
+      const record = {tabId: meetingTabId, title: options.meetingTitle || document.title, at: Date.now(), connected: room.state === "connected", microphoneOn: microphoneEnabled, hiddenSince: document.visibilityState === "hidden" ? (backgroundedAt || Date.now()) : 0, screenSharing: screenShareEnabled};
+      try { localStorage.setItem(microphonePresencePrefix + meetingTabId, JSON.stringify(record)); } catch {}
+      try { activeMicrophoneChannel?.postMessage({type: "refresh"}); } catch {}
     }
     async function handleMicrophoneMessage(message) {
-      if (message?.type === "notice") { showMicrophoneNotice(message); return; }
+      if (message?.type === "refresh") { inspectMicrophoneReminders(); return; }
       if (message?.type !== "mute-request" || message.targetTabId !== meetingTabId || Date.now() - Number(message.at || 0) > 30000 || !room) return;
       try {
-        desiredMicrophoneEnabled = false;
         await room.localParticipant.setMicrophoneEnabled(false);
+        desiredMicrophoneEnabled = false;
         releaseActiveMicrophoneClaim(); syncLocalPublishedState(); syncButtons(true); renderParticipants();
-        setStatus("Microphone muted at your request.", "success");
+        setStatus("Microphone muted at your request. Speaker and screen sharing are unchanged.", "success");
       } catch (error) { setStatus(error?.message || "Could not mute the microphone. Try its microphone button.", "error"); }
     }
     activeMicrophoneChannel?.addEventListener("message", event => { handleMicrophoneMessage(event.data).catch(() => {}); });
     window.addEventListener("storage", event => {
-      if (![activeMicrophoneKey, `${activeMicrophoneKey}.command`].includes(event.key) || !event.newValue) return;
-      try { handleMicrophoneMessage(JSON.parse(event.newValue)).catch(() => {}); } catch {}
+      if (!event.key?.startsWith(activeMicrophoneKey)) return;
+      if (event.key === `${activeMicrophoneKey}.command` && event.newValue) {
+        try { handleMicrophoneMessage(JSON.parse(event.newValue)).catch(() => {}); } catch {}
+      } else inspectMicrophoneReminders();
+    });
+    const microphoneReminderTimer = window.setInterval(() => {
+      notifyBackgroundMicrophone(); inspectMicrophoneReminders();
+    }, 5000);
+    document.addEventListener("fullscreenchange", () => {
+      if (microphoneNotice) (document.fullscreenElement || document.body).append(microphoneNotice);
     });
 
     function releaseMeetingTab() {
@@ -1437,6 +1535,7 @@
       microphoneEnabled = Boolean(room?.localParticipant?.isMicrophoneEnabled);
       cameraEnabled = Boolean(room?.localParticipant?.isCameraEnabled);
       screenShareEnabled = Boolean(room?.localParticipant?.isScreenShareEnabled);
+      notifyBackgroundMicrophone();
     }
 
     function localMicrophonePublication() {
@@ -3329,8 +3428,8 @@
         updateOwnerMeetingPresence();
         return;
       }
-      const reminder = readActiveMicrophoneClaim();
-      if (reminder) showMicrophoneNotice(reminder);
+      notifyBackgroundMicrophone();
+      inspectMicrophoneReminders();
       updateOwnerMeetingPresence();
       showPendingOwnerMeetingAlert();
       inspectOwnerMeetingTabs();
@@ -3351,6 +3450,8 @@
       releaseMeetingTab();
       try { meetingTabChannel?.close(); } catch {}
       window.clearInterval(ownerPresenceTimer);
+      window.clearInterval(microphoneReminderTimer);
+      releaseActiveMicrophoneClaim();
       try {
         const presence = JSON.parse(localStorage.getItem(ownerMeetingPresenceKey) || "null");
         if (presence?.tabId === meetingTabId) localStorage.removeItem(ownerMeetingPresenceKey);

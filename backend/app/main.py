@@ -16,6 +16,7 @@ import re
 from .socket_manager import sio
 from . import meeting_v2
 from . import breakout
+from . import invitations
 from .routers import admin, auth, media, meetings, presentations, computation
 from . import remote_control
 from .security import admin_user
@@ -52,6 +53,28 @@ def startup() -> None:
         seed_demo_data(db)
     finally:
         db.close()
+
+
+@fastapi_app.on_event("startup")
+async def start_invitation_worker():
+    import asyncio
+    # A provider may have accepted a request before an interrupted process exited.
+    # Never automatically resend those ambiguous deliveries after a restart.
+    with SessionLocal() as db:
+        db.query(invitations.InvitationDelivery).filter_by(status="sending").update({"status": "unknown", "error": "Sending was interrupted. Check provider records before resending."})
+        db.commit()
+    invitations.worker_task = asyncio.create_task(invitations.worker())
+
+
+@fastapi_app.on_event("shutdown")
+async def stop_invitation_worker():
+    import asyncio
+    if invitations.worker_task:
+        invitations.worker_task.cancel()
+        try:
+            await invitations.worker_task
+        except asyncio.CancelledError:
+            pass
 
 
 def repair_local_sqlite_schema() -> None:
@@ -284,6 +307,7 @@ def shared_presentation(token: str, request: Request, db: Session = Depends(get_
     headers = {"Cache-Control": "no-cache", "Content-Length": str(len(page.encode("utf-8")))}
     return HTMLResponse("" if request.method == "HEAD" else page, headers=headers)
 
+fastapi_app.include_router(invitations.router)
 fastapi_app.mount("/", StaticFiles(directory=settings.frontend_dir, html=True), name="frontend")
 
 app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)

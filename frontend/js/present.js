@@ -641,6 +641,7 @@ async function init() {
   whiteboardDocument = savedBoard.document;
   applyPresentationState(live, true);
   liveMediaSession = window.SnapKeyLiveMedia?.create({
+    meetingTitle: presentation.title,
     root: $("presentLiveMedia"), presentationId, shareToken, resumeToken: participantResumeToken, authToken: audienceJoinLink || participantResumeToken ? "" : authToken, screenAccessCode, socket,
     meetingEndAt,
     admissionBypass: presenter || publicStandaloneMeeting || Boolean(participantResumeToken),

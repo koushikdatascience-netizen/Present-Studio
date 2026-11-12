@@ -1811,6 +1811,7 @@
     const resolvedPresenterName = isCohost ? (cohostName || "Co-host") : (cachedPresenterName || "Presenter");
     liveMediaSession = window.SnapKeyLiveMedia?.create({
       root: $("#controllerLiveMedia"),
+      meetingTitle: presentation.title,
       presentationId,
       shareToken,
       authToken,
@@ -1820,6 +1821,7 @@
       cohostGuestId,
       meetingId: meetingPlan?.id || "",
       meetingEndAt: meetingPlan?.scheduledEnd || "",
+      onMeetingTimeExtended: scheduleMeetingExpiry,
       canExtendMeeting: Boolean(!isCohost && cachedUser?.id && cachedUser.id === result.presentation.ownerId),
       fullscreenTarget: $("#controllerLiveMedia").querySelector(".interactive-main-stage"),
       fullscreenOnJoin: false,
