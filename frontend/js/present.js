@@ -587,7 +587,22 @@ async function validateMeetingAccessCode() {
   screenAccessCode = code;
   return true;
 }
+async function redirectMeetingOwner() {
+  if (!audienceJoinLink || participantResumeToken || !shareToken) return false;
+  // An optional identity check never redirects signed-out guests to login.
+  // The server checks exact ownership; cached account details are not proof.
+  const response = await fetch(`/api/presentations/shared/${encodeURIComponent(shareToken)}/owner`, {
+    credentials: "include",
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+  });
+  if (!response.ok) return false; // Normal audience loading explains invalid links.
+  const result = await response.json();
+  if (result.isOwner !== true || !result.presentationId) return false;
+  location.replace(`/controller.html?id=${encodeURIComponent(result.presentationId)}`);
+  return true;
+}
 async function init() {
+  if (await redirectMeetingOwner()) return;
   if (!window.fabric) throw new Error("Fabric.js could not be loaded. Check the presentation's network access and reload.");
   canvas = new fabric.StaticCanvas("presentCanvas", { width: 1280, height: 720, selection: false });
   const result = await loadPresentationAccess();

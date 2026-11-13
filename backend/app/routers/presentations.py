@@ -369,6 +369,18 @@ def resolve_shared_presentation(token: str, db: Session = Depends(get_db)) -> Sh
     )
 
 
+@router.get("/shared/{token}/owner")
+def shared_meeting_owner(token: str, request: Request, db: Session = Depends(get_db)) -> dict:
+    # Validate the link and meeting window before recognizing its owner. Merely
+    # knowing the link, or being an editor/admin, must not enable this shortcut.
+    resolved = resolve_shared_presentation(token, db)
+    user = optional_current_user(request, db)
+    presentation = db.get(Presentation, resolved.presentationId)
+    if not user or not presentation or presentation.owner_id != user.id:
+        return {"isOwner": False}
+    return {"isOwner": True, "presentationId": presentation.id}
+
+
 @router.post("")
 def create_presentation(
     payload: PresentationCreate,

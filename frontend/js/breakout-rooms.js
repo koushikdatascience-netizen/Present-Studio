@@ -146,12 +146,17 @@
       finally { busy = false; panel.removeAttribute("aria-busy"); }
     }
     async function confirmMove(ids, room) {
+      const connectedIds = new Set(state.participants.filter(person => person.connected === true && person.presenceKnown !== false).map(person => person.id));
+      ids = ids.filter(id => connectedIds.has(id));
       if (!ids.length || !await ask({title: "Move participants", message: `Move ${ids.length} participant(s) to ${room.name}? Screen sharing will stop.`, accept: "Move"})) return;
       command("move", {guestIds: ids, roomId: room.id});
     }
     function render() {
       controls.replaceChildren();
       list.replaceChildren();
+      const connectedParticipants = state.participants.filter(person => person.connected === true && person.presenceKnown !== false);
+      const connectedIds = new Set(connectedParticipants.map(person => person.id));
+      for (const id of selected) if (!connectedIds.has(id)) selected.delete(id);
       const current = state.rooms.find(r => r.presentationId === options.presentationId);
       const closeMeeting = root.querySelector("[data-live-close]");
       if (closeMeeting && current?.id !== "main") closeMeeting.hidden = true;
@@ -161,7 +166,7 @@
           const name = await ask({title: "Create breakout room", label: "Room name", value: `Room ${state.rooms.length}`, accept: "Create"});
           if (name?.trim()) command("create", {name});
         }), button("Auto-assign", async () => {
-          if (await ask({title: "Assign participants", message: "Distribute admitted audiences across all breakout rooms?", accept: "Assign"})) command("auto-assign");
+          if (await ask({title: "Assign participants", message: "Distribute connected audiences across all breakout rooms?", accept: "Assign"})) command("auto-assign");
         }), button("Announcement", async () => {
           const text = await ask({title: "Announce to all rooms", label: "Announcement", limit: 500, accept: "Send"});
           if (text?.trim()) command("announce", {text});
@@ -174,7 +179,7 @@
       for (const room of state.rooms) {
         const section = element("section", "", "breakout-room");
         section.classList.toggle("is-current", room.id === current?.id);
-        const occupants = state.participants.filter(p => p.roomId === room.id);
+        const occupants = connectedParticipants.filter(p => p.roomId === room.id);
         const header = element("header");
         header.append(element("strong", room.name));
         if (state.manager) {
@@ -185,7 +190,7 @@
           section.addEventListener("drop", event => {
             event.preventDefault();
             const id = event.dataTransfer.getData("text/x-snapkey-participant");
-            if (state.participants.some(p => p.id === id)) confirmMove(selected.has(id) ? [...selected] : [id], room);
+            if (connectedIds.has(id)) confirmMove(selected.has(id) ? [...selected] : [id], room);
           });
           if (selected.size) header.append(button("Move selected here", () => confirmMove([...selected], room)));
           if (room.id !== "main") {

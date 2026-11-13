@@ -9,7 +9,8 @@ slides and whiteboard documents. They do not appear as dashboard presentations.
 
 - Desktop drag-and-drop, individual move dropdowns, and checkbox group selection
   all require confirmation. Group moves accept up to 100 participants per action.
-- Auto-assign distributes admitted audiences across active breakout rooms.
+- Auto-assign distributes connected admitted audiences across active breakout rooms.
+  The Rooms list and counts show connected participants only; saved offline approvals remain stored.
 - The backend verifies meeting credentials, participant grants and destination
   ownership before updating persistent assignments. Offline participants are
   assigned too; authenticated room polling resolves their destination on reconnect.

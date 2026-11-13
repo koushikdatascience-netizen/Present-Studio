@@ -295,3 +295,16 @@ def test_child_removal_and_explicit_readmission_keep_parent_grant_consistent(set
     with sessions() as db:
         assert db.get(MeetingParticipantGrant, "guestgrant").status == "approved"
         assert db.get(BreakoutAssignment, ("parent", "instance", "guest")).room_id == room["id"]
+
+
+def test_auto_assign_ignores_offline_approved_participants(setup):
+    sessions, owner, _ = setup
+    room = create(owner)
+    assert command(owner, action="auto-assign")["ok"]
+    with sessions() as db:
+        assert db.get(BreakoutAssignment, ("parent", "instance", "guest")) is None
+        assert db.get(MeetingParticipantGrant, "guestgrant").status == "approved"
+    breakout.sm.active_participants["parent"] = {"guest": {"sid": "guest-socket"}}
+    assert command(owner, action="auto-assign")["ok"]
+    with sessions() as db:
+        assert db.get(BreakoutAssignment, ("parent", "instance", "guest")).room_id == room["id"]

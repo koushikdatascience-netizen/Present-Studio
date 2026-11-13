@@ -841,3 +841,30 @@ def test_admin_can_revoke_user_and_owned_presentations_but_not_self():
     assert rejected_login.status_code == 401
     assert user_exists is None
     assert presentation_exists is None
+
+
+def test_shared_private_meeting_recognizes_only_its_authenticated_owner():
+    with TestClient(fastapi_app) as client:
+        owner = client.post("/api/auth/signup", json={"name": "Link Owner", "email": f"link-owner-{uuid4().hex}@example.com", "password": "securepass123"}).json()
+        headers = {"Authorization": f"Bearer {owner['accessToken']}"}
+        meeting = client.post("/api/meetings", json={"title": "Private owner return", "timingMode": "instant", "durationMode": "unlimited", "accessType": "private"}, headers=headers)
+        assert meeting.status_code == 200
+        data = meeting.json()
+        token = data["audienceUrl"].rsplit("/", 1)[-1]
+        endpoint = f"/api/presentations/shared/{token}/owner"
+        recognized = client.get(endpoint, headers=headers)
+        assert recognized.json() == {"isOwner": True, "presentationId": data["presentationId"]}
+        # An owner cookie also works when the cached bearer token is absent.
+        assert client.get(endpoint).json()["isOwner"] is True
+        client.cookies.clear()
+        assert client.get(endpoint).json() == {"isOwner": False}
+        assert client.get(endpoint, headers={"Authorization": "Bearer invalid"}).json() == {"isOwner": False}
+        other = client.post("/api/auth/signup", json={"name": "Other User", "email": f"link-other-{uuid4().hex}@example.com", "password": "securepass123"}).json()
+        assert client.get(endpoint, headers={"Authorization": f"Bearer {other['accessToken']}"}).json() == {"isOwner": False}
+        # Recognition never removes the private code requirement for guests.
+        assert client.get(f"/api/presentations/{data['presentationId']}/screen-access?token={token}").json() == {"requiresCode": True}
+        with SessionLocal() as db:
+            share = db.query(ShareLink).filter_by(token=token).one()
+            share.is_active = False
+            db.commit()
+        assert client.get(endpoint, headers=headers).status_code == 404

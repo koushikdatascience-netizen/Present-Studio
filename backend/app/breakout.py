@@ -369,6 +369,11 @@ async def _room_operation(sid, data):
                 if not rooms:
                     raise HTTPException(422, "Create breakout rooms first")
                 guests = db.query(MeetingParticipantGrant).filter_by(presentation_id=parent_id, meeting_instance_id=live.meeting_instance_id, status="approved", role="audience").order_by(MeetingParticipantGrant.guest_id).all()
+                presence = snapshot(db, parent_id, live, True)
+                await apply_livekit_presence(db, parent_id, live, presence)
+                connected_ids = {p["id"] for p in presence["participants"]
+                                 if p.get("connected") is True and p.get("presenceKnown") is not False}
+                guests = [g for g in guests if g.guest_id in connected_ids]
                 for index, room in enumerate(rooms):
                     ids = [g.guest_id for i, g in enumerate(guests) if i % len(rooms) == index]
                     if ids:
